@@ -1,227 +1,368 @@
 # SIMKEU API Documentation
 
-## Authentication
-Base URL: `/api/auth`
+## Overview
+SIMKEU (Sistem Keuangan) is a financial management system API.
+
+## Base URL
+```
+http://your-domain.com/api
+```
+
+## Authentication (`AuthController`)
 
 ### Login
 ```http
-POST /login
+POST /auth/login
 ```
-**Required Parameters:**
-- `email` (string) - Email address
-- `password` (string) - Password
+
+**Request Body:**
+```json
+{
+    "username": "johndoe",
+    "password": "yourpassword"
+}
+```
+
+**Success Response:**
+```json
+{
+    "status": true,
+    "message": "Login successful",
+    "data": {
+        "token": "eyJ0eXAiOiJKV1QiLCJhbGc...",
+        "user": {
+            "id": 1,
+            "name": "John Doe",
+            "email": "user@example.com",
+            "role": "admin"
+        }
+    }
+}
+```
 
 ### Register
 ```http
-POST /register
+POST /auth/register
 ```
-**Required Parameters:**
-- `name` (string) - Full name
-- `email` (string) - Email address
-- `password` (string) - Password (min: 8 characters)
-- `password_confirmation` (string) - Password confirmation
 
-## Admin Dashboard
-Base URL: `/api/admin/dashboard`
+**Request Body:**
+```json
+{
+    "name": "John Doe",
+    "email": "user@example.com",
+    "password": "password123",
+    "password_confirmation": "password123"
+}
+```
 
-### Get Dashboard Data
+## Dashboard APIs
+Base URL: `/admin/dashboard`
+
+### Get Dashboard Statistics
 ```http
-GET /dashboard
+GET /admin/dashboard
 ```
-**Optional Parameters:**
-- `year` (integer) - Filter by year
-- `month` (integer) - Filter by month
 
-## Pemasukan Mahasiswa
-Base URL: `/api/admin/pemasukan/mahasiswa`
+**Query Parameters:**
+- `year` (optional) - Filter by year
+- `month` (optional) - Filter by month
 
-### Jenis Pembayaran
+**Success Response:**
+```json
+{
+    "status": true,
+    "message": "Dashboard data retrieved successfully",
+    "data": {
+        "total_income": 50000000,
+        "total_expense": 30000000,
+        "total_students": 500,
+        "recent_transactions": [...]
+    }
+}
+```
+
+## Pemasukan Mahasiswa APIs
+Base URL: `/admin/pemasukan/mahasiswa`
+
+### 1. Jenis Pembayaran
+
+#### List Jenis Pembayaran
 ```http
-GET|POST|PUT|DELETE /jenis-pembayaran
+GET /jenis-pembayaran
 ```
-**Required Parameters:**
-- `nama` (string) - Payment type name
-- `kode` (string) - Unique payment code
-- `nominal` (decimal) - Payment amount
 
-**Optional Parameters:**
-- `keterangan` (string) - Description
-- `status` (boolean) - Active status
+**Query Parameters:**
+- `search` (optional) - Search by name
+- `status` (optional) - Filter by status
+- `page` (optional) - Page number
+- `per_page` (optional) - Items per page
 
-### Tagihan
+**Success Response:**
+```json
+{
+    "status": true,
+    "message": "Data retrieved successfully",
+    "data": {
+        "current_page": 1,
+        "data": [
+            {
+                "id": 1,
+                "nama": "SPP",
+                "kode": "SPP-001",
+                "nominal": 1500000,
+                "keterangan": "Biaya SPP Semester",
+                "status": true
+            }
+        ],
+        "total": 10,
+        "per_page": 10
+    }
+}
+```
+
+#### Create Jenis Pembayaran
 ```http
-GET|POST|PUT|DELETE /tagihan
+POST /jenis-pembayaran
 ```
-**Required Parameters:**
-- `mahasiswa_id` (integer) - Student ID
-- `jenis_pembayaran_id` (integer) - Payment type ID
-- `nominal` (decimal) - Bill amount
-- `tgl_jatuh_tempo` (date) - Due date
 
-**Optional Parameters:**
-- `keterangan` (string) - Bill description
-- `status` (enum) - Bill status
+**Request Body:**
+```json
+{
+    "nama": "SPP",
+    "kode": "SPP-001",
+    "nominal": 1500000,
+    "keterangan": "Biaya SPP Semester",
+    "status": true
+}
+```
 
-### Cek Tagihan
+### 2. Tagihan
+
+#### List Tagihan
 ```http
-GET|POST /cek-tagihan
+GET /tagihan
 ```
-**Required Parameters:**
-- `nim` (string) - Student ID number
-- `jenis_pembayaran_id` (integer) - Payment type ID
 
-### Pembayaran
+**Query Parameters:**
+- `mahasiswa_id` (optional) - Filter by student
+- `status` (optional) - Filter by status
+- `page` (optional) - Page number
+
+**Success Response:**
+```json
+{
+    "status": true,
+    "message": "Data retrieved successfully",
+    "data": {
+        "current_page": 1,
+        "data": [
+            {
+                "id": 1,
+                "mahasiswa_id": 1,
+                "jenis_pembayaran_id": 1,
+                "nominal": 1500000,
+                "tgl_jatuh_tempo": "2025-12-31",
+                "status": "pending",
+                "mahasiswa": {
+                    "id": 1,
+                    "nim": "12345",
+                    "nama": "John Doe"
+                }
+            }
+        ],
+        "total": 100,
+        "per_page": 10
+    }
+}
+```
+
+#### Create Tagihan
 ```http
-GET|POST|PUT|DELETE /pembayaran
+POST /tagihan
 ```
-**Required Parameters:**
-- `tagihan_id` (integer) - Bill ID
-- `nominal` (decimal) - Payment amount
-- `tgl_bayar` (date) - Payment date
-- `metode_pembayaran` (enum) - Payment method
 
-**Optional Parameters:**
-- `bukti_pembayaran` (file) - Payment proof
-- `keterangan` (string) - Payment notes
+**Request Body:**
+```json
+{
+    "mahasiswa_id": 1,
+    "jenis_pembayaran_id": 1,
+    "nominal": 1500000,
+    "tgl_jatuh_tempo": "2025-12-31",
+    "keterangan": "Tagihan SPP Semester Ganjil"
+}
+```
 
-### Pemasukan Pengeluaran
+### 3. Pembayaran
+
+#### Create Pembayaran
 ```http
-GET|POST|PUT|DELETE /pemasukan-pengeluaran
+POST /pembayaran
 ```
-**Required Parameters:**
-- `jenis` (enum) - Transaction type (income/expense)
-- `nominal` (decimal) - Amount
-- `tanggal` (date) - Transaction date
 
-**Optional Parameters:**
-- `keterangan` (string) - Transaction notes
+**Request Body:**
+```json
+{
+    "tagihan_id": 1,
+    "nominal": 1500000,
+    "tgl_bayar": "2025-10-06",
+    "metode_pembayaran": "transfer",
+    "bukti_pembayaran": "[file]",
+    "keterangan": "Pembayaran SPP"
+}
+```
 
 ## Saldo Management
-Base URL: `/api/admin/saldo`
+Base URL: `/admin/saldo`
 
 ### Kategori
-```http
-GET|POST|PUT|DELETE /kategori
-```
-**Required Parameters:**
-- `nama` (string) - Category name
-- `jenis` (enum) - Category type
 
-**Optional Parameters:**
-- `keterangan` (string) - Category description
+#### List Kategori
+```http
+GET /kategori
+```
+
+**Success Response:**
+```json
+{
+    "status": true,
+    "message": "Data retrieved successfully",
+    "data": [
+        {
+            "id": 1,
+            "nama": "Operasional",
+            "jenis": "pengeluaran",
+            "keterangan": "Biaya operasional kampus"
+        }
+    ]
+}
+```
 
 ## User Management
-Base URL: `/api/admin`
+Base URL: `/admin`
 
-### Users
+### 1. Users
+
+#### List Users
 ```http
-GET|POST|PUT|DELETE /users
+GET /users
 ```
-**Required Parameters:**
-- `name` (string) - Full name
-- `email` (string) - Email address
-- `password` (string) - Password
-- `role_id` (integer) - Role ID
 
-### Roles
+**Query Parameters:**
+- `search` (optional) - Search by name or email
+- `role_id` (optional) - Filter by role
+- `page` (optional) - Page number
+
+### 2. Roles
+
+#### List Roles
 ```http
-GET|POST|PUT|DELETE /role
+GET /role
 ```
-**Required Parameters:**
-- `name` (string) - Role name
-- `permissions` (array) - Permission list
 
-### Mahasiswa
+**Success Response:**
+```json
+{
+    "status": true,
+    "message": "Data retrieved successfully",
+    "data": [
+        {
+            "id": 1,
+            "name": "Admin",
+            "permissions": ["manage_users", "manage_finance"]
+        }
+    ]
+}
+```
+
+### 3. Mahasiswa
+
+#### List Mahasiswa
 ```http
-GET|POST|PUT|DELETE /mahasiswa
+GET /mahasiswa
 ```
-**Required Parameters:**
-- `nim` (string) - Student ID number
-- `nama` (string) - Full name
-- `prodi_id` (integer) - Study program ID
-- `th_akademik_id` (integer) - Academic year ID
 
-**Optional Parameters:**
-- `email` (string) - Email address
-- `no_hp` (string) - Phone number
-- `alamat` (text) - Address
+**Query Parameters:**
+- `search` (optional) - Search by NIM or name
+- `prodi_id` (optional) - Filter by study program
+- `th_akademik_id` (optional) - Filter by academic year
+- `page` (optional) - Page number
 
-### Program Studi
-```http
-GET|POST|PUT|DELETE /prodi
-```
-**Required Parameters:**
-- `nama` (string) - Program name
-- `kode` (string) - Program code
-
-### Tahun Akademik
-```http
-GET|POST|PUT|DELETE /th-akademik
-```
-**Required Parameters:**
-- `tahun` (string) - Academic year
-- `semester` (enum) - Semester (odd/even)
-- `status` (boolean) - Active status
-
-### Form Schedule
-```http
-GET|POST|PUT|DELETE /form-schedule
-```
-**Required Parameters:**
-- `nama` (string) - Schedule name
-- `tanggal_mulai` (datetime) - Start date
-- `tanggal_selesai` (datetime) - End date
-
-### Profil
-```http
-GET|PUT /profil
-```
-**Optional Parameters:**
-- `name` (string) - Full name
-- `email` (string) - Email address
-- `password` (string) - New password
-- `password_confirmation` (string) - Password confirmation
-
-### References
-```http
-GET|POST|PUT|DELETE /ref
-```
-**Required Parameters:**
-- `kategori` (string) - Reference category
-- `nama` (string) - Reference name
-- `nilai` (string) - Reference value
-
-## Helper
-Base URL: `/api/helper`
+## Helper APIs
+Base URL: `/helper`
 
 ### Get Enum Values
 ```http
 GET /get-enum-values
 ```
-**Required Parameters:**
-- `table` (string) - Table name
-- `column` (string) - Column name
 
-## Response Format
-All API responses follow this structure:
+**Query Parameters:**
+- `table` (required) - Table name
+- `column` (required) - Column name
+
+**Success Response:**
 ```json
 {
-    "status": boolean,
-    "message": string,
-    "data": object|array|null
+    "status": true,
+    "message": "Enum values retrieved successfully",
+    "data": ["option1", "option2", "option3"]
 }
 ```
 
+## Common HTTP Status Codes
+
+- `200 OK` - Request successful
+- `201 Created` - Resource created successfully
+- `400 Bad Request` - Invalid request parameters
+- `401 Unauthorized` - Authentication required
+- `403 Forbidden` - Insufficient permissions
+- `404 Not Found` - Resource not found
+- `422 Unprocessable Entity` - Validation error
+- `500 Internal Server Error` - Server error
+
 ## Authentication
-All endpoints except login/register require Bearer token:
+
+All API endpoints (except login and register) require authentication using Bearer token:
+
 ```http
-Authorization: Bearer <token>
+Authorization: Bearer your-token-here
 ```
 
-## Error Codes
-- 400: Bad Request
-- 401: Unauthorized
-- 403: Forbidden
-- 404: Not Found
-- 422: Validation Error
-- 500: Server Error
+## Response Format
+
+All API responses follow this standard format:
+
+```json
+{
+    "status": true|false,
+    "message": "Response message",
+    "data": null|object|array
+}
+```
+
+## Error Response
+
+When an error occurs, the response will follow this format:
+
+```json
+{
+    "status": false,
+    "message": "Error message",
+    "errors": {
+        "field": ["Error description"]
+    }
+}
+```
+
+## Rate Limiting
+
+API requests are limited to 60 requests per minute per IP address. When exceeded, you'll receive a 429 Too Many Requests response.
+
+## Versioning
+
+Current API Version: v1
+
+## Support
+
+For technical support or questions, please contact:
+- Email: support@simkeu.com
+- Documentation: https://docs.simkeu.com
