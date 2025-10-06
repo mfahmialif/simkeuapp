@@ -1,0 +1,457 @@
+<?php
+namespace Database\Seeders;
+
+// use Illuminate\Database\Console\Seeds\WithoutModelEvents;
+use Carbon\Carbon;
+use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
+
+class DatabaseSeeder extends Seeder
+{
+    /**
+     * Seed the application's database.
+     */
+    public function run(): void
+    {
+        // User::factory(10)->create();
+
+        \DB::table('role')->insert(
+            [
+                'name' => 'admin',
+            ]);
+        \DB::table('role')->insert(
+            [
+                'name' => 'staff',
+            ]);
+        \DB::table('role')->insert(
+            [
+                'name' => 'user',
+            ]);
+
+        \DB::table('users')->insert([
+            'id'            => 8,
+            'fullname'      => 'adminku',
+            'username'      => 'admin',
+            'name'          => 'Admin',
+            'role_id'       => 1,
+            'password'      => bcrypt('admin'),
+            'email'         => 'admin@admin.com',
+            'jenis_kelamin' => '*',
+            'avatar'        => '/images/avatars/avatar-1.png',
+        ]);
+
+        \DB::table('users')->insert([
+            'fullname'      => 'userku',
+            'username'      => 'user',
+            'name'          => 'User',
+            'role_id'       => 2,
+            'password'      => bcrypt('user'),
+            'email'         => 'user@user.com',
+            'jenis_kelamin' => 'Laki-Laki',
+            'avatar'        => '/images/avatars/avatar-2.png',
+        ]);
+
+        \DB::table('users')->insert([
+            'id'            => 5912,
+            'fullname'      => 'Muhammad Adil, M.Pd',
+            'username'      => 'muhammadadil',
+            'name'          => 'Adil',
+            'role_id'       => 2,
+            'password'      => bcrypt('admin'),
+            'email'         => 'adil@admin.com',
+            'jenis_kelamin' => 'Laki-laki',
+            'avatar'        => '/images/avatars/avatar-1.png',
+        ]);
+
+        DB::table('th_akademik')->insert([
+            [
+                'id' => 5, 'kode' => '20161', 'nama' => '2016/2017', 'semester' => 'Ganjil', 'aktif' => 'T', 'user_id' => 8, 'created_at' => '2021-01-05 04:42:43', 'updated_at' => '2021-01-17 08:16:36', 'id_awal' => 12, 'token' => null,
+            ],
+            [
+                'id' => 6, 'kode' => '20162', 'nama' => '2016/2017', 'semester' => 'Genap', 'aktif' => 'T', 'user_id' => 8, 'created_at' => '2021-01-05 04:42:59', 'updated_at' => '2021-01-17 08:16:49', 'id_awal' => 13, 'token' => null,
+            ],
+            [
+                'id' => 7, 'kode' => '20171', 'nama' => '2017/2018', 'semester' => 'Ganjil', 'aktif' => 'T', 'user_id' => 8, 'created_at' => '2021-01-05 04:41:49', 'updated_at' => '2021-01-17 08:16:05', 'id_awal' => 10, 'token' => null,
+            ],
+            [
+                'id' => 8, 'kode' => '20172', 'nama' => '2017/2018', 'semester' => 'Genap', 'aktif' => 'T', 'user_id' => 8, 'created_at' => '2021-01-05 04:42:07', 'updated_at' => '2021-01-17 08:16:19', 'id_awal' => 11, 'token' => null,
+            ],
+            [
+                'id' => 9, 'kode' => '20181', 'nama' => '2018/2019', 'semester' => 'Ganjil', 'aktif' => 'T', 'user_id' => 8, 'created_at' => '2021-01-05 04:41:02', 'updated_at' => '2021-01-17 08:15:34', 'id_awal' => 8, 'token' => null,
+            ],
+            [
+                'id' => 10, 'kode' => '20182', 'nama' => '2018/2019', 'semester' => 'Genap', 'aktif' => 'T', 'user_id' => 8, 'created_at' => '2021-01-05 04:41:20', 'updated_at' => '2021-01-17 08:15:47', 'id_awal' => 9, 'token' => null,
+            ],
+            [
+                'id' => 11, 'kode' => '20191', 'nama' => '2019/2020', 'semester' => 'Ganjil', 'aktif' => 'T', 'user_id' => 8, 'created_at' => '2021-01-05 04:40:10', 'updated_at' => '2021-01-17 08:14:57', 'id_awal' => 6, 'token' => null,
+            ],
+            [
+                'id' => 12, 'kode' => '20192', 'nama' => '2019/2020', 'semester' => 'Genap', 'aktif' => 'T', 'user_id' => 8, 'created_at' => '2021-01-05 04:40:28', 'updated_at' => '2021-01-17 08:15:13', 'id_awal' => 7, 'token' => null,
+            ],
+            [
+                'id' => 13, 'kode' => '20201', 'nama' => '2020/2021', 'semester' => 'Ganjil', 'aktif' => 'T', 'user_id' => 8, 'created_at' => '2018-10-02 10:12:56', 'updated_at' => '2021-09-19 07:04:25', 'id_awal' => 1, 'token' => null,
+            ],
+            [
+                'id' => 14, 'kode' => '20202', 'nama' => '2020/2021', 'semester' => 'Genap', 'aktif' => 'T', 'user_id' => 8, 'created_at' => '2020-04-03 13:38:50', 'updated_at' => '2022-03-01 02:12:08', 'id_awal' => 2, 'token' => null,
+            ],
+            [
+                'id' => 15, 'kode' => '20211', 'nama' => '2021/2022', 'semester' => 'Ganjil', 'aktif' => 'T', 'user_id' => 8, 'created_at' => '2021-09-17 00:41:23', 'updated_at' => '2022-03-05 08:32:40', 'id_awal' => 15, 'token' => null,
+            ],
+            [
+                'id' => 16, 'kode' => '20212', 'nama' => '2021/2022', 'semester' => 'Genap', 'aktif' => 'T', 'user_id' => 8, 'created_at' => '2022-03-05 08:19:31', 'updated_at' => '2022-10-20 06:43:05', 'id_awal' => 16, 'token' => null,
+            ],
+            [
+                'id' => 17, 'kode' => '20221', 'nama' => '2022/2023', 'semester' => 'Ganjil', 'aktif' => 'T', 'user_id' => 8, 'created_at' => '2022-10-20 06:41:32', 'updated_at' => '2023-03-08 12:48:59', 'id_awal' => null, 'token' => null,
+            ],
+            [
+                'id' => 18, 'kode' => '20222', 'nama' => '2022/2023', 'semester' => 'Genap', 'aktif' => 'T', 'user_id' => 8, 'created_at' => '2023-03-08 12:48:19', 'updated_at' => '2023-07-22 23:43:05', 'id_awal' => null, 'token' => null,
+            ],
+            [
+                'id' => 19, 'kode' => '20231', 'nama' => '2023/2024', 'semester' => 'Ganjil', 'aktif' => 'T', 'user_id' => 8, 'created_at' => '2023-07-17 02:23:40', 'updated_at' => '2024-01-09 04:19:29', 'id_awal' => null, 'token' => null,
+            ],
+            [
+                'id' => 20, 'kode' => '20232', 'nama' => '2023/2024', 'semester' => 'Genap', 'aktif' => 'T', 'user_id' => 8, 'created_at' => '2024-01-08 17:36:14', 'updated_at' => '2024-07-27 14:35:13', 'id_awal' => null, 'token' => null,
+            ],
+            [
+                'id' => 21, 'kode' => '20241', 'nama' => '2024/2025', 'semester' => 'Ganjil', 'aktif' => 'T', 'user_id' => 8, 'created_at' => '2024-07-25 14:36:39', 'updated_at' => '2025-01-13 09:53:04', 'id_awal' => null, 'token' => null,
+            ],
+            [
+                'id' => 22, 'kode' => '20242', 'nama' => '2024/2025', 'semester' => 'Genap', 'aktif' => 'T', 'user_id' => 8, 'created_at' => '2024-12-09 17:10:14', 'updated_at' => '2025-09-07 05:27:17', 'id_awal' => null, 'token' => null,
+            ],
+            [
+                'id' => 24, 'kode' => '20251', 'nama' => '2025/2026', 'semester' => 'Ganjil', 'aktif' => 'Y', 'user_id' => 8, 'created_at' => '2025-06-29 08:37:30', 'updated_at' => '2025-09-07 11:35:48', 'id_awal' => null, 'token' => null,
+            ],
+        ]);
+
+        DB::table('prodi')->insert([
+            [
+                'id' => 1, 'kode' => '88888', 'konim' => null, 'alias' => 'PJM', 'nama' => 'Pondok - Jamiah', 'aktif' => 'Y', 'jenjang' => '---', 'nidn_kepala' => '---', 'nama_kepala' => '-', 'akreditasi' => '-', 'color' => '#F0F8FF', 'max_sks_skripsi' => 0, 'user_id' => 8, 'created_at' => '2021-01-09 06:53:15', 'updated_at' => '2021-09-24 01:19:50',
+            ],
+            [
+                'id' => 3, 'kode' => '60202', 'konim' => '29', 'alias' => 'ESY', 'nama' => 'Ekonomi Syariah', 'aktif' => 'Y', 'jenjang' => 'S1', 'nidn_kepala' => '2120048003', 'nama_kepala' => "Robi'in, S.E., M.M.", 'akreditasi' => 'B', 'color' => '#7FFFD4', 'max_sks_skripsi' => 145, 'user_id' => 8, 'created_at' => '2020-12-31 07:08:50', 'updated_at' => '2025-09-29 15:18:34',
+            ],
+            [
+                'id' => 4, 'kode' => '70232', 'konim' => '32', 'alias' => 'BKI', 'nama' => 'Bimbingan Dan Konseling Islam', 'aktif' => 'Y', 'jenjang' => 'S1', 'nidn_kepala' => '2102118703', 'nama_kepala' => 'Muhammad Syafiq, S.Psi, M.Pd.', 'akreditasi' => 'B', 'color' => '#F0F8FF', 'max_sks_skripsi' => 145, 'user_id' => 8, 'created_at' => '2020-12-31 07:10:22', 'updated_at' => '2025-09-29 15:19:09',
+            ],
+            [
+                'id' => 5, 'kode' => '70233', 'konim' => '22', 'alias' => 'KPI', 'nama' => 'Komunikasi dan Penyiaran Islam', 'aktif' => 'Y', 'jenjang' => 'S1', 'nidn_kepala' => '2118069002', 'nama_kepala' => 'Reiza Praselanova, M.I.Kom', 'akreditasi' => 'B', 'color' => '#F0F8FF', 'max_sks_skripsi' => 145, 'user_id' => 8, 'created_at' => '2020-12-31 07:11:36', 'updated_at' => '2025-09-29 15:19:40',
+            ],
+            [
+                'id' => 6, 'kode' => '74230', 'konim' => '03', 'alias' => 'AS-HK', 'nama' => 'Hukum Keluarga Islam (Ahwal Al Syakhshiyah)', 'aktif' => 'Y', 'jenjang' => 'S1', 'nidn_kepala' => '2116067701', 'nama_kepala' => 'Muhammad Zuhdi, M.H.I.', 'akreditasi' => 'B', 'color' => '#7FFFD4', 'max_sks_skripsi' => 145, 'user_id' => 8, 'created_at' => '2020-12-31 07:12:35', 'updated_at' => '2025-09-29 15:17:56',
+            ],
+            [
+                'id' => 7, 'kode' => '80230', 'konim' => '14', 'alias' => 'SKI', 'nama' => 'Sejarah Peradaban Islam', 'aktif' => 'Y', 'jenjang' => 'S1', 'nidn_kepala' => '2129067301', 'nama_kepala' => 'Samsul Huda, M.Pd.', 'akreditasi' => 'B', 'color' => '#7FFFD4', 'max_sks_skripsi' => 145, 'user_id' => 8, 'created_at' => '2020-12-31 07:14:07', 'updated_at' => '2025-09-29 15:20:14',
+            ],
+            [
+                'id' => 8, 'kode' => '86208', 'konim' => '01', 'alias' => 'PAI', 'nama' => 'Pendidikan Agama Islam', 'aktif' => 'Y', 'jenjang' => 'S1', 'nidn_kepala' => '2126018401', 'nama_kepala' => 'Dr. Ahmad Sulton, M.Pd.', 'akreditasi' => 'B', 'color' => '#F0F8FF', 'max_sks_skripsi' => 145, 'user_id' => 8, 'created_at' => '2020-12-31 07:15:24', 'updated_at' => '2025-09-29 15:16:45',
+            ],
+            [
+                'id' => 9, 'kode' => '86231', 'konim' => '20', 'alias' => 'MPI', 'nama' => 'Manajemen Pendidikan Islam', 'aktif' => 'Y', 'jenjang' => 'S1', 'nidn_kepala' => '2129047101', 'nama_kepala' => 'Ahmad Misbah, M.Pd.', 'akreditasi' => 'B', 'color' => '#F0F8FF', 'max_sks_skripsi' => 145, 'user_id' => 8, 'created_at' => '2020-12-31 07:16:27', 'updated_at' => '2025-09-29 15:17:20',
+            ],
+            [
+                'id' => 10, 'kode' => '88204', 'konim' => '02', 'alias' => 'PBA', 'nama' => 'Pendidikan Bahasa Arab', 'aktif' => 'Y', 'jenjang' => 'S1', 'nidn_kepala' => '2126056801', 'nama_kepala' => 'Dr. Shofi Asnaf, M.Pd.', 'akreditasi' => 'A', 'color' => '#7FFFD4', 'max_sks_skripsi' => 145, 'user_id' => 8, 'created_at' => '2020-12-31 07:17:49', 'updated_at' => '2025-09-29 15:15:44',
+            ],
+            [
+                'id' => 11, 'kode' => '88104', 'konim' => null, 'alias' => 'PBAS2', 'nama' => 'Pendidikan Bahasa Arab S2', 'aktif' => 'Y', 'jenjang' => 'S2', 'nidn_kepala' => '80244', 'nama_kepala' => 'Munapi, S.H.I, M.Pd.', 'akreditasi' => 'C', 'color' => '#F0F8FF', 'max_sks_skripsi' => 72, 'user_id' => 8, 'created_at' => '2021-01-03 02:22:45', 'updated_at' => '2021-09-23 13:22:08',
+            ],
+            [
+                'id' => 12, 'kode' => '86131', 'konim' => null, 'alias' => 'MPIS2', 'nama' => 'Manajemen Pendidikan Islam S2', 'aktif' => 'Y', 'jenjang' => 'S2', 'nidn_kepala' => '80230', 'nama_kepala' => 'Dr. Sodikin, M.Pd', 'akreditasi' => 'B', 'color' => '#F0F8FF', 'max_sks_skripsi' => 72, 'user_id' => 8, 'created_at' => '2021-01-03 02:25:15', 'updated_at' => '2021-09-23 13:22:23',
+            ],
+            [
+                'id' => 13, 'kode' => '86008', 'konim' => null, 'alias' => 'PAIS3', 'nama' => 'Pendidikan Agama Islam S3', 'aktif' => 'Y', 'jenjang' => 'S3', 'nidn_kepala' => '80121', 'nama_kepala' => 'Dr. Romli, M.Pd.', 'akreditasi' => 'C', 'color' => '#7FFFD4', 'max_sks_skripsi' => 72, 'user_id' => 8, 'created_at' => '2021-01-03 02:30:36', 'updated_at' => '2021-09-23 13:24:49',
+            ],
+            [
+                'id' => 14, 'kode' => '99999', 'konim' => null, 'alias' => 'PYY', 'nama' => 'Pondok - Yayasan', 'aktif' => 'Y', 'jenjang' => '---', 'nidn_kepala' => '---', 'nama_kepala' => '-', 'akreditasi' => '-', 'color' => '#F0F8FF', 'max_sks_skripsi' => 0, 'user_id' => 8, 'created_at' => '2021-10-19 10:40:38', 'updated_at' => '2021-10-19 10:40:41',
+            ],
+            [
+                'id' => 15, 'kode' => '88204X', 'konim' => null, 'alias' => 'PBAX', 'nama' => 'XXXXPBAXXPBAXXPBAXXPBAXXPBAXXX', 'aktif' => 'Y', 'jenjang' => 'S1', 'nidn_kepala' => '80125', 'nama_kepala' => 'Moh. Tohiri Habib, M.Pd.', 'akreditasi' => 'A', 'color' => '#7FFFD4', 'max_sks_skripsi' => 145, 'user_id' => 8, 'created_at' => '2020-12-31 07:17:49', 'updated_at' => '2020-12-31 07:17:49',
+            ],
+            [
+                'id' => 16, 'kode' => '70234', 'konim' => null, 'alias' => 'MHU', 'nama' => 'Manajemen Haji dan Umroh', 'aktif' => 'Y', 'jenjang' => 'S1', 'nidn_kepala' => '2108118903', 'nama_kepala' => 'Mohammad Rofiuddin, M.M.', 'akreditasi' => '-', 'color' => '#DC143C', 'max_sks_skripsi' => 145, 'user_id' => 8, 'created_at' => '2025-09-07 21:32:13', 'updated_at' => '2025-09-29 15:21:09',
+            ],
+        ]);
+
+        $data = [
+            ['id' => 6, 'table' => 'Kelas', 'kode' => 'REG', 'nama' => 'Reguler', 'param' => null, 'keterangan' => null, 'created_at' => '2018-10-02 09:48:30', 'updated_at' => '2018-10-02 09:48:30'],
+            ['id' => 7, 'table' => 'Kelas', 'kode' => 'NREG', 'nama' => 'Non Reguler', 'param' => null, 'keterangan' => null, 'created_at' => '2018-10-02 09:48:47', 'updated_at' => '2018-10-02 09:48:47'],
+            ['id' => 8, 'table' => 'JenisKelamin', 'kode' => 'L', 'nama' => 'Laki-laki', 'param' => null, 'keterangan' => null, 'created_at' => null, 'updated_at' => null],
+            ['id' => 9, 'table' => 'JenisKelamin', 'kode' => 'P', 'nama' => 'Perempuan', 'param' => null, 'keterangan' => null, 'created_at' => null, 'updated_at' => null],
+            ['id' => 10, 'table' => 'Agama', 'kode' => '1', 'nama' => 'Islam', 'param' => null, 'keterangan' => null, 'created_at' => null, 'updated_at' => null],
+            ['id' => 11, 'table' => 'Agama', 'kode' => '2', 'nama' => 'Kristen', 'param' => null, 'keterangan' => null, 'created_at' => null, 'updated_at' => null],
+            ['id' => 12, 'table' => 'Agama', 'kode' => '3', 'nama' => 'Protestan', 'param' => null, 'keterangan' => null, 'created_at' => null, 'updated_at' => null],
+            ['id' => 13, 'table' => 'Agama', 'kode' => '4', 'nama' => 'Katolik', 'param' => null, 'keterangan' => null, 'created_at' => null, 'updated_at' => null],
+            ['id' => 14, 'table' => 'Agama', 'kode' => '5', 'nama' => 'Hindu', 'param' => null, 'keterangan' => null, 'created_at' => null, 'updated_at' => null],
+            ['id' => 15, 'table' => 'Agama', 'kode' => '6', 'nama' => 'Buddha', 'param' => null, 'keterangan' => null, 'created_at' => null, 'updated_at' => null],
+            ['id' => 16, 'table' => 'Agama', 'kode' => '7', 'nama' => 'Kong Hu Cu', 'param' => null, 'keterangan' => null, 'created_at' => null, 'updated_at' => null],
+            ['id' => 17, 'table' => 'Agama', 'kode' => '8', 'nama' => 'Lainnya', 'param' => null, 'keterangan' => null, 'created_at' => null, 'updated_at' => null],
+            ['id' => 18, 'table' => 'StatusMhs', 'kode' => 'A', 'nama' => 'AKTIF', 'param' => null, 'keterangan' => null, 'created_at' => '2018-10-02 09:54:52', 'updated_at' => '2018-10-02 09:54:52'],
+            ['id' => 19, 'table' => 'StatusMhs', 'kode' => 'C', 'nama' => 'CUTI', 'param' => null, 'keterangan' => null, 'created_at' => '2018-10-02 09:55:02', 'updated_at' => '2018-10-02 09:55:26'],
+            ['id' => 20, 'table' => 'StatusMhs', 'kode' => 'N', 'nama' => 'NON-AKTIF', 'param' => null, 'keterangan' => null, 'created_at' => '2018-10-02 09:55:17', 'updated_at' => '2018-10-02 09:55:17'],
+            ['id' => 22, 'table' => 'StatusMhs', 'kode' => 'K', 'nama' => 'KELUAR', 'param' => null, 'keterangan' => null, 'created_at' => '2018-10-02 09:56:02', 'updated_at' => '2018-10-02 09:59:34'],
+            ['id' => 26, 'table' => 'StatusMhs', 'kode' => 'D', 'nama' => 'DROP OUT', 'param' => null, 'keterangan' => null, 'created_at' => '2018-10-02 09:59:49', 'updated_at' => '2018-10-03 00:35:29'],
+            ['id' => 27, 'table' => 'StatusMhs', 'kode' => 'L', 'nama' => 'LULUS', 'param' => null, 'keterangan' => null, 'created_at' => '2018-10-02 09:59:57', 'updated_at' => '2018-10-02 09:59:57'],
+            ['id' => 23, 'table' => 'StatusDosen', 'kode' => '01', 'nama' => 'AKTIF', 'param' => null, 'keterangan' => null, 'created_at' => '2018-10-02 09:57:43', 'updated_at' => '2018-10-02 09:58:41'],
+            ['id' => 24, 'table' => 'StatusDosen', 'kode' => '02', 'nama' => 'TIDAK AKTIF', 'param' => null, 'keterangan' => null, 'created_at' => '2018-10-02 09:57:58', 'updated_at' => '2018-10-02 09:58:48'],
+            ['id' => 25, 'table' => 'StatusDosen', 'kode' => '03', 'nama' => 'ALMARHUM', 'param' => null, 'keterangan' => null, 'created_at' => '2018-10-02 09:58:18', 'updated_at' => '2018-10-02 09:58:55'],
+        ];
+
+        // set semua user_id = 8
+        $data = array_map(function ($row) {
+            $row['user_id'] = 8;
+            return $row;
+        }, $data);
+
+        DB::table('ref')->insert($data);
+
+        DB::table('keuangan_jenis_pembayaran')->insert([
+            [
+                'id'             => 8,
+                'nama'           => 'Transfer UII',
+                'nomer_rekening' => '111111',
+                'kategori'       => 'Putra',
+                'keterangan'     => null,
+                'created_at'     => Carbon::parse('2023-03-06 15:11:23'),
+                'updated_at'     => Carbon::parse('2023-03-12 15:01:42'),
+            ],
+            [
+                'id'             => 9,
+                'nama'           => 'cash',
+                'nomer_rekening' => null,
+                'kategori'       => 'Putra',
+                'keterangan'     => null,
+                'created_at'     => Carbon::parse('2023-03-07 15:38:00'),
+                'updated_at'     => Carbon::parse('2023-03-07 15:38:00'),
+            ],
+            [
+                'id'             => 10,
+                'nama'           => 'Deposit',
+                'nomer_rekening' => '7777676',
+                'kategori'       => 'Putra',
+                'keterangan'     => '*jangan dihapus nggih, untuk mekanisme pembayaran ...',
+                'created_at'     => Carbon::parse('2023-03-12 14:08:48'),
+                'updated_at'     => Carbon::parse('2023-03-24 10:20:33'),
+            ],
+            [
+                'id'             => 11,
+                'nama'           => 'Yayasan',
+                'nomer_rekening' => '11111',
+                'kategori'       => 'Putra',
+                'keterangan'     => 'Pembayaran melewati rekening yayasan pondok',
+                'created_at'     => Carbon::parse('2023-03-13 13:10:26'),
+                'updated_at'     => Carbon::parse('2023-03-13 13:10:26'),
+            ],
+            [
+                'id'             => 13,
+                'nama'           => 'Transfer',
+                'nomer_rekening' => '9928129',
+                'kategori'       => 'Putri',
+                'keterangan'     => 'Jenis Pembayaran Transfer Mahasiswa Putri',
+                'created_at'     => Carbon::parse('2023-03-23 23:53:57'),
+                'updated_at'     => Carbon::parse('2023-03-23 23:53:57'),
+            ],
+            [
+                'id'             => 14,
+                'nama'           => 'Cash',
+                'nomer_rekening' => '992812922',
+                'kategori'       => 'Putri',
+                'keterangan'     => 'Jenis Pembayaran Cash Mahasiswa Putri',
+                'created_at'     => Carbon::parse('2023-03-23 23:54:08'),
+                'updated_at'     => Carbon::parse('2023-03-23 23:54:08'),
+            ],
+            [
+                'id'             => 15,
+                'nama'           => 'Deposit',
+                'nomer_rekening' => '727123123',
+                'kategori'       => 'Putri',
+                'keterangan'     => 'Jenis Pembayaran Deposit Mahasiswa Putri *jangan dihapus',
+                'created_at'     => Carbon::parse('2023-03-23 23:54:48'),
+                'updated_at'     => Carbon::parse('2023-03-23 23:54:48'),
+            ],
+        ]);
+
+        DB::table('form_schadule')->insert([
+            [
+                'id'          => 1,
+                'kode'        => 'KRS-1',
+                'nama'        => 'Input KRS Semester Ganjil',
+                'tgl_mulai'   => '2025-09-06 00:00:00',
+                'tgl_selesai' => '2025-09-24 00:00:00',
+                'semester'    => 'Ganjil',
+                'aktif'       => 'Y',
+                'user_id'     => 8,
+                'created_at'  => Carbon::parse('2018-10-02 13:44:19'),
+                'updated_at'  => Carbon::parse('2025-09-07 16:39:39'),
+            ],
+            [
+                'id'          => 2,
+                'kode'        => 'WIS',
+                'nama'        => 'Input Formulir Input Wisuda',
+                'tgl_mulai'   => '2018-10-02 00:00:00',
+                'tgl_selesai' => '2018-10-19 00:00:00',
+                'semester'    => null,
+                'aktif'       => 'T',
+                'user_id'     => 8,
+                'created_at'  => Carbon::parse('2018-10-02 13:45:11'),
+                'updated_at'  => Carbon::parse('2018-10-02 13:45:11'),
+            ],
+            [
+                'id'          => 3,
+                'kode'        => 'NIL-1',
+                'nama'        => 'Input Nilai Semester Ganjil',
+                'tgl_mulai'   => '2025-09-28 00:00:00',
+                'tgl_selesai' => '2025-09-28 00:00:00',
+                'semester'    => 'Ganjil',
+                'aktif'       => 'Y',
+                'user_id'     => 8,
+                'created_at'  => Carbon::parse('2021-07-30 16:18:33'),
+                'updated_at'  => Carbon::parse('2025-09-28 02:46:59'),
+            ],
+            [
+                'id'          => 4,
+                'kode'        => 'KRS-2',
+                'nama'        => 'Input KRS Semester Genap',
+                'tgl_mulai'   => '2025-09-06 00:00:00',
+                'tgl_selesai' => '2025-09-24 00:00:00',
+                'semester'    => 'Genap',
+                'aktif'       => 'Y',
+                'user_id'     => 8,
+                'created_at'  => Carbon::parse('2021-05-02 11:21:02'),
+                'updated_at'  => Carbon::parse('2025-09-07 16:39:54'),
+            ],
+            [
+                'id'          => 5,
+                'kode'        => 'NIL-2',
+                'nama'        => 'Input Nilai Semester Genap',
+                'tgl_mulai'   => '2025-07-27 00:00:00',
+                'tgl_selesai' => '2025-08-13 00:00:00',
+                'semester'    => 'Genap',
+                'aktif'       => 'Y',
+                'user_id'     => 8,
+                'created_at'  => Carbon::parse('2021-02-06 16:18:33'),
+                'updated_at'  => Carbon::parse('2025-08-10 10:21:09'),
+            ],
+            [
+                'id'          => 6,
+                'kode'        => 'NIL-D',
+                'nama'        => 'Input Nilai Double Degree',
+                'tgl_mulai'   => '2025-08-03 00:00:00',
+                'tgl_selesai' => '2025-08-06 00:00:00',
+                'semester'    => 'Semua',
+                'aktif'       => 'Y',
+                'user_id'     => 8,
+                'created_at'  => Carbon::parse('2025-06-04 17:21:59'),
+                'updated_at'  => Carbon::parse('2025-08-04 14:03:05'),
+            ],
+        ]);
+
+        // DB::table('keuangan_tagihan')->insert([
+        //     [
+        //         'id'               => 2651,
+        //         'th_akademik_id'   => 22,
+        //         'th_angkatan_id'   => 21,
+        //         'prodi_id'         => 6,
+        //         'double_degree'    => 1,
+        //         'kelas_id'         => 6,
+        //         'form_schadule_id' => 4,
+        //         'kode'             => '2221664',
+        //         'nama'             => 'SPP SEMESTER 2 BULAN 1',
+        //         'jumlah'           => 250000,
+        //         'x_sks'            => 'Y',
+        //         'user_id'          => 8,
+        //         'created_at'       => Carbon::parse('2025-07-22 18:53:50'),
+        //         'updated_at'       => Carbon::parse('2025-07-22 18:53:50'),
+        //     ],
+        //     [
+        //         'id'               => 2664,
+        //         'th_akademik_id'   => 24,
+        //         'th_angkatan_id'   => 21,
+        //         'prodi_id'         => 6,
+        //         'double_degree'    => 1,
+        //         'kelas_id'         => 6,
+        //         'form_schadule_id' => 1,
+        //         'kode'             => '2421661',
+        //         'nama'             => 'SPP SEMESTER 3 BULAN 6',
+        //         'jumlah'           => 250000,
+        //         'x_sks'            => 'Y',
+        //         'user_id'          => 8,
+        //         'created_at'       => Carbon::parse('2025-07-22 18:56:08'),
+        //         'updated_at'       => Carbon::parse('2025-07-22 18:56:08'),
+        //     ],
+        //     [
+        //         'id'               => 2658,
+        //         'th_akademik_id'   => 24,
+        //         'th_angkatan_id'   => 21,
+        //         'prodi_id'         => 6,
+        //         'double_degree'    => 1,
+        //         'kelas_id'         => 6,
+        //         'form_schadule_id' => 1,
+        //         'kode'             => '2421661',
+        //         'nama'             => 'HERREGISTRASI SEMESTER 3',
+        //         'jumlah'           => 300000,
+        //         'x_sks'            => 'Y',
+        //         'user_id'          => 8,
+        //         'created_at'       => Carbon::parse('2025-07-22 18:54:49'),
+        //         'updated_at'       => Carbon::parse('2025-07-22 18:54:49'),
+        //     ],
+        //     [
+        //         'id'               => 2654,
+        //         'th_akademik_id'   => 22,
+        //         'th_angkatan_id'   => 21,
+        //         'prodi_id'         => 6,
+        //         'double_degree'    => 1,
+        //         'kelas_id'         => 6,
+        //         'form_schadule_id' => 4,
+        //         'kode'             => '2221664',
+        //         'nama'             => 'SPP SEMESTER 2 BULAN 4',
+        //         'jumlah'           => 250000,
+        //         'x_sks'            => 'Y',
+        //         'user_id'          => 8,
+        //         'created_at'       => Carbon::parse('2025-07-22 18:54:11'),
+        //         'updated_at'       => Carbon::parse('2025-07-22 18:54:11'),
+        //     ],
+        // ]);
+
+        DB::table('keuangan_saldo')->insert([
+            [
+                'nama'       => 'Perpustakaan',
+                'kode'       => 'PERPUS',
+                'saldo'      => 1500000,
+                'keterangan' => 'Saldo awal untuk kebutuhan perpustakaan',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'nama'       => 'IT',
+                'kode'       => 'IT',
+                'saldo'      => 2500000,
+                'keterangan' => 'Saldo untuk pemeliharaan dan pengembangan sistem IT',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'nama'       => 'Rumah Tangga',
+                'kode'       => 'RT',
+                'saldo'      => 3000000,
+                'keterangan' => 'Saldo untuk kebutuhan operasional rumah tangga kampus',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'nama'       => 'Sarpras',
+                'kode'       => 'SARPRAS',
+                'saldo'      => 2000000,
+                'keterangan' => 'Saldo untuk sarana dan prasarana kampus',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'nama'       => 'Acara',
+                'kode'       => 'ACARA',
+                'saldo'      => 1000000,
+                'keterangan' => 'Saldo untuk kegiatan dan acara kampus',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+        ]);
+    }
+}
