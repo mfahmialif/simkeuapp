@@ -14,9 +14,11 @@ use App\Http\Controllers\Api\Admin\MahasiswaController;
 use App\Http\Controllers\Api\Admin\ThAkademikController;
 use App\Http\Controllers\Api\Admin\FormSchaduleController;
 use App\Http\Controllers\Api\Admin\Saldo\KategoriController;
+use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\SetoranController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\TagihanController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\CekTagihanController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\PembayaranController;
+use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\CatatanDepositController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\JenisPembayaranController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\PemasukanPengeluaranController;
 
@@ -47,6 +49,8 @@ Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
             Route::apiResource('cek-tagihan', CekTagihanController::class);
             Route::apiResource('pembayaran', PembayaranController::class);
 
+            Route::apiResource('setoran', SetoranController::class);
+            Route::apiResource('catatan-deposit', CatatanDepositController::class);
             Route::apiResource('pemasukan-pengeluaran', PemasukanPengeluaranController::class);
 
         });
