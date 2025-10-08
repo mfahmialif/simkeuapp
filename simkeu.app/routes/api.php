@@ -61,7 +61,11 @@ Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
     Route::apiResource('th-akademik', ThAkademikController::class);
     Route::apiResource('prodi', ProdiController::class);
     Route::apiResource('ref', RefController::class);
+
+    Route::get('/mahasiswa/search/{search}', [MahasiswaController::class, 'search']);
+    Route::get('/mahasiswa/nim/{nim}', [MahasiswaController::class, 'nim']);
     Route::apiResource('mahasiswa', MahasiswaController::class);
+    
     Route::apiResource('form-schadule', FormSchaduleController::class);
 
     Route::prefix('profil')->group(function () {

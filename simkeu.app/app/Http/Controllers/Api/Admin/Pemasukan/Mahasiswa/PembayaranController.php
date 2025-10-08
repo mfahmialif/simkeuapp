@@ -1,17 +1,19 @@
 <?php
+
 namespace App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa;
 
-use App\Http\Controllers\Controller;
 use App\Services\Helper;
+use App\Services\Mahasiswa;
+use App\Models\KeuanganNota;
+use Illuminate\Http\Request;
 use App\Models\KeuanganDeposit;
+use App\Models\KeuanganKamarMhs;
+use App\Models\KeuanganPembayaran;
+use Illuminate\Support\Facades\DB;
+use App\Http\Controllers\Controller;
+use Illuminate\Support\Facades\Auth;
 use App\Models\KeuanganJenisPembayaran;
 use App\Models\KeuanganJenisPembayaranDetail;
-use App\Models\KeuanganKamarMhs;
-use App\Models\KeuanganNota;
-use App\Models\KeuanganPembayaran;
-use App\Services\Mahasiswa;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 
 class PembayaranController extends Controller
 {
@@ -77,27 +79,14 @@ class PembayaranController extends Controller
                 'jenis_pembayaran'    => 'required',
                 'dipakai_deposit_mhs' => 'nullable',
                 'kamar_id'            => 'nullable',
+                'jk_id' => 'required'
             ]);
 
-            $checkJenisPembayaran = $this->checkJenisPembayaran($dataValidated['jenis_pembayaran'], $dataValidated['nim']);
-            if (! $checkJenisPembayaran->status) {
-                return $checkJenisPembayaran;
-            }
-
             DB::beginTransaction();
-            $mhs = Mahasiswa::where('nim', $dataValidated['nim'])->first();
-            if ($mhs == null) {
-                DB::rollBack();
-                $data = [
-                    "message" => 500,
-                    "data"    => "Data mahasiswa tidak ada",
-                ];
-                return $data;
-            }
 
             $jk = Helper::getJenisKelaminUser();
 
-            $nota = Helper::generateNota($dataValidated['tanggal'], $mhs->jk_id);
+            $nota = Helper::generateNota($dataValidated['tanggal'], $request->jk_id);
 
             for ($i = 0; $i < count($dataValidated['list_tagihan']); $i++) {
                 $nomor = Helper::generateNumber();
@@ -115,7 +104,7 @@ class PembayaranController extends Controller
                             "jumlah"         => $dataValidated['list_dibayar'][$i],
                             "smt"            => $dataValidated['semester'],
                             "jml_sks"        => 1,
-                            "user_id"        => auth()->user()->id,
+                            "user_id"        => Auth::user()->id,
                         ]);
 
                         KeuanganJenisPembayaranDetail::create([
@@ -132,15 +121,14 @@ class PembayaranController extends Controller
                             stripos(strtolower($pembayaran->tagihan->nama), 'daftar ulang') !== false ||
                             stripos(strtolower($pembayaran->tagihan->nama), 'regist') !== false
                         ) {
-                            // update mahasiswa jadi aktif
-                            $mhs = Mahasiswa::where('nim', $dataValidated['nim'])->first();
-                            if ($mhs) {
-                                $mhs->status_id = 18; //status Aktif
-                                $mhs->user_id   = auth()->user()->id;
-                                $mhs->save();
-                            }
+                            // // update mahasiswa jadi aktif
+                            // $mhs = Mahasiswa::where('nim', $dataValidated['nim'])->first();
+                            // if ($mhs) {
+                            //     $mhs->status_id = 18; //status Aktif
+                            //     $mhs->user_id   = Auth::user()->id;
+                            //     $mhs->save();
+                            // }
                         }
-
                     }
 
                     // insert data deposit jika bukan 0, auto jenis pembayaran deposit
@@ -159,7 +147,7 @@ class PembayaranController extends Controller
                             "jumlah"         => $dataValidated['list_deposit'][$i],
                             "smt"            => $dataValidated['semester'],
                             "jml_sks"        => 1,
-                            "user_id"        => auth()->user()->id,
+                            "user_id"        => Auth::user()->id,
                         ]);
 
                         KeuanganJenisPembayaranDetail::create([
@@ -176,12 +164,6 @@ class PembayaranController extends Controller
                             stripos(strtolower($pembayaran->tagihan->nama), 'daftar ulang') !== false ||
                             stripos(strtolower($pembayaran->tagihan->nama), 'regist') !== false
                         ) {
-                            $mhs = Mahasiswa::where('nim', $dataValidated['nim'])->first();
-                            if ($mhs) {
-                                $mhs->status_id = 18; //status Aktif
-                                $mhs->user_id   = auth()->user()->id;
-                                $mhs->save();
-                            }
                         }
                     }
                 }
@@ -223,7 +205,7 @@ class PembayaranController extends Controller
             ];
             return $data;
         } catch (\Illuminate\Validation\ValidationException $e) {
-            \DB::rollBack();
+            DB::rollBack();
             return response()->json([
                 'message' => 422,
                 'errors'  => $e->errors(),

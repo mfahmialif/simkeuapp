@@ -25,6 +25,10 @@ class ThAkademikController extends Controller
             });
         }
 
+        if ($request->filled('aktif')) {
+            $query->where('aktif', $request->aktif);
+        }
+
         // Sorting
         $sortKey   = $request->input('sort_key', 'id');
         $sortOrder = $request->input('sort_order', 'desc'); // 'asc' or 'desc'

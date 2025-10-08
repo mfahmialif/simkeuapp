@@ -33,4 +33,28 @@ class MahasiswaController extends Controller
         return response()->json(Mahasiswa::find($id), 200);
     }
 
+
+    /**
+     * Display the specified resource.
+     *
+     * @param  string  $nim
+     * @return \Illuminate\Http\Response
+     */
+    public function nim($nim)
+    {
+        return response()->json(Mahasiswa::nim($nim), 200);
+    }
+
+    /**
+     * Display the specified resource.
+     *
+     * @param  string  $search
+     * @return \Illuminate\Http\Response
+     */
+    public function search($search)
+    {
+        $data = Mahasiswa::all(null, 30, $search, 'mst_mhs.nama', 'asc');
+        return response()->json($data);
+    }
+
 }
