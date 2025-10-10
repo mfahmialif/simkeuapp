@@ -132,7 +132,7 @@
             </tr>
             <tr>
                 <td colspan="4"
-                    style="background-color: #yellow;height:20px;font-weight:bold;vertical-align: middle;text-align: center;border:1px solid #000;">
+                    style="background-color: yellow;height:20px;font-weight:bold;vertical-align: middle;text-align: center;border:1px solid #000;">
                 </td>
             </tr>
         </tbody>
