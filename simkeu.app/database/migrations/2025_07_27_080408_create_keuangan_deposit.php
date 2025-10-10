@@ -11,7 +11,7 @@ return new class extends Migration
             $table->id();
             $table->string('nim');
             $table->double('jumlah');
-            $table->text('keterangan')->nullable;
+            $table->text('keterangan')->nullable();
             $table->timestamps();
         });
     }
