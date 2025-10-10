@@ -2,13 +2,14 @@
 
 namespace App\Services;
 
-use App\Models\KeuanganNota;
-use App\Models\KeuanganPembayaran;
-use App\Models\KeuanganPembayaranTambahan;
-use App\Models\KeuanganSetting;
 use App\Models\ThAkademik;
+use App\Services\Mahasiswa;
+use App\Models\KeuanganNota;
+use App\Models\KeuanganSetting;
+use App\Models\KeuanganPembayaran;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Session;
+use App\Models\KeuanganPembayaranTambahan;
 
 class Helper
 {
@@ -121,12 +122,23 @@ class Helper
     {
         $d = date('Y-m-d', strtotime($tanggal));
         $tanggalNota = date('dmy', strtotime($tanggal));
-        $transaksiTagihan = KeuanganPembayaran::leftJoin('keuangan_nota as kn', 'kn.pembayaran_id', 'keuangan_pembayaran.id')
-            ->join('mst_mhs as mhs', 'mhs.nim', '=', 'keuangan_pembayaran.nim')
-            ->where('mhs.jk_id', $jkId)
-            ->whereDate('tanggal', $d)
-            ->orderBy('kn.nota', 'desc')
-            ->first();
+        $nim = Mahasiswa::all(null, null, null, null, null, [
+            ['mst_mhs.jk_id', '=', $jkId]
+        ], ['nim']);
+
+        $nimList = $nim; // hasil API: array of NIM (sudah di-pluck & terfilter jk)
+
+        $query = KeuanganPembayaran::query()
+            ->leftJoin('keuangan_nota as kn', 'kn.pembayaran_id', '=', 'keuangan_pembayaran.id')
+            ->whereDate('keuangan_pembayaran.tanggal', $d);
+
+        $query->where(function ($q) use ($nimList) {
+            foreach (array_chunk($nimList, 1000) as $chunk) {
+                $q->orWhereIn('keuangan_pembayaran.nim', $chunk);
+            }
+        });
+
+        $transaksiTagihan = $query->orderByDesc('kn.nota')->first();
 
         $jk = 0;
         if ($jkId == 9) {

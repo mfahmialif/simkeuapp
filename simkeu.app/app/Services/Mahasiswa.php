@@ -14,7 +14,7 @@ class Mahasiswa
      * @param array $where where mahasiswa
      * @return array as data mahasiswa
      */
-    public static function all($offset = null, $limit = null, $search = null, $order = null, $dir = null, $where = null)
+    public static function all($offset = null, $limit = null, $search = null, $order = null, $dir = null, $where = null, $pluck = null)
     {
         $post = [
             'offset' => $offset,
@@ -23,6 +23,7 @@ class Mahasiswa
             'order' => $order,
             'dir' => $dir,
             'where' => $where != null ? json_encode($where) : null,
+            'pluck' => $pluck != null ? json_encode($pluck) : null,
         ];
 
         $apiKey = config('simkeu.simkeu_api_key');
@@ -63,11 +64,18 @@ class Mahasiswa
         return $response->data;
     }
 
-    public static function nim($nim)
+    public static function nim($nim, $whereIn = null)
     {
+        // if ($whereIn) {
+            // $nim = json_encode($nim);
+        // }
+        // dd(json_decode($nim));
+
         $post = [
             'nim' => $nim,
+            'whereIn' => $whereIn
         ];
+
         $apiKey = config('simkeu.simkeu_api_key');
         $url = config('simkeu.simkeu_url') . "mahasiswa/searchNim";
         $ch = curl_init($url);

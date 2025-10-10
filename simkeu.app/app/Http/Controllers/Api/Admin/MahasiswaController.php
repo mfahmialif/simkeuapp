@@ -40,9 +40,11 @@ class MahasiswaController extends Controller
      * @param  string  $nim
      * @return \Illuminate\Http\Response
      */
-    public function nim($nim)
+    public function nim(Request $request)
     {
-        return response()->json(Mahasiswa::nim($nim), 200);
+        $nim = $request->nim;
+        $whereIn = $request->whereIn;
+        return response()->json(Mahasiswa::nim($nim, $whereIn), 200);
     }
 
     /**

@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\DB;
 use App\Http\Controllers\Controller;
 use Illuminate\Support\Facades\Auth;
 use App\Models\KeuanganJenisPembayaran;
+use Illuminate\Support\Facades\Validator;
 use App\Models\KeuanganJenisPembayaranDetail;
 
 class PembayaranController extends Controller
@@ -30,6 +31,8 @@ class PembayaranController extends Controller
             $query->where(function ($q) use ($request) {
                 $q->where('th_akademik.kode', 'LIKE', "%$request->search%")
                     ->orWhere('th_akademik.nama', 'LIKE', "%$request->search%")
+                    ->orWhere('keuangan_tagihan.nama', 'LIKE', "%$request->search%")
+                    ->orWhere('keuangan_pembayaran.nomor', 'LIKE', "%$request->search%")
                     ->orWhere('keuangan_pembayaran.nim', 'LIKE', "%$request->search%")
                     ->orWhere('keuangan_pembayaran.jumlah', 'LIKE', "%$request->search%")
                     ->orWhere('keuangan_nota.nota', 'LIKE', "%$request->search%");
@@ -199,23 +202,27 @@ class PembayaranController extends Controller
             DB::commit();
 
             $data = [
-                "message" => 200,
-                "data"    => "Berhasil menyimpan data",
+                "status" => true,
+                "code" => 200,
                 "id"      => $pembayaran->id,
+                "message" => "Berhasil menyimpan data",
+                'req' => $request->all()
             ];
             return $data;
         } catch (\Illuminate\Validation\ValidationException $e) {
             DB::rollBack();
             return response()->json([
-                'message' => 422,
-                'errors'  => $e->errors(),
+                'status' => false,
+                'message' => $e->errors(),
+                'code'  => 422,
                 'req'     => $request->all(),
             ]);
         } catch (\Throwable $th) {
             DB::rollBack();
             $data = [
-                "message" => 500,
-                "data"    => $th->getMessage(),
+                "status" => false,
+                "code" => 500,
+                "message"    => $th->getMessage(),
             ];
             return $data;
         }
@@ -223,18 +230,79 @@ class PembayaranController extends Controller
 
     /**
      * Display the specified resource.
+     *
+     * @param  string  $id
+     * @return \Illuminate\Http\Response
      */
     public function show(string $id)
     {
-        //
+        $data = KeuanganPembayaran::find($id);
+
+        if (! $data) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'Data tidak ditemukan.',
+                'code'     => 404,
+            ], 404);
+        }
+
+        return response()->json([
+            'status'  => true,
+            'data'    => $data->load('th_akademik', 'tagihan', 'keuanganNota', 'jenisPembayaranDetail', 'user'),
+            'message' => 'Berhasil mengambil data.',
+            'code'     => 200,
+        ]);
     }
 
     /**
      * Update the specified resource in storage.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @param  string  $id
+     * @return \Illuminate\Http\Response
      */
     public function update(Request $request, string $id)
     {
-        //
+        try {
+            $v = Validator::make($request->all(), [
+                'tanggal'      => 'required|date',
+                'th_akademik_id' => 'required|integer',
+                'jumlah'       => 'required|numeric',
+            ]);
+
+            if ($v->fails()) {
+                return response()->json(['status' => false, 'message' => $v->errors()], 422);
+            }
+
+            $pembayaran = KeuanganPembayaran::find($id);
+
+            if (! $pembayaran) {
+                return response()->json([
+                    'status'  => false,
+                    'message' => 'Data tidak ditemukan.',
+                    'code'     => 404,
+                ], 404);
+            }
+
+            $pembayaran->update([
+                'tanggal'        => $request->input('tanggal'),
+                'th_akademik_id' => $request->input('th_akademik_id'),
+                'jumlah'         => $request->input('jumlah'),
+                'user_id'        => Auth::user()->id,
+            ]);
+
+            return response()->json([
+                'status'  => true,
+                'message' => 'Berhasil mengupdate data.',
+                'code'     => 200,
+            ]);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status'  => false,
+                'message' => $th->getMessage(),
+                'code'     => 500,
+            ], 500);
+        }
     }
 
     /**
@@ -242,6 +310,22 @@ class PembayaranController extends Controller
      */
     public function destroy(string $id)
     {
-        //
+        try {
+            KeuanganPembayaran::destroy($id);
+
+            $data = [
+                "status" => true,
+                "code" => 200,
+                "message" => "Berhasil menghapus data",
+            ];
+            return $data;
+        } catch (\Throwable $th) {
+            $data = [
+                "status" => false,
+                "code" => 500,
+                "message" => "Gagal mengahapus data",
+            ];
+            return $data;
+        }
     }
 }

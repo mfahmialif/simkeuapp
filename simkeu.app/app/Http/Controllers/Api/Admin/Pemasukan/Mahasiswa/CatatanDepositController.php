@@ -68,10 +68,17 @@ class CatatanDepositController extends Controller
             ], 422);
         }
 
-        $data = new KeuanganDeposit();
-        $data->nim        = $request->nim;
-        $data->jumlah     = $request->jumlah;
-        $data->keterangan = $request->keterangan;
+        $data = KeuanganDeposit::where('nim',$request->nim)->first();
+
+        if ($data) {
+            $data->jumlah += $request->jumlah;
+        } else {
+            $data = new KeuanganDeposit();
+            $data->nim        = $request->nim;
+            $data->jumlah     = $request->jumlah;
+        }
+
+        $data->keterangan = $request->filled('keterangan') ? $request->keterangan : $data->keterangan;
         $data->save();
 
         return response()->json([
@@ -94,6 +101,23 @@ class CatatanDepositController extends Controller
                 'message' => 'Catatan deposit tidak ditemukan.',
             ], 404);
         }
+
+        return response()->json($data, 200);
+    }
+
+    /**
+     * Display the specified resource.
+     */
+    public function nim($nim)
+    {
+        $data = KeuanganDeposit::where('nim', $nim)->first();
+
+        // if (! $data) {
+        //     return response()->json([
+        //         'status'  => false,
+        //         'message' => 'Catatan deposit tidak ditemukan.',
+        //     ], 404);
+        // }
 
         return response()->json($data, 200);
     }

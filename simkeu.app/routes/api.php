@@ -50,7 +50,11 @@ Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
             Route::apiResource('pembayaran', PembayaranController::class);
 
             Route::apiResource('setoran', SetoranController::class);
+
+            Route::get('catatan-deposit/nim/{nim}', [CatatanDepositController::class, 'nim'])->name('admin.pemasukan.mahasiswa.catatan-deposit.nim');
             Route::apiResource('catatan-deposit', CatatanDepositController::class);
+            Route::apiResource('catatan-deposit', CatatanDepositController::class);
+
             Route::apiResource('pemasukan-pengeluaran', PemasukanPengeluaranController::class);
 
         });
@@ -63,7 +67,7 @@ Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
     Route::apiResource('ref', RefController::class);
 
     Route::get('/mahasiswa/search/{search}', [MahasiswaController::class, 'search']);
-    Route::get('/mahasiswa/nim/{nim}', [MahasiswaController::class, 'nim']);
+    Route::get('/mahasiswa/nim', [MahasiswaController::class, 'nim']);
     Route::apiResource('mahasiswa', MahasiswaController::class);
     
     Route::apiResource('form-schadule', FormSchaduleController::class);
