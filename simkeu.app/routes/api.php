@@ -20,6 +20,7 @@ use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\CekTagihanController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\PembayaranController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\CatatanDepositController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\JenisPembayaranController;
+use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\LaporanController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\PemasukanPengeluaranController;
 
 Route::prefix('auth')->group(function () {
@@ -84,5 +85,5 @@ Route::prefix('helper')->middleware('auth:sanctum')->group(function () {
     Route::get('/get-enum-values', [HelperController::class, 'getEnumValues']);
 });
 
-// Route::get('admin/pemasukan/mahasiswa/pembayaran/kwitansi/{id}', [PembayaranController::class, 'kwitansi'])->name('admin.pemasukan.mahasiswa.kwitansi');
+Route::get('admin/pemasukan/mahasiswa/laporan/harian', [LaporanController::class, 'harian'])->name('admin.pemasukan.mahasiswa.laporan.harian');
 // Route::get('admin/pemasukan/mahasiswa/pembayaran/kwitansi/{id}/view', [PembayaranController::class, 'kwitansiPreview'])->name('admin.pemasukan.mahasiswa.kwitansi.view');

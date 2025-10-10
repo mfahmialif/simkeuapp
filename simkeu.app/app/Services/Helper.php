@@ -239,7 +239,7 @@ class Helper
             "kode" => "%",
         ];
 
-        // return $putra;
+        return $putra;
 
         $jenisKelamin = auth()->user()->jk_id != null ? auth()->user()->jk_id : 8;
 
