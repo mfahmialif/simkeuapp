@@ -62,6 +62,7 @@ class LaporanController extends Controller
                     $jenisPembayaran = "";
                 }
     
+                dd("asd");
                 return Excel::download(new PembayaranTotalanHarianExport($dataValidated['tanggal'], $dataValidated['kategori'], $prodi, $tahunAkademik, $jenisPembayaran), 'laporantotalanharian.xlsx');
             } else {
                 LaporanHarianPdf::pdf($request->all());
