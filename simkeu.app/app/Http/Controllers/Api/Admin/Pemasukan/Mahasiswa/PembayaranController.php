@@ -7,11 +7,13 @@ use App\Services\Mahasiswa;
 use App\Models\KeuanganNota;
 use Illuminate\Http\Request;
 use App\Models\KeuanganDeposit;
+use App\Exports\pdf\KwitansiPdf;
 use App\Models\KeuanganKamarMhs;
 use App\Models\KeuanganPembayaran;
 use Illuminate\Support\Facades\DB;
 use App\Http\Controllers\Controller;
 use Illuminate\Support\Facades\Auth;
+use App\Exports\pdf\KwitansiPreviewPdf;
 use App\Models\KeuanganJenisPembayaran;
 use Illuminate\Support\Facades\Validator;
 use App\Models\KeuanganJenisPembayaranDetail;
@@ -327,5 +329,17 @@ class PembayaranController extends Controller
             ];
             return $data;
         }
+    }
+
+    public function kwitansi($id)
+    {
+        $keuanganPembayaran = KeuanganPembayaran::findOrFail($id);
+        return KwitansiPdf::pdf($keuanganPembayaran);
+    }
+
+    public function kwitansiPreview($id)
+    {
+        $keuanganPembayaran = KeuanganPembayaran::findOrFail($id);
+        return KwitansiPreviewPdf::pdf($keuanganPembayaran);
     }
 }

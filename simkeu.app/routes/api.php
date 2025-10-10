@@ -38,7 +38,7 @@ Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
         Route::get('/getWidget', [DashboardController::class, 'getWidget'])->name('dashboard.getWidget');
     });
 
-    Route::prefix('saldo')->group(function(){
+    Route::prefix('saldo')->group(function () {
         Route::apiResource('kategori', KategoriController::class);
     });
 
@@ -47,6 +47,9 @@ Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
             Route::apiResource('jenis-pembayaran', JenisPembayaranController::class);
             Route::apiResource('tagihan', TagihanController::class);
             Route::apiResource('cek-tagihan', CekTagihanController::class);
+
+            Route::get('pembayaran/kwitansi/{id}', [PembayaranController::class, 'kwitansi'])->name('admin.pemasukan.mahasiswa.kwitansi');
+            Route::get('pembayaran/kwitansi/{id}/view', [PembayaranController::class, 'kwitansiPreview'])->name('admin.pemasukan.mahasiswa.kwitansi.view');
             Route::apiResource('pembayaran', PembayaranController::class);
 
             Route::apiResource('setoran', SetoranController::class);
@@ -56,7 +59,6 @@ Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
             Route::apiResource('catatan-deposit', CatatanDepositController::class);
 
             Route::apiResource('pemasukan-pengeluaran', PemasukanPengeluaranController::class);
-
         });
     });
 
@@ -69,7 +71,7 @@ Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
     Route::get('/mahasiswa/search/{search}', [MahasiswaController::class, 'search']);
     Route::get('/mahasiswa/nim', [MahasiswaController::class, 'nim']);
     Route::apiResource('mahasiswa', MahasiswaController::class);
-    
+
     Route::apiResource('form-schadule', FormSchaduleController::class);
 
     Route::prefix('profil')->group(function () {
@@ -81,3 +83,6 @@ Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
 Route::prefix('helper')->middleware('auth:sanctum')->group(function () {
     Route::get('/get-enum-values', [HelperController::class, 'getEnumValues']);
 });
+
+// Route::get('admin/pemasukan/mahasiswa/pembayaran/kwitansi/{id}', [PembayaranController::class, 'kwitansi'])->name('admin.pemasukan.mahasiswa.kwitansi');
+// Route::get('admin/pemasukan/mahasiswa/pembayaran/kwitansi/{id}/view', [PembayaranController::class, 'kwitansiPreview'])->name('admin.pemasukan.mahasiswa.kwitansi.view');
