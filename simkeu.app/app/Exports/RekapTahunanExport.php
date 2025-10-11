@@ -88,13 +88,13 @@ class RekapTahunanExport implements FromView, WithTitle
             foreach ($prodi as $key => $p) {
                 $p = $p->id;
                 $transaksi = KeuanganPembayaran::join('keuangan_tagihan as kt', 'kt.id', '=', 'keuangan_pembayaran.tagihan_id')
-                    ->join('mst_mhs as mhs', 'mhs.nim', '=', 'keuangan_pembayaran.nim')
+                    // ->join('mst_mhs as mhs', 'mhs.nim', '=', 'keuangan_pembayaran.nim')
                     ->whereYear('tanggal', '=', $this->tahun)
                     ->whereMonth('tanggal', '=', $nBulan)
                     ->where([
                         ['kt.nama', 'LIKE', '%SPP%'],
                         ['kt.prodi_id', $p],
-                        ['mhs.jk_id', 'LIKE', "%$jp->id%"],
+                        ['keuangan_pembayaran.jk_id', 'LIKE', "%$jp->id%"],
                     ])
                     ->select('*', 'kt.jumlah as jumlah_tagihan', 'keuangan_pembayaran.jumlah as dibayar')
                     ->get();
@@ -118,12 +118,12 @@ class RekapTahunanExport implements FromView, WithTitle
             foreach ($tagihanSisa as $key => $p) {
                 $p = $p->id;
                 $transaksi = KeuanganPembayaran::join('keuangan_tagihan as kt', 'kt.id', '=', 'keuangan_pembayaran.tagihan_id')
-                    ->join('mst_mhs as mhs', 'mhs.nim', '=', 'keuangan_pembayaran.nim')
+                    // ->join('mst_mhs as mhs', 'mhs.nim', '=', 'keuangan_pembayaran.nim')
                     ->whereMonth('tanggal', '=', $nBulan)
                     ->whereYear('tanggal', '=', $this->tahun)
                     ->where([
                         ['kt.nama', 'LIKE', "%$p%"],
-                        ['mhs.jk_id', 'LIKE', "%$jp->id%"],
+                        ['keuangan_pembayaran.jk_id', 'LIKE', "%$jp->id%"],
                     ])
                     ->select('*', 'kt.jumlah as jumlah_tagihan', 'keuangan_pembayaran.jumlah as dibayar')
                     ->get();

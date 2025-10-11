@@ -67,7 +67,7 @@ class Mahasiswa
     public static function nim($nim, $whereIn = null)
     {
         // if ($whereIn) {
-            // $nim = json_encode($nim);
+        // $nim = json_encode($nim);
         // }
         // dd(json_decode($nim));
 
@@ -177,6 +177,51 @@ class Mahasiswa
         curl_setopt($ch, CURLOPT_HTTPHEADER, [
             "apikey: $apiKey",
 
+        ]);
+        $response = curl_exec($ch);
+        curl_close($ch);
+
+        $response = json_decode($response);
+        return $response;
+    }
+
+    public static function getSemester($thAkademikId, $prodiId, $jkId)
+    {
+        $apiKey = config('simkeu.simkeu_api_key');
+        $url = config('simkeu.simkeu_url') . "mahasiswa/getSemester";
+        $post = [
+            'prodi_id' => $prodiId,
+            'jk_id' => $jkId,
+            'th_akademik_id' => $thAkademikId,
+        ];
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $post);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            "apikey: $apiKey",
+        ]);
+        $response = curl_exec($ch);
+        curl_close($ch);
+
+        $response = json_decode($response);
+        return $response;
+    }
+
+    public static function getMahasiswaBySemester($thAkademikId, $prodiId, $jkId, $semester)
+    {
+        $apiKey = config('simkeu.simkeu_api_key');
+        $url = config('simkeu.simkeu_url') . "mahasiswa/getMahasiswaBySemester";
+        $post = [
+            'prodi_id' => $prodiId,
+            'jk_id' => $jkId,
+            'th_akademik_id' => $thAkademikId,
+            'semester' => $semester,
+        ];
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $post);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            "apikey: $apiKey",
         ]);
         $response = curl_exec($ch);
         curl_close($ch);

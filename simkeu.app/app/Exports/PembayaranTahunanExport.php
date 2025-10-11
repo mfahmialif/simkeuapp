@@ -35,7 +35,7 @@ class PembayaranTahunanExport implements FromView
         $jenisPembayaran = $this->jenisPembayaran;
 
         $dataPembayaran = KeuanganPembayaran::join('keuangan_tagihan as kt', 'kt.id', '=', 'keuangan_pembayaran.tagihan_id')
-            ->join('mst_mhs as mhs', 'mhs.nim', '=', 'keuangan_pembayaran.nim')
+            // ->join('mst_mhs as mhs', 'mhs.nim', '=', 'keuangan_pembayaran.nim')
             ->leftJoin('keuangan_jenis_pembayaran_detail as kjpd', 'kjpd.pembayaran_id', '=', 'keuangan_pembayaran.id')
             ->leftJoin('keuangan_jenis_pembayaran as kjp', 'kjp.id', '=', 'kjpd.jenis_pembayaran_id')
             ->select('*', 'kjp.nama as kjp_nama', 'kt.nama as kt', 'keuangan_pembayaran.jumlah as dibayar', 'kt.jumlah as jumlah_tagihan');
@@ -56,7 +56,7 @@ class PembayaranTahunanExport implements FromView
 
         $jp = Helper::getJenisKelaminUser();
         $dataPembayaran = $dataPembayaran
-            ->where('mhs.jk_id', 'LIKE', "%$jp->id%")
+            ->where('keuangan_pembayaran.jk_id', 'LIKE', "%$jp->id%")
             ->orderBy('kt.prodi_id', 'asc')->orderBy('kjpd.jenis_pembayaran_id', 'asc')->get();
 
         return view('admin.mhs-laporan.excel-tahunan', compact('dataPembayaran', 'prodi', 'tahunAkademik', 'jenisPembayaran', 'pilihTahun', 'kategori', 'jp'));

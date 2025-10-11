@@ -56,7 +56,7 @@ class PembayaranHarianExport implements FromView
 
         $jp = Helper::getJenisKelaminUser();
         $dataPembayaran = $dataPembayaran
-            // ->where('mhs.jk_id', 'LIKE', "%$jp->id%")
+            ->where('keuangan_pembayaran.jk_id', 'LIKE', "%$jp->id%")
             ->orderBy('kt.prodi_id', 'asc')->orderBy('kjpd.jenis_pembayaran_id', 'asc')->get();
 
         return view('admin.mhs-laporan.excel-harian', compact('prodi', 'tahunAkademik', 'jenisPembayaran', 'pilihTanggal', 'kategori', 'dataPembayaran', 'jp'));

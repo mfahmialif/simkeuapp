@@ -1,4 +1,5 @@
 <?php
+
 namespace App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa;
 
 use App\Services\Mahasiswa;
@@ -36,10 +37,9 @@ class PemasukanPengeluaranController extends Controller
             "kode"     => "%",
         ];
 
-        $mahasiswaApi = Mahasiswa::all();
-        $data['Laki-laki'] = $this->data($putra, $mahasiswaApi);
-        $data['Perempuan'] = $this->data($putri, $mahasiswaApi);
-        $data['semua']     = $this->data($semua, $mahasiswaApi);
+        $data['Laki-laki'] = $this->data($putra);
+        $data['Perempuan'] = $this->data($putri);
+        $data['semua']     = $this->data($semua);
 
         return response()->json([
             'status'  => true,
@@ -48,26 +48,18 @@ class PemasukanPengeluaranController extends Controller
         ]);
     }
 
-    public function data($jk, $mahasiswaApi)
+    public function data($jk)
     {
-        $nimList = collect($mahasiswaApi)
-            ->filter(fn($m) => str_contains((string) $m->jk_id, "{$jk->id}"))
-            ->pluck('nim')
-            ->values();
-
+        $transaksiTagihan = KeuanganPembayaran::where('jk_id', 'LIKE', "%$jk->id%")
+            ->get();
+            
         $pemasukan = 0;
-        $nimList->chunk(1000)->each(function ($chunk) use (&$pemasukan) {
-            $batch = KeuanganPembayaran::with('tagihan')
-                ->whereIn('nim', $chunk)
-                ->get();
-
-            foreach ($batch as $t) {
-                if ($t->jumlah == $t->nim) {
-                    $t->jumlah = optional($t->tagihan)->jumlah ?? 0;
-                }
-                $pemasukan += (float) $t->jumlah;
+        foreach ($transaksiTagihan as $t) {
+            if ($t->jumlah == $t->nim) {
+                $t->jumlah = $t->tagihan->jumlah;
             }
-        });
+            $pemasukan += $t->jumlah;
+        }
 
         $setoran     = KeuanganSetoran::where('kategori', 'LIKE', "%{$jk->kategori}%")->get();
         $pengeluaran = 0;
@@ -81,7 +73,6 @@ class PemasukanPengeluaranController extends Controller
             if ($status === 'pending') {
                 $pending += (float) $s->jumlah;
             }
-
         }
         return [
             'pemasukan'   => $pemasukan,
@@ -96,10 +87,7 @@ class PemasukanPengeluaranController extends Controller
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\Response
      */
-    public function store(Request $request)
-    {
-
-    }
+    public function store(Request $request) {}
 
     /**
      * Display the specified resource.
@@ -107,9 +95,7 @@ class PemasukanPengeluaranController extends Controller
      * @param  int  $id
      * @return \Illuminate\Http\Response
      */
-    public function show($id)
-    {
-    }
+    public function show($id) {}
 
     /**
      * Update the specified resource in storage.
@@ -118,9 +104,7 @@ class PemasukanPengeluaranController extends Controller
      * @param  int  $id
      * @return \Illuminate\Http\Response
      */
-    public function update(Request $request, $id)
-    {
-    }
+    public function update(Request $request, $id) {}
 
     /**
      * Remove the specified resource from storage.
@@ -128,7 +112,5 @@ class PemasukanPengeluaranController extends Controller
      * @param  int  $id
      * @return \Illuminate\Http\Response
      */
-    public function destroy($id)
-    {
-    }
+    public function destroy($id) {}
 }

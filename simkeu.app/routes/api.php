@@ -86,4 +86,9 @@ Route::prefix('helper')->middleware('auth:sanctum')->group(function () {
 });
 
 Route::get('admin/pemasukan/mahasiswa/laporan/harian', [LaporanController::class, 'harian'])->name('admin.pemasukan.mahasiswa.laporan.harian');
+Route::get('admin/pemasukan/mahasiswa/laporan/bulanan', [LaporanController::class, 'bulanan'])->name('admin.pemasukan.mahasiswa.laporan.bulanan');
+Route::get('admin/pemasukan/mahasiswa/laporan/tahunan', [LaporanController::class, 'tahunan'])->name('admin.pemasukan.mahasiswa.laporan.tahunan');
+Route::get('admin/pemasukan/mahasiswa/laporan/rekap', [LaporanController::class, 'rekap'])->name('admin.pemasukan.mahasiswa.laporan.rekap');
+Route::get('admin/pemasukan/mahasiswa/laporan/rekap-tahunan', [LaporanController::class, 'rekapTahunan'])->name('admin.pemasukan.mahasiswa.laporan.rekap-tahunan');
+Route::get('admin/pemasukan/mahasiswa/laporan/jumlah-mahasiswa-bayar', [LaporanController::class, 'jumlahMahasiswaBayar'])->name('admin.pemasukan.mahasiswa.laporan.jumlah-mahasiswa-bayar');
 // Route::get('admin/pemasukan/mahasiswa/pembayaran/kwitansi/{id}', [PembayaranController::class, 'kwitansi'])->name('admin.pemasukan.mahasiswa.kwitansi.view');

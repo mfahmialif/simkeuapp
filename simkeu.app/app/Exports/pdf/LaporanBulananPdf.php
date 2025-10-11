@@ -3,11 +3,10 @@
 namespace App\Exports\pdf;
 
 use App\Services\Helper;
-use App\Exports\pdf\CustomFpdf;
-use App\Models\KeuanganSetoran;
 use App\Models\KeuanganPembayaran;
+use App\Models\KeuanganSetoran;
 
-class LaporanHarianPdf
+class LaporanBulananPdf
 {
     /**
      * Save PDF File
@@ -15,6 +14,9 @@ class LaporanHarianPdf
      */
     public static function pdf($data)
     {
+        $bulanan = explode('-', $data['bulan']);
+        $month = $bulanan[0];
+        $year = $bulanan[1];
 
         $fpdf = new CustomFpdf("P", "mm", "A4");
         $fpdf->AddPage();
@@ -38,11 +40,13 @@ class LaporanHarianPdf
         ];
 
         $dataPembayaran = KeuanganPembayaran::join('keuangan_tagihan as kt', 'kt.id', '=', 'keuangan_pembayaran.tagihan_id')
+            // ->join('mst_mhs as mhs', 'mhs.nim', '=', 'keuangan_pembayaran.nim')
             ->leftJoin('keuangan_jenis_pembayaran_detail as kjpd', 'kjpd.pembayaran_id', '=', 'keuangan_pembayaran.id')
             ->leftJoin('keuangan_jenis_pembayaran as kjp', 'kjp.id', '=', 'kjpd.jenis_pembayaran_id')
             ->select('*', 'kjp.nama as kjp_nama', 'kt.nama as kt', 'keuangan_pembayaran.jumlah as dibayar', 'kt.jumlah as jumlah_tagihan');
-        if ($data['tanggal'] != '') {
-            $dataPembayaran->whereDate('tanggal', $data['tanggal']);
+        if ($month != '' || $year != '') {
+            $dataPembayaran->whereYear('tanggal', '=', $year)
+                ->whereMonth('tanggal', '=', $month);
         }
         if ($jenisPembayaran != '') {
             $dataPembayaran->where('kjpd.jenis_pembayaran_id', $jenisPembayaran);
@@ -70,11 +74,13 @@ class LaporanHarianPdf
 
         // Table Untuk Pengeluaran
         $totalPengeluaran = 0;
-        $setoran = KeuanganSetoran::where([
-            ['tanggal', $data['tanggal']],
-            ['status', 'setuju'],
-            ['kategori', 'LIKE', "%$jp->kategori%"],
-        ])->get();
+
+        $setoran = KeuanganSetoran::whereYear('tanggal', '=', $year)
+            ->whereMonth('tanggal', '=', $month)
+            ->where([
+                ['status', 'setuju'],
+                ['kategori', 'LIKE', "%$jp->kategori%"],
+            ])->get();
 
         foreach ($setoran as $key => $s) {
             $totalPengeluaran += $s->jumlah;
@@ -89,14 +95,16 @@ class LaporanHarianPdf
         self::totalKeseluruhan($totalKeseluruhan, $fpdf);
 
         // Save File PDF
-        // $fpdf->Output('I', 'Laporan Harian.pdf');
+        // $fpdf->Output('I', 'Laporan Bulanan.pdf');
         // exit;
 
-        $binary = $fpdf->Output('S'); 
+        $binary = $fpdf->Output('S');  // <- ini kuncinya
 
+        // Kembalikan via response() supaya middleware CORS ikut bekerja
         return response($binary, 200)
             ->header('Content-Type', 'application/pdf')
-            ->header('Content-Disposition', 'inline; filename="Laporan Harian ' . $data['tanggal'] . '.pdf"');
+            ->header('Content-Disposition', 'inline; filename="Laporan Bulanan.pdf"');
+            // TIDAK perlu set CORS header manual; biarkan middleware CORS menambahkannya
     }
 
     public static function header($data, $fpdf)
@@ -112,14 +120,13 @@ class LaporanHarianPdf
         $fpdf->Cell(0, 10, "Jl. Raya Raci No.51 PO.Box.8 Bangil, Telp. (0343) 745317", 0, 1, 'C');
         $fpdf->Line(10, 40, 210 - 10, 40);
         $fpdf->SetFontSpacing(3);
-        $fpdf->Cell(180, 10, "LAPORAN HARIAN", 0, 1, 'C');
+        $fpdf->Cell(180, 10, "LAPORAN BULANAN", 0, 1, 'C');
         $fpdf->SetFontSpacing(0);
 
         // Tanggal
         $fpdf->SetFont('Courier', '', 9.5);
-        $fpdf->Cell(40, 7, "Tanggal", 0, 0, 'L');
-        $tanggal = date('d-m-Y', strtotime($data['tanggal']));
-        $fpdf->Cell(0, 7, ': ' . $tanggal, 0, 1, 'L');
+        $fpdf->Cell(40, 7, "Bulan", 0, 0, 'L');
+        $fpdf->Cell(0, 7, ': ' . $data['bulan'], 0, 1, 'L');
 
         // Kategori
         $fpdf->SetFont('Courier', '', 9.5);
@@ -132,9 +139,10 @@ class LaporanHarianPdf
 
         $kategori = "$kat ( Jurusan : $prodi, TA : $ta )";
         $fpdf->MultiCell(140, 7, ': ' . $kategori, 0, 'L', 0);
+
     }
 
-    public static function body($data, $dataPembayaran, $fpdf)
+    public static function body($data, $transaksi, $fpdf)
     {
         // Table
         $fpdf->SetFont('Courier', '', 9.5);
@@ -148,8 +156,7 @@ class LaporanHarianPdf
 
         $i = 1;
         $total = 0;
-        foreach ($dataPembayaran as $t) {
-
+        foreach ($transaksi as $key => $t) {
             $offset = 0;
             $posY = $fpdf->getY();
             $posX = $fpdf->getX();

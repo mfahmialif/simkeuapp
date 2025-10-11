@@ -59,4 +59,16 @@ class MahasiswaController extends Controller
         return response()->json($data);
     }
 
+    /**
+     * Display the specified resource.
+     *
+     * @param  string  $search
+     * @return \Illuminate\Http\Response
+     */
+    public function getSemester(Request $request)
+    {
+        $data = Mahasiswa::getSemester($request);
+        return response()->json($data);
+    }
+
 }

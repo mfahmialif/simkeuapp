@@ -18,6 +18,7 @@ return new class extends Migration
             $table->integer('smt');
             $table->integer('jml_sks');
             $table->double('jumlah');
+            $table->integer('jk_id')->nullable();
             // $table->foreignId('user_id')->constrained('users');
             $table->integer('user_id')->nullable();
             $table->timestamps();

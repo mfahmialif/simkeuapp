@@ -118,28 +118,35 @@ class Helper
         }
     }
 
+    // $d = date('Y-m-d', strtotime($tanggal));
+    // $tanggalNota = date('dmy', strtotime($tanggal));
+    // $nim = Mahasiswa::all(null, null, null, null, null, [
+    //     ['mst_mhs.jk_id', '=', $jkId]
+    // ], ['nim']);
+
+    // $nimList = $nim; // hasil API: array of NIM (sudah di-pluck & terfilter jk)
+
+    // $query = KeuanganPembayaran::query()
+    //     ->leftJoin('keuangan_nota as kn', 'kn.pembayaran_id', '=', 'keuangan_pembayaran.id')
+    //     ->whereDate('keuangan_pembayaran.tanggal', $d);
+
+    // $query->where(function ($q) use ($nimList) {
+    //     foreach (array_chunk($nimList, 1000) as $chunk) {
+    //         $q->orWhereIn('keuangan_pembayaran.nim', $chunk);
+    //     }
+    // });
+
+    // $transaksiTagihan = $query->orderByDesc('kn.nota')->first();
     public static function generateNota($tanggal, $jkId)
     {
+
         $d = date('Y-m-d', strtotime($tanggal));
         $tanggalNota = date('dmy', strtotime($tanggal));
-        $nim = Mahasiswa::all(null, null, null, null, null, [
-            ['mst_mhs.jk_id', '=', $jkId]
-        ], ['nim']);
-
-        $nimList = $nim; // hasil API: array of NIM (sudah di-pluck & terfilter jk)
-
-        $query = KeuanganPembayaran::query()
-            ->leftJoin('keuangan_nota as kn', 'kn.pembayaran_id', '=', 'keuangan_pembayaran.id')
-            ->whereDate('keuangan_pembayaran.tanggal', $d);
-
-        $query->where(function ($q) use ($nimList) {
-            foreach (array_chunk($nimList, 1000) as $chunk) {
-                $q->orWhereIn('keuangan_pembayaran.nim', $chunk);
-            }
-        });
-
-        $transaksiTagihan = $query->orderByDesc('kn.nota')->first();
-
+        $transaksiTagihan = KeuanganPembayaran::leftJoin('keuangan_nota as kn', 'kn.pembayaran_id', 'keuangan_pembayaran.id')
+            ->where('keuangan_pembayaran.jk_id', $jkId)
+            ->whereDate('tanggal', $d)
+            ->orderBy('kn.nota', 'desc')
+            ->first();
         $jk = 0;
         if ($jkId == 9) {
             // $notaBanat = Helper::generateNotaBanat($tanggalNota);

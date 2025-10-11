@@ -84,7 +84,7 @@ class PembayaranController extends Controller
                 'jenis_pembayaran'    => 'required',
                 'dipakai_deposit_mhs' => 'nullable',
                 'kamar_id'            => 'nullable',
-                'jk_id' => 'required'
+                'jk_id'               => 'required'
             ]);
 
             DB::beginTransaction();
@@ -109,6 +109,7 @@ class PembayaranController extends Controller
                             "jumlah"         => $dataValidated['list_dibayar'][$i],
                             "smt"            => $dataValidated['semester'],
                             "jml_sks"        => 1,
+                            "jk_id"          => $request->jk_id,
                             "user_id"        => Auth::user()->id,
                         ]);
 
@@ -152,6 +153,7 @@ class PembayaranController extends Controller
                             "jumlah"         => $dataValidated['list_deposit'][$i],
                             "smt"            => $dataValidated['semester'],
                             "jml_sks"        => 1,
+                            "jk_id"          => $request->jk_id,
                             "user_id"        => Auth::user()->id,
                         ]);
 

@@ -102,12 +102,12 @@ class RekapExport implements WithMultipleSheets
                 foreach ($prodi as $key => $p) {
                     $p = $p->id;
                     $transaksi = KeuanganPembayaran::join('keuangan_tagihan as kt', 'kt.id', '=', 'keuangan_pembayaran.tagihan_id')
-                        ->join('mst_mhs as mhs', 'mhs.nim', '=', 'keuangan_pembayaran.nim')
+                        // ->join('mst_mhs as mhs', 'mhs.nim', '=', 'keuangan_pembayaran.nim')
                         ->where([
                             ['tanggal', $tanggal[$bulan][$i]['original']],
                             ['kt.nama', 'LIKE', '%SPP%'],
                             ['kt.prodi_id', $p],
-                            ['mhs.jk_id', 'LIKE', "%$jp->id%"],
+                            ['keuangan_pembayaran.jk_id', 'LIKE', "%$jp->id%"],
                         ])
                         ->select('*', 'kt.nama as kt', 'keuangan_pembayaran.jumlah as dibayar', 'kt.jumlah as jumlah_tagihan')
                         ->get();
@@ -143,11 +143,11 @@ class RekapExport implements WithMultipleSheets
                 foreach ($tagihanSisa as $key => $p) {
                     $p = $p->id;
                     $transaksi = KeuanganPembayaran::join('keuangan_tagihan as kt', 'kt.id', '=', 'keuangan_pembayaran.tagihan_id')
-                        ->join('mst_mhs as mhs', 'mhs.nim', '=', 'keuangan_pembayaran.nim')
+                        // ->join('mst_mhs as mhs', 'mhs.nim', '=', 'keuangan_pembayaran.nim')
                         ->where([
                             ['tanggal', $tanggal[$bulan][$i]['original']],
                             ['kt.nama', 'LIKE', "%$p%"],
-                            ['mhs.jk_id', 'LIKE', "%$jp->id%"],
+                            ['keuangan_pembayaran.jk_id', 'LIKE', "%$jp->id%"],
                         ])
                         ->select('*', 'kt.nama as kt', 'keuangan_pembayaran.jumlah as dibayar', 'kt.jumlah as jumlah_tagihan')
                         ->get();
