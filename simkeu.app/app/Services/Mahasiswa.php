@@ -229,4 +229,25 @@ class Mahasiswa
         $response = json_decode($response);
         return $response;
     }
+
+    public static function updateStatusMahasiswa($nim, $statusId)
+    {
+        $apiKey = config('simkeu.simkeu_api_key');
+        $url = config('simkeu.simkeu_url') . "mahasiswa/updateStatusMahasiswa";
+        $post = [
+            'nim' => $nim,
+            'status_id' => $statusId,
+        ];
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $post);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            "apikey: $apiKey",
+        ]);
+        $response = curl_exec($ch);
+        curl_close($ch);
+
+        $response = json_decode($response);
+        return $response;
+    }
 }

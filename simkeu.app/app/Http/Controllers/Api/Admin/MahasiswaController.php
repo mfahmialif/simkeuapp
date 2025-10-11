@@ -71,4 +71,10 @@ class MahasiswaController extends Controller
         return response()->json($data);
     }
 
+    public function updateStatusMahasiswa(Request $request)
+    {
+        $data = Mahasiswa::updateStatusMahasiswa($request);
+        return response()->json($data);
+    }
+
 }
