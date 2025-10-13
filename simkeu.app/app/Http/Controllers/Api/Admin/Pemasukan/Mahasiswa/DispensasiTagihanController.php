@@ -6,47 +6,49 @@ use App\Http\Controllers\Controller;
 use App\Models\KeuanganDispensasi;
 use App\Services\Helper;
 use App\Services\Mahasiswa;
-use Illuminate\Http\Request;
-;
+use Illuminate\Http\Request;;
 
 class DispensasiTagihanController extends Controller
 {
-    function index(Request $request) { 
-    $query = KeuanganDispensasi::join('users', 'keuangan_dispensasi.user_id', '=', 'users.id');
-    if($request->filled('search')){
-        $query->where(function($q) use ($request) {
-            $q->where('nim', 'like', '%'.$request->search.'%')
-              ->orWhere('keterangan', 'like', '%'.$request->search.'%')
-              ->orWhere('th_akademik_id', 'like', '%'.$request->search.'%');
-        });
+   public function index(Request $request)
+    {
+        $query = KeuanganDispensasi::join('users', 'keuangan_dispensasi.user_id', '=', 'users.id');
+        if ($request->filled('search')) {
+            $query->where(function ($q) use ($request) {
+                $q->where('nim', 'like', '%' . $request->search . '%')
+                    ->orWhere('keterangan', 'like', '%' . $request->search . '%')
+                    ->orWhere('th_akademik_id', 'like', '%' . $request->search . '%');
+            });
+        }
+
+        $sortKey = $request->input('sort_key', 'id');
+        $sortOrder = $request->input('sort_order', 'desc');
+        $query->orderBy($sortKey, $sortOrder);
+
+        $query->select('keuangan_dispensasi.*', 'users.name as nama');
+        $query = $query->paginate($request->input('limit', 10));
+        return response()->json([
+            'status' => 'true',
+            'data' => $query,
+            'message' => 'Data dispensasi keuangan berhasil diambil',
+            'jk' => Helper::getJenisKelaminUser()
+        ]);
     }
-
-    $sortKey = $request->input('sort_key', 'id');
-    $sortOrder = $request->input('sort_order', 'desc');
-    $query->orderBy($sortKey, $sortOrder);
-
-    $query->select('keuangan_dispensasi.*','users.name as nama');
-    $query = $query->paginate($request->input('limit', 10));
-    return response()->json([
-        'status' => 'true', 
-        'data' => $query,
-        'message' => 'Data dispensasi keuangan berhasil diambil',
-        'jk' => Helper::getJenisKelaminUser()
-    ]);
-}
-    public function autoComplete(Request $request) {
-       $data = Mahasiswa::all(null,null,$request->search,null,null,null,null);
+    public function autoComplete(Request $request)
+    {
+        $data = Mahasiswa::all(null, null, $request->search, null, null, null, null);
         return response()->json([
             'status' => 'true',
             'data' => $data,
             'message' => 'Data mahasiswa berhasil diambil'
         ]);
     }
-    function store(Request $request) {
+   public function store(Request $request)
+    {
 
         $rules = [
             'th_akademik_id' => 'required|exists:mst_th_akademik,id',
-            'nim'=> 'required|exists:users,nim',
+            'nim' => 'required|exists:users,nim',
             'user_id' => 'required|exists:users,id',
             'keterangan' => 'nullable|string|max:255',
         ];
@@ -63,11 +65,11 @@ class DispensasiTagihanController extends Controller
             'data' => $data,
             'message' => 'Data dispensasi keuangan berhasil disimpan'
         ]);
-        
     }
-  function edit($id){
+   public function edit($id)
+    {
         $data = KeuanganDispensasi::find($id);
-        if(!$data) {
+        if (!$data) {
             return response()->json([
                 'status' => 'false',
                 'message' => 'Data dispensasi keuangan tidak ditemukan'
@@ -78,10 +80,11 @@ class DispensasiTagihanController extends Controller
             'data' => $data,
             'message' => 'Data dispensasi keuangan berhasil diambil'
         ]);
-  }
-  function update(Request $request) {
+    }
+   public function update(Request $request)
+    {
         $data = KeuanganDispensasi::find($request->id);
-        if(!$data) {
+        if (!$data) {
             return response()->json([
                 'status' => 'false',
                 'message' => 'Data dispensasi keuangan tidak ditemukan'
@@ -89,7 +92,7 @@ class DispensasiTagihanController extends Controller
         }
         $rules = [
             'th_akademik_id' => 'required|exists:mst_th_akademik,id',
-            'nim'=> 'required|exists:users,nim',
+            'nim' => 'required|exists:users,nim',
             'user_id' => 'required|exists:users,id',
             'keterangan' => 'nullable|string|max:255',
         ];
@@ -106,11 +109,11 @@ class DispensasiTagihanController extends Controller
             'data' => $data,
             'message' => 'Data dispensasi keuangan berhasil diupdate'
         ]);
-    
-  }
-    function destroy($id) {
+    }
+   public function destroy($id)
+    {
         $data = KeuanganDispensasi::find($id);
-        if(!$data) {
+        if (!$data) {
             return response()->json([
                 'status' => 'false',
                 'message' => 'Data dispensasi keuangan tidak ditemukan'
@@ -122,5 +125,4 @@ class DispensasiTagihanController extends Controller
             'message' => 'Data dispensasi keuangan berhasil dihapus'
         ]);
     }
-
 }

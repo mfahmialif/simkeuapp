@@ -7,10 +7,11 @@ use App\Models\KeuanganDispensasi;
 use App\Services\Helper;
 use App\Services\Mahasiswa;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Validator;
 
 class DispensasiController extends Controller
 {
-    function index(Request $request)
+   public function index(Request $request)
     {
         $query = KeuanganDispensasi::join('users', 'keuangan_dispensasi.user_id', '=', 'users.id');
         if ($request->filled('search')) {
@@ -25,7 +26,7 @@ class DispensasiController extends Controller
         $sortOrder = $request->input('sort_order', 'desc');
         $query->orderBy($sortKey, $sortOrder);
 
-        $query->select('keuangan_dispensasi.*','users.name as nama');
+        $query->select('keuangan_dispensasi.*', 'users.name as nama');
         $query = $query->paginate($request->input('limit', 10));
         return response()->json([
             'status' => 'true',
@@ -43,16 +44,20 @@ class DispensasiController extends Controller
             'message' => 'Data mahasiswa berhasil diambil'
         ]);
     }
-    function store(Request $request)
+   public function store(Request $request)
     {
-
-        $rules = [
+        $validator = Validator::make($request->all(), [
             'th_akademik_id' => 'required|exists:th_akademik,id',
-            'nim' => 'required',
+            'nim' => 'required|exists:users',
             'user_id' => 'required|exists:users,id',
             'keterangan' => 'nullable|string|max:255',
-        ];
-        $request->validate($rules);
+        ]);
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => 'false',
+                'message' => $validator->errors()
+            ]);
+        }
 
         $data = KeuanganDispensasi::create([
             'th_akademik_id' => $request->th_akademik_id,
@@ -66,7 +71,7 @@ class DispensasiController extends Controller
             'message' => 'Data dispensasi keuangan berhasil disimpan'
         ]);
     }
-    function edit($id)
+   public function edit($id)
     {
         $data = KeuanganDispensasi::find($id);
         if (!$data) {
@@ -81,34 +86,40 @@ class DispensasiController extends Controller
             'message' => 'Data dispensasi keuangan berhasil diambil'
         ]);
     }
-    function update(Request $request)
+  public function update(Request $request, $id)
     {
-        $data = KeuanganDispensasi::find($request->id);
-        if (!$data) {
-            return response()->json([
-                'status' => 'false',
-                'message' => 'Data dispensasi keuangan tidak ditemukan'
-            ], 404);
-        }
-        $rules = [
-            'th_akademik_id' => 'required|exists:mst_th_akademik,id',
-            'nim' => 'required',
+        $validator = Validator::make($request->all(), [
+            'id' => 'required|exists:keuangan_dispensasi,id',
+            'th_akademik_id' => 'required|exists:th_akademik,id',
+            'nim' => 'required|exists:users',
             'user_id' => 'required|exists:users,id',
             'keterangan' => 'nullable|string|max:255',
-        ];
-        $request->validate($rules);
+        ]);
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => 'false',
+                'message' => $validator->errors()->all()
+            ], 400);
+            $data = KeuanganDispensasi::find($id);
+            if (!$data) {
+                return response()->json([
+                    'status' => 'false',
+                    'message' => 'Data dispensasi keuangan tidak ditemukan'
+                ], 404);
+            }
 
-        $data->update([
-            'th_akademik_id' => $request->th_akademik_id,
-            'nim' => $request->nim,
-            'user_id' => $request->user_id,
-            'keterangan' => $request->keterangan,
-        ]);
-        return response()->json([
-            'status' => 'true',
-            'data' => $data,
-            'message' => 'Data dispensasi keuangan berhasil diupdate'
-        ]);
+            $data->update([
+                'th_akademik_id' => $request->th_akademik_id,
+                'nim' => $request->nim,
+                'user_id' => $request->user_id,
+                'keterangan' => $request->keterangan,
+            ]);
+            return response()->json([
+                'status' => 'true',
+                'data' => $data,
+                'message' => 'Data dispensasi keuangan berhasil diupdate'
+            ]);
+        }
     }
     function destroy($id)
     {
