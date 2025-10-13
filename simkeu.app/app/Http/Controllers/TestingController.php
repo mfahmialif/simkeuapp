@@ -12,7 +12,7 @@ class TestingController extends Controller
 {
     public function index()
     {
-        dd(Mahasiswa::updateStatusMahasiswa('202485010002', 20));
+        // dd(Mahasiswa::updateStatusMahasiswa('202485010002', 20));
         // $getSemester = Mahasiswa::getSemester(24, 6, 8);
         // $getMahasiswaBySemester = Mahasiswa::getMahasiswaBySemester(24, 6, 8, 1)->data;
         // $mahasiswa = collect($getMahasiswaBySemester->mahasiswa)->pluck('nim')->values();
