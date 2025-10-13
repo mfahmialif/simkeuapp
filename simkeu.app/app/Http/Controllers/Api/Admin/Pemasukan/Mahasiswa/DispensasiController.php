@@ -121,7 +121,7 @@ class DispensasiController extends Controller
             ]);
         }
     }
-    function destroy($id)
+   public function destroy($id)
     {
         $data = KeuanganDispensasi::find($id);
         if (!$data) {
