@@ -9,16 +9,19 @@ return new class extends Migration
     {
         Schema::create('keuangan_dispensasi_tagihan', function (Blueprint $table) {
             $table->id();
-            $table->integer('user_id');               // NOT NULL
+            $table->unsignedBigInteger('user_id');               // NOT NULL
             $table->string('jenis', 255)->nullable(); // NULL
-            $table->integer('jenis_tagihan_id');      // NOT NULL
+            $table->unsignedBigInteger('tagihan_id');      // NOT NULL
             $table->string('nim', 255);               // NOT NULL
             $table->double('jumlah')->nullable();     // NULL
-            $table->integer('th_akademik_id');        // NOT NULL
+            $table->unsignedBigInteger('th_akademik_id');        // NOT NULL
             $table->date('batas')->nullable();        // NULL
             $table->text('keterangan')->nullable();   // NULL
-
             $table->timestamps();
+            $table->foreign('user_id')->references('id')->on('users')->onDelete('cascade');
+            $table->foreign('th_akademik_id')->references('id')->on('th_akademik')->onDelete('cascade');
+            $table->foreign('tagihan_id')->references('id')->on('keuangan_tagihan')->onDelete('cascade');
+
         });
     }
 

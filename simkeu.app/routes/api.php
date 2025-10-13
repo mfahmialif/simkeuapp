@@ -10,6 +10,8 @@ use App\Http\Controllers\Api\Admin\UserController;
 use App\Http\Controllers\Api\Admin\ProdiController;
 use App\Http\Controllers\Api\Admin\ProfilController;
 use App\Http\Controllers\Api\Admin\DashboardController;
+use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\DispensasiController;
+use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\DispensasiTagihanController;
 use App\Http\Controllers\Api\Admin\MahasiswaController;
 use App\Http\Controllers\Api\Admin\ThAkademikController;
 use App\Http\Controllers\Api\Admin\FormSchaduleController;
@@ -60,6 +62,10 @@ Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
             Route::apiResource('catatan-deposit', CatatanDepositController::class);
 
             Route::apiResource('pemasukan-pengeluaran', PemasukanPengeluaranController::class);
+            Route::apiResource('dispensasi',DispensasiController::class);
+            Route::get('dispensasi/auto-complete/{search}', [DispensasiController::class, 'autoComplete']);
+            Route::get('dispensasi-tagihan/auto-complete/{search}', [DispensasiTagihanController::class, 'autoComplete']);
+            Route::apiResource('dispensasi-tagihan',DispensasiTagihanController::class);
         });
     });
 

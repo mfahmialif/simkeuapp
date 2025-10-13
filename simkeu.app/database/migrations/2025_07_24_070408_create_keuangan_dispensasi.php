@@ -9,11 +9,13 @@ return new class extends Migration
     {
         Schema::create('keuangan_dispensasi', function (Blueprint $table) {
             $table->id();
-            $table->integer('th_akademik_id');
+            $table->unsignedBigInteger('th_akademik_id');
             $table->string('nim', 255)->nullable();
             $table->text('keterangan')->nullable;
-            $table->integer('user_id')->nullable();
+            $table->unsignedBigInteger('user_id');
             $table->timestamps();
+            $table->foreign('th_akademik_id')->references('id')->on('th_akademik')->onDelete('cascade');
+            $table->foreign('user_id')->references('id')->on('users')->onDelete('cascade');
         });
     }
 
