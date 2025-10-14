@@ -7,6 +7,7 @@ use App\Models\KeuanganDispensasi;
 use App\Services\Helper;
 use App\Services\Mahasiswa;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
 
 class DispensasiController extends Controller
@@ -49,7 +50,6 @@ class DispensasiController extends Controller
         $validator = Validator::make($request->all(), [
             'th_akademik_id' => 'required|exists:th_akademik,id',
             'nim' => 'required|exists:users',
-            'user_id' => 'required|exists:users,id',
             'keterangan' => 'nullable|string|max:255',
         ]);
         if ($validator->fails()) {
@@ -58,11 +58,11 @@ class DispensasiController extends Controller
                 'message' => $validator->errors()
             ]);
         }
-
+        $idUsers = Auth::user()->id;
         $data = KeuanganDispensasi::create([
             'th_akademik_id' => $request->th_akademik_id,
             'nim' => $request->nim,
-            'user_id' => $request->user_id,
+            'user_id' => $idUsers,
             'keterangan' => $request->keterangan,
         ]);
         return response()->json([
@@ -71,7 +71,7 @@ class DispensasiController extends Controller
             'message' => 'Data dispensasi keuangan berhasil disimpan'
         ]);
     }
-   public function edit($id)
+   public function show($id)
     {
         $data = KeuanganDispensasi::find($id);
         if (!$data) {
@@ -92,7 +92,6 @@ class DispensasiController extends Controller
             'id' => 'required|exists:keuangan_dispensasi,id',
             'th_akademik_id' => 'required|exists:th_akademik,id',
             'nim' => 'required|exists:users',
-            'user_id' => 'required|exists:users,id',
             'keterangan' => 'nullable|string|max:255',
         ]);
         if ($validator->fails()) {
@@ -107,11 +106,11 @@ class DispensasiController extends Controller
                     'message' => 'Data dispensasi keuangan tidak ditemukan'
                 ], 404);
             }
-
+            $idUsers = Auth::user()->id;
             $data->update([
                 'th_akademik_id' => $request->th_akademik_id,
                 'nim' => $request->nim,
-                'user_id' => $request->user_id,
+                'user_id' => $idUsers,
                 'keterangan' => $request->keterangan,
             ]);
             return response()->json([

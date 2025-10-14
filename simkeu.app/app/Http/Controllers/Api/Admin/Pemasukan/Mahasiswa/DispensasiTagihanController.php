@@ -7,6 +7,7 @@ use App\Models\KeuanganDispensasi;
 use App\Services\Helper;
 use App\Services\Mahasiswa;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;;
 
 class DispensasiTagihanController extends Controller
@@ -49,11 +50,10 @@ class DispensasiTagihanController extends Controller
 
         $validator = Validator::make($request->all(), [
             'th_akademik_id' => 'required|exists:th_akademik,id',
-            'nim' => 'required|exists:users,nim',
+            'nim' => 'required',
             'jumlah' => 'required|numeric',
             'batas' => 'required|date',
             'tagihan_id' => 'required|exists:keuangan_tagihan,id',
-            'user_id' => 'required|exists:users,id',
             'keterangan' => 'nullable|string|max:255',
         ]);
 
@@ -63,14 +63,14 @@ class DispensasiTagihanController extends Controller
                 'message' => $validator->errors()
             ]);
         }
-
+        $idUsers = Auth::user()->id;
         $data = KeuanganDispensasi::create([
             'th_akademik_id' => $request->th_akademik_id,
             'nim' => $request->nim,
             'jumlah' => $request->jumlah,
             'batas' => $request->batas,
             'tagihan_id' => $request->tagihan_id,
-            'user_id' => $request->user_id,
+            'user_id' => $idUsers,
             'keterangan' => $request->keterangan,
         ]);
         return response()->json([
@@ -79,14 +79,14 @@ class DispensasiTagihanController extends Controller
             'message' => 'Data dispensasi keuangan berhasil disimpan'
         ]);
     }
-    public function edit($id)
+    public function show($id)
     {
         $data = KeuanganDispensasi::find($id);
         if (!$data) {
             return response()->json([
                 'status' => 'false',
                 'message' => 'Data dispensasi keuangan tidak ditemukan'
-            ], 404);
+            ]);
         }
         return response()->json([
             'status' => 'true',
@@ -99,11 +99,10 @@ class DispensasiTagihanController extends Controller
 
         $validator = Validator::make($request->all(), [
             'th_akademik_id' => 'required|exists:th_akademik,id',
-            'nim' => 'required|exists:users,nim',
+            'nim' => 'required',
             'jumlah' => 'required|numeric',
             'batas' => 'required|date',
             'tagihan_id' => 'required|exists:keuangan_tagihan,id',
-            'user_id' => 'required|exists:users,id',
             'keterangan' => 'nullable|string|max:255',
         ]);
 
@@ -121,14 +120,14 @@ class DispensasiTagihanController extends Controller
                 'message' => 'Data dispensasi keuangan tidak ditemukan'
             ]);
         }
-
+         $idUsers = Auth::user()->id;
         $data->update([
             'th_akademik_id' => $request->th_akademik_id,
             'nim' => $request->nim,
             'jumlah' => $request->jumlah,
             'batas' => $request->batas,
             'tagihan_id' => $request->tagihan_id,
-            'user_id' => $request->user_id,
+            'user_id' => $idUsers,
             'keterangan' => $request->keterangan,
         ]);
         return response()->json([
