@@ -11,7 +11,7 @@ return new class extends Migration
             $table->id();
             $table->unsignedBigInteger('th_akademik_id');
             $table->string('nim', 255)->nullable();
-            $table->text('keterangan')->nullable;
+            $table->text('keterangan')->nullable();
             $table->unsignedBigInteger('user_id');
             $table->timestamps();
             $table->foreign('th_akademik_id')->references('id')->on('th_akademik')->onDelete('cascade');
