@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa;
 
 use App\Http\Controllers\Controller;
 use App\Models\KeuanganDispensasi;
+use App\Models\KeuanganDispensasiTagihan;
 use App\Services\Helper;
 use App\Services\Mahasiswa;
 use Illuminate\Http\Request;
@@ -14,12 +15,14 @@ class DispensasiTagihanController extends Controller
 {
     public function index(Request $request)
     {
-        $query = KeuanganDispensasi::join('users', 'keuangan_dispensasi.user_id', '=', 'users.id');
+        $query = KeuanganDispensasiTagihan::join('users', 'keuangan_dispensasi_tagihan.user_id', '=', 'users.id')
+            ->join('keuangan_tagihan', 'keuangan_dispensasi_tagihan.tagihan_id', '=', 'keuangan_tagihan.id')
+            ->join('th_akademik', 'keuangan_dispensasi_tagihan.th_akademik_id', '=', 'th_akademik.id');
         if ($request->filled('search')) {
             $query->where(function ($q) use ($request) {
                 $q->where('nim', 'like', '%' . $request->search . '%')
                     ->orWhere('keterangan', 'like', '%' . $request->search . '%')
-                    ->orWhere('th_akademik_id', 'like', '%' . $request->search . '%');
+                    ->orWhere('th_akademik.kode', 'like', '%' . $request->search . '%');
             });
         }
 
@@ -27,12 +30,12 @@ class DispensasiTagihanController extends Controller
         $sortOrder = $request->input('sort_order', 'desc');
         $query->orderBy($sortKey, $sortOrder);
 
-        $query->select('keuangan_dispensasi.*', 'users.name as nama');
+        $query->select('keuangan_dispensasi_tagihan.*', 'users.name as nama', 'keuangan_tagihan.nama as tagihan', 'th_akademik.kode as th_akademik');
         $query = $query->paginate($request->input('limit', 10));
         return response()->json([
             'status' => 'true',
             'data' => $query,
-            'message' => 'Data dispensasi keuangan berhasil diambil',
+            'message' => 'Data dispensasi Tagihan keuangan berhasil diambil',
             'jk' => Helper::getJenisKelaminUser()
         ]);
     }
@@ -53,6 +56,7 @@ class DispensasiTagihanController extends Controller
             'nim' => 'required',
             'jumlah' => 'required|numeric',
             'batas' => 'required|date',
+            'jenis' => 'required',
             'tagihan_id' => 'required|exists:keuangan_tagihan,id',
             'keterangan' => 'nullable|string|max:255',
         ]);
@@ -64,9 +68,10 @@ class DispensasiTagihanController extends Controller
             ]);
         }
         $idUsers = Auth::user()->id;
-        $data = KeuanganDispensasi::create([
+        $data = KeuanganDispensasiTagihan::create([
             'th_akademik_id' => $request->th_akademik_id,
             'nim' => $request->nim,
+            'jenis' => $request->jenis,
             'jumlah' => $request->jumlah,
             'batas' => $request->batas,
             'tagihan_id' => $request->tagihan_id,
@@ -81,7 +86,7 @@ class DispensasiTagihanController extends Controller
     }
     public function show($id)
     {
-        $data = KeuanganDispensasi::find($id);
+        $data = KeuanganDispensasiTagihan::find($id);
         if (!$data) {
             return response()->json([
                 'status' => 'false',
@@ -100,6 +105,7 @@ class DispensasiTagihanController extends Controller
         $validator = Validator::make($request->all(), [
             'th_akademik_id' => 'required|exists:th_akademik,id',
             'nim' => 'required',
+            'jenis' => 'required',
             'jumlah' => 'required|numeric',
             'batas' => 'required|date',
             'tagihan_id' => 'required|exists:keuangan_tagihan,id',
@@ -113,7 +119,7 @@ class DispensasiTagihanController extends Controller
             ]);
         }
 
-        $data = KeuanganDispensasi::find($id);
+        $data = KeuanganDispensasiTagihan::find($id);
         if (!$data) {
             return response()->json([
                 'status' => 'false',
@@ -124,6 +130,7 @@ class DispensasiTagihanController extends Controller
         $data->update([
             'th_akademik_id' => $request->th_akademik_id,
             'nim' => $request->nim,
+            'jenis' => $request->jenis,
             'jumlah' => $request->jumlah,
             'batas' => $request->batas,
             'tagihan_id' => $request->tagihan_id,
@@ -138,7 +145,7 @@ class DispensasiTagihanController extends Controller
     }
     public function destroy($id)
     {
-        $data = KeuanganDispensasi::find($id);
+        $data = KeuanganDispensasiTagihan::find($id);
         if (!$data) {
             return response()->json([
                 'status' => 'false',

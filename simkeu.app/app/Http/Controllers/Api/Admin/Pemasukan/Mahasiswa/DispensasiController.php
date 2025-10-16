@@ -9,13 +9,14 @@ use App\Models\KeuanganDispensasi;
 use App\Http\Controllers\Controller;
 
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 
 class DispensasiController extends Controller
 {
     public function index(Request $request)
     {
-        $query = KeuanganDispensasi::join('users', 'keuangan_dispensasi.user_id', '=', 'users.id');
+        $query = KeuanganDispensasi::join('users', 'keuangan_dispensasi.user_id', '=', 'users.id')->join('th_akademik', 'keuangan_dispensasi.th_akademik_id', '=', 'th_akademik.id');
         if ($request->filled('search')) {
             $query->where(function ($q) use ($request) {
                 $q->where('nim', 'like', '%' . $request->search . '%')
@@ -28,11 +29,13 @@ class DispensasiController extends Controller
         $sortOrder = $request->input('sort_order', 'desc');
         $query->orderBy($sortKey, $sortOrder);
 
-        $query->select('keuangan_dispensasi.*', 'users.name as nama');
+        $query->select('keuangan_dispensasi.*', 'users.name as nama','th_akademik.kode as th_akademik');
         $query = $query->paginate($request->input('limit', 10));
+        $nim = Mahasiswa::nim(202585330020);
         return response()->json([
             'status' => 'true',
             'data' => $query,
+            'nim'=>$nim,
             'message' => 'Data dispensasi keuangan berhasil diambil',
             'jk' => Helper::getJenisKelaminUser()
         ]);
@@ -51,7 +54,7 @@ class DispensasiController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'th_akademik_id' => 'required|exists:th_akademik,id',
-            'nim' => 'required|exists:users',
+            'nim' => 'required',
             'nim' => 'required',
             'keterangan' => 'nullable|string|max:255',
         ]);
@@ -93,9 +96,9 @@ class DispensasiController extends Controller
     }
     public function update(Request $request, $id)
     {
+        Log::info($request->all());
         $validator = Validator::make($request->all(), [
             'th_akademik_id' => 'required|exists:th_akademik,id',
-            'nim' => 'required|exists:users',
             'nim' => 'required',
             'keterangan' => 'nullable|string|max:255',
         ]);
