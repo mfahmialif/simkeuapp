@@ -15,9 +15,9 @@ class DispensasiTagihanController extends Controller
 {
     public function index(Request $request)
     {
-        $query = KeuanganDispensasiTagihan::join('users', 'keuangan_dispensasi_tagihan.user_id', '=', 'users.id')
-            ->join('keuangan_tagihan', 'keuangan_dispensasi_tagihan.tagihan_id', '=', 'keuangan_tagihan.id')
-            ->join('th_akademik', 'keuangan_dispensasi_tagihan.th_akademik_id', '=', 'th_akademik.id');
+        $query = KeuanganDispensasiTagihan::leftJoin('users', 'keuangan_dispensasi_tagihan.user_id', '=', 'users.id')
+            ->leftJoin('keuangan_tagihan', 'keuangan_dispensasi_tagihan.jenis_tagihan_id', '=', 'keuangan_tagihan.id')
+            ->leftJoin('th_akademik', 'keuangan_dispensasi_tagihan.th_akademik_id', '=', 'th_akademik.id');
         if ($request->filled('search')) {
             $query->where(function ($q) use ($request) {
                 $q->where('nim', 'LIKE',"%$request->search%")
@@ -56,7 +56,7 @@ class DispensasiTagihanController extends Controller
             'jumlah' => 'required|numeric',
             'batas' => 'required|date',
             'jenis' => 'required',
-            'tagihan_id' => 'required|exists:keuangan_tagihan,id',
+            'jenis_tagihan_id' => 'required|exists:keuangan_tagihan,id',
             'keterangan' => 'nullable|string|max:255',
         ]);
 
@@ -73,7 +73,7 @@ class DispensasiTagihanController extends Controller
             'jenis' => $request->jenis,
             'jumlah' => $request->jumlah,
             'batas' => $request->batas,
-            'tagihan_id' => $request->tagihan_id,
+            'jenis_tagihan_id' => $request->jenis_tagihan_id,
             'user_id' => $idUsers,
             'keterangan' => $request->keterangan,
         ]);
@@ -107,7 +107,7 @@ class DispensasiTagihanController extends Controller
             'jenis' => 'required',
             'jumlah' => 'required|numeric',
             'batas' => 'required|date',
-            'tagihan_id' => 'required|exists:keuangan_tagihan,id',
+            'jenis_tagihan_id' => 'required|exists:keuangan_tagihan,id',
             'keterangan' => 'nullable|string|max:255',
         ]);
 
@@ -132,7 +132,7 @@ class DispensasiTagihanController extends Controller
             'jenis' => $request->jenis,
             'jumlah' => $request->jumlah,
             'batas' => $request->batas,
-            'tagihan_id' => $request->tagihan_id,
+            'jenis_tagihan_id' => $request->jenis_tagihan_id,
             'user_id' => $idUsers,
             'keterangan' => $request->keterangan,
         ]);
