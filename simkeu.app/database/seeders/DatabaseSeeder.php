@@ -15,20 +15,20 @@ class DatabaseSeeder extends Seeder
     {
         // User::factory(10)->create();
 
-        \DB::table('role')->insert(
+        DB::table('role')->insert(
             [
                 'name' => 'admin',
             ]);
-        \DB::table('role')->insert(
+        DB::table('role')->insert(
             [
                 'name' => 'staff',
             ]);
-        \DB::table('role')->insert(
+        DB::table('role')->insert(
             [
                 'name' => 'user',
             ]);
 
-        \DB::table('users')->insert([
+        DB::table('users')->insert([
             'id'            => 8,
             'fullname'      => 'adminku',
             'username'      => 'admin',
@@ -40,7 +40,7 @@ class DatabaseSeeder extends Seeder
             'avatar'        => '/images/avatars/avatar-1.png',
         ]);
 
-        \DB::table('users')->insert([
+        DB::table('users')->insert([
             'fullname'      => 'userku',
             'username'      => 'user',
             'name'          => 'User',
@@ -51,7 +51,7 @@ class DatabaseSeeder extends Seeder
             'avatar'        => '/images/avatars/avatar-2.png',
         ]);
 
-        \DB::table('users')->insert([
+        DB::table('users')->insert([
             'id'            => 5912,
             'fullname'      => 'Muhammad Adil, M.Pd',
             'username'      => 'muhammadadil',
@@ -62,7 +62,7 @@ class DatabaseSeeder extends Seeder
             'jenis_kelamin' => 'Laki-laki',
             'avatar'        => '/images/avatars/avatar-1.png',
         ]);
-        \DB::table('users')->insert([
+        DB::table('users')->insert([
             'id'            => 5914,
             'fullname'      => '2021661001',
             'username'      => 'sulaiman',
@@ -73,7 +73,7 @@ class DatabaseSeeder extends Seeder
             'jenis_kelamin' => 'Laki-laki',
             'avatar'        => '/images/avatars/avatar-1.png',
         ]);
-        \DB::table('users')->insert([
+        DB::table('users')->insert([
             'id'            => 5915,
             'fullname'      => '2021661002',
             'username'      => 'sulaiman2',
@@ -84,7 +84,7 @@ class DatabaseSeeder extends Seeder
             'jenis_kelamin' => 'Laki-laki',
             'avatar'        => '/images/avatars/avatar-1.png',
         ]);
-        \DB::table('users')->insert([
+        DB::table('users')->insert([
             'id'            => 5916,
             'fullname'      => '2021661003',
             'username'      => 'sulaiman3',
@@ -95,7 +95,7 @@ class DatabaseSeeder extends Seeder
             'jenis_kelamin' => 'Laki-laki',
             'avatar'        => '/images/avatars/avatar-1.png',
         ]);
-        \DB::table('users')->insert([
+        DB::table('users')->insert([
             'id'            => 5917,
             'fullname'      => '2021661004',
             'username'      => 'sulaiman4',
@@ -106,7 +106,7 @@ class DatabaseSeeder extends Seeder
             'jenis_kelamin' => 'Laki-laki',
             'avatar'        => '/images/avatars/avatar-1.png',
         ]);
-        \DB::table('users')->insert([
+        DB::table('users')->insert([
             'id'            => 5918,
             'fullname'      => '2021661005',
             'username'      => 'sulaiman5',
@@ -117,7 +117,7 @@ class DatabaseSeeder extends Seeder
             'jenis_kelamin' => 'Laki-laki',
             'avatar'        => '/images/avatars/avatar-1.png',
         ]);
-        \DB::table('users')->insert([
+        DB::table('users')->insert([
             'id'            => 5919,
             'fullname'      => '2021661006',
             'username'      => 'sulaiman6',
@@ -128,7 +128,7 @@ class DatabaseSeeder extends Seeder
             'jenis_kelamin' => 'Laki-laki',
             'avatar'        => '/images/avatars/avatar-1.png',
         ]);
-        \DB::table('users')->insert([
+        DB::table('users')->insert([
             'id'            => 5920,
             'fullname'      => '2021661007',
             'username'      => 'sulaiman7',
@@ -139,7 +139,7 @@ class DatabaseSeeder extends Seeder
             'jenis_kelamin' => 'Laki-laki',
             'avatar'        => '/images/avatars/avatar-1.png',
         ]);
-        \DB::table('users')->insert([
+        DB::table('users')->insert([
             'id'            => 5921,
             'fullname'      => '2021661008',
             'username'      => 'sulaiman8',
@@ -150,7 +150,7 @@ class DatabaseSeeder extends Seeder
             'jenis_kelamin' => 'Laki-laki',
             'avatar'        => '/images/avatars/avatar-1.png',
         ]);
-        \DB::table('users')->insert([
+        DB::table('users')->insert([
             'id'            => 5922,
             'fullname'      => '2021661009',
             'username'      => 'sulaiman9',
@@ -161,7 +161,7 @@ class DatabaseSeeder extends Seeder
             'jenis_kelamin' => 'Laki-laki',
             'avatar'        => '/images/avatars/avatar-1.png',
         ]);
-        \DB::table('users')->insert([
+        DB::table('users')->insert([
             'id'            => 5923,
             'fullname'      => '20216610010',
             'username'      => 'sulaiman10',
@@ -172,7 +172,7 @@ class DatabaseSeeder extends Seeder
             'jenis_kelamin' => 'Laki-laki',
             'avatar'        => '/images/avatars/avatar-1.png',
         ]);
-        \DB::table('users')->insert([
+        DB::table('users')->insert([
             'id'            => 5924,
             'fullname'      => '20216610011',
             'username'      => 'sulaiman11',
@@ -244,138 +244,138 @@ class DatabaseSeeder extends Seeder
             ],
         ]);
 
-         DB::table('keuangan_dispensasi')->insert([
-            [
-                'id'          => 1,
-                'nim'         => '2021661001',
-                'th_akademik_id' => 24,
-                'user_id'     => 5914,
-                'keterangan'=>'Dispensasi untuk pembayaran SPP',
-                'created_at'  => Carbon::parse('2023-05-01 10:00:00'),
-                'updated_at'  => Carbon::parse('2023-05-01 10:00:00'),
-            ],
-        ]);
-         DB::table('keuangan_dispensasi')->insert([
-            [
-                'id'          => 2,
-                'nim'         => '2021661002',
-                'th_akademik_id' => 24,
-                'user_id'     => 5915,
-                'keterangan'=>'Dispensasi untuk pembayaran SPP',
-                'created_at'  => Carbon::parse('2023-05-01 10:00:00'),
-                'updated_at'  => Carbon::parse('2023-05-01 10:00:00'),
-            ],
-        ]);
-         DB::table('keuangan_dispensasi')->insert([
-            [
-                'id'          => 3,
-                'nim'         => '2021661003',
-                'th_akademik_id' => 24,
-                'user_id'     => 5916,
-                'keterangan'=>'Dispensasi untuk pembayaran SPP',
-                'created_at'  => Carbon::parse('2023-05-01 10:00:00'),
-                'updated_at'  => Carbon::parse('2023-05-01 10:00:00'),
-            ],
-        ]);
-         DB::table('keuangan_dispensasi')->insert([
-            [
-                'id'          => 4,
-                'nim'         => '2021661004',
-                'th_akademik_id' => 24,
-                'user_id'     => 5917,
-                'keterangan'=>'Dispensasi untuk pembayaran SPP',
-                'created_at'  => Carbon::parse('2023-05-01 10:00:00'),
-                'updated_at'  => Carbon::parse('2023-05-01 10:00:00'),
-            ],
-        ]);
-         DB::table('keuangan_dispensasi')->insert([
-            [
-                'id'          => 5,
-                'nim'         => '2021661005',
-                'th_akademik_id' => 24,
-                'user_id'     => 5918,
-                'keterangan'=>'Dispensasi untuk pembayaran SPP',
-                'created_at'  => Carbon::parse('2023-05-01 10:00:00'),
-                'updated_at'  => Carbon::parse('2023-05-01 10:00:00'),
-            ],
-        ]);
-         DB::table('keuangan_dispensasi')->insert([
-            [
-                'id'          => 6,
-                'nim'         => '2021661006',
-                'th_akademik_id' => 24,
-                'user_id'     => 5918,
-                'keterangan'=>'Dispensasi untuk pembayaran SPP',
-                'created_at'  => Carbon::parse('2023-05-01 10:00:00'),
-                'updated_at'  => Carbon::parse('2023-05-01 10:00:00'),
-            ],
-        ]);
-         DB::table('keuangan_dispensasi')->insert([
-            [
-                'id'          => 7,
-                'nim'         => '2021661007',
-                'th_akademik_id' => 24,
-                'user_id'     => 5919,
-                'keterangan'=>'Dispensasi untuk pembayaran SPP',
-                'created_at'  => Carbon::parse('2023-05-01 10:00:00'),
-                'updated_at'  => Carbon::parse('2023-05-01 10:00:00'),
-            ],
-        ]);
-         DB::table('keuangan_dispensasi')->insert([
-            [
-                'id'          => 8,
-                'nim'         => '2021661008',
-                'th_akademik_id' => 24,
-                'user_id'     => 5919,
-                'keterangan'=>'Dispensasi untuk pembayaran SPP',
-                'created_at'  => Carbon::parse('2023-05-01 10:00:00'),
-                'updated_at'  => Carbon::parse('2023-05-01 10:00:00'),
-            ],
-        ]);
-         DB::table('keuangan_dispensasi')->insert([
-            [
-                'id'          => 9,
-                'nim'         => '2021661009',
-                'th_akademik_id' => 24,
-                'user_id'     => 5920,
-                'keterangan'=>'Dispensasi untuk pembayaran SPP',
-                'created_at'  => Carbon::parse('2023-05-01 10:00:00'),
-                'updated_at'  => Carbon::parse('2023-05-01 10:00:00'),
-            ],
-        ]);
-         DB::table('keuangan_dispensasi')->insert([
-            [
-                'id'          => 10,
-                'nim'         => '20216610010',
-                'th_akademik_id' => 24,
-                'user_id'     => 5920,
-                'keterangan'=>'Dispensasi untuk pembayaran SPP',
-                'created_at'  => Carbon::parse('2023-05-01 10:00:00'),
-                'updated_at'  => Carbon::parse('2023-05-01 10:00:00'),
-            ],
-        ]);
-         DB::table('keuangan_dispensasi')->insert([
-            [
-                'id'          => 11,
-                'nim'         => '20216610011',
-                'th_akademik_id' => 24,
-                'user_id'     => 5921,
-                'keterangan'=>'Dispensasi untuk pembayaran SPP',
-                'created_at'  => Carbon::parse('2023-05-01 10:00:00'),
-                'updated_at'  => Carbon::parse('2023-05-01 10:00:00'),
-            ],
-        ]);
-         DB::table('keuangan_dispensasi')->insert([
-            [
-                'id'          => 12,
-                'nim'         => '20216610012',
-                'th_akademik_id' => 24,
-                'user_id'     => 5922,
-                'keterangan'=>'Dispensasi untuk pembayaran SPP',
-                'created_at'  => Carbon::parse('2023-05-01 10:00:00'),
-                'updated_at'  => Carbon::parse('2023-05-01 10:00:00'),
-            ],
-        ]);
+        //  DB::table('keuangan_dispensasi')->insert([
+        //     [
+        //         'id'          => 1,
+        //         'nim'         => '2021661001',
+        //         'th_akademik_id' => 24,
+        //         'user_id'     => 5914,
+        //         'keterangan'=>'Dispensasi untuk pembayaran SPP',
+        //         'created_at'  => Carbon::parse('2023-05-01 10:00:00'),
+        //         'updated_at'  => Carbon::parse('2023-05-01 10:00:00'),
+        //     ],
+        // ]);
+        //  DB::table('keuangan_dispensasi')->insert([
+        //     [
+        //         'id'          => 2,
+        //         'nim'         => '2021661002',
+        //         'th_akademik_id' => 24,
+        //         'user_id'     => 5915,
+        //         'keterangan'=>'Dispensasi untuk pembayaran SPP',
+        //         'created_at'  => Carbon::parse('2023-05-01 10:00:00'),
+        //         'updated_at'  => Carbon::parse('2023-05-01 10:00:00'),
+        //     ],
+        // ]);
+        //  DB::table('keuangan_dispensasi')->insert([
+        //     [
+        //         'id'          => 3,
+        //         'nim'         => '2021661003',
+        //         'th_akademik_id' => 24,
+        //         'user_id'     => 5916,
+        //         'keterangan'=>'Dispensasi untuk pembayaran SPP',
+        //         'created_at'  => Carbon::parse('2023-05-01 10:00:00'),
+        //         'updated_at'  => Carbon::parse('2023-05-01 10:00:00'),
+        //     ],
+        // ]);
+        //  DB::table('keuangan_dispensasi')->insert([
+        //     [
+        //         'id'          => 4,
+        //         'nim'         => '2021661004',
+        //         'th_akademik_id' => 24,
+        //         'user_id'     => 5917,
+        //         'keterangan'=>'Dispensasi untuk pembayaran SPP',
+        //         'created_at'  => Carbon::parse('2023-05-01 10:00:00'),
+        //         'updated_at'  => Carbon::parse('2023-05-01 10:00:00'),
+        //     ],
+        // ]);
+        //  DB::table('keuangan_dispensasi')->insert([
+        //     [
+        //         'id'          => 5,
+        //         'nim'         => '2021661005',
+        //         'th_akademik_id' => 24,
+        //         'user_id'     => 5918,
+        //         'keterangan'=>'Dispensasi untuk pembayaran SPP',
+        //         'created_at'  => Carbon::parse('2023-05-01 10:00:00'),
+        //         'updated_at'  => Carbon::parse('2023-05-01 10:00:00'),
+        //     ],
+        // ]);
+        //  DB::table('keuangan_dispensasi')->insert([
+        //     [
+        //         'id'          => 6,
+        //         'nim'         => '2021661006',
+        //         'th_akademik_id' => 24,
+        //         'user_id'     => 5918,
+        //         'keterangan'=>'Dispensasi untuk pembayaran SPP',
+        //         'created_at'  => Carbon::parse('2023-05-01 10:00:00'),
+        //         'updated_at'  => Carbon::parse('2023-05-01 10:00:00'),
+        //     ],
+        // ]);
+        //  DB::table('keuangan_dispensasi')->insert([
+        //     [
+        //         'id'          => 7,
+        //         'nim'         => '2021661007',
+        //         'th_akademik_id' => 24,
+        //         'user_id'     => 5919,
+        //         'keterangan'=>'Dispensasi untuk pembayaran SPP',
+        //         'created_at'  => Carbon::parse('2023-05-01 10:00:00'),
+        //         'updated_at'  => Carbon::parse('2023-05-01 10:00:00'),
+        //     ],
+        // ]);
+        //  DB::table('keuangan_dispensasi')->insert([
+        //     [
+        //         'id'          => 8,
+        //         'nim'         => '2021661008',
+        //         'th_akademik_id' => 24,
+        //         'user_id'     => 5919,
+        //         'keterangan'=>'Dispensasi untuk pembayaran SPP',
+        //         'created_at'  => Carbon::parse('2023-05-01 10:00:00'),
+        //         'updated_at'  => Carbon::parse('2023-05-01 10:00:00'),
+        //     ],
+        // ]);
+        //  DB::table('keuangan_dispensasi')->insert([
+        //     [
+        //         'id'          => 9,
+        //         'nim'         => '2021661009',
+        //         'th_akademik_id' => 24,
+        //         'user_id'     => 5920,
+        //         'keterangan'=>'Dispensasi untuk pembayaran SPP',
+        //         'created_at'  => Carbon::parse('2023-05-01 10:00:00'),
+        //         'updated_at'  => Carbon::parse('2023-05-01 10:00:00'),
+        //     ],
+        // ]);
+        //  DB::table('keuangan_dispensasi')->insert([
+        //     [
+        //         'id'          => 10,
+        //         'nim'         => '20216610010',
+        //         'th_akademik_id' => 24,
+        //         'user_id'     => 5920,
+        //         'keterangan'=>'Dispensasi untuk pembayaran SPP',
+        //         'created_at'  => Carbon::parse('2023-05-01 10:00:00'),
+        //         'updated_at'  => Carbon::parse('2023-05-01 10:00:00'),
+        //     ],
+        // ]);
+        //  DB::table('keuangan_dispensasi')->insert([
+        //     [
+        //         'id'          => 11,
+        //         'nim'         => '20216610011',
+        //         'th_akademik_id' => 24,
+        //         'user_id'     => 5921,
+        //         'keterangan'=>'Dispensasi untuk pembayaran SPP',
+        //         'created_at'  => Carbon::parse('2023-05-01 10:00:00'),
+        //         'updated_at'  => Carbon::parse('2023-05-01 10:00:00'),
+        //     ],
+        // ]);
+        //  DB::table('keuangan_dispensasi')->insert([
+        //     [
+        //         'id'          => 12,
+        //         'nim'         => '20216610012',
+        //         'th_akademik_id' => 24,
+        //         'user_id'     => 5922,
+        //         'keterangan'=>'Dispensasi untuk pembayaran SPP',
+        //         'created_at'  => Carbon::parse('2023-05-01 10:00:00'),
+        //         'updated_at'  => Carbon::parse('2023-05-01 10:00:00'),
+        //     ],
+        // ]);
 
         DB::table('prodi')->insert([
             [
@@ -598,72 +598,72 @@ class DatabaseSeeder extends Seeder
             ],
         ]);
 
-        DB::table('keuangan_tagihan')->insert([
-            [
-                'id'               => 2651,
-                'th_akademik_id'   => 22,
-                'th_angkatan_id'   => 21,
-                'prodi_id'         => 6,
-                'double_degree'    => 1,
-                'kelas_id'         => 6,
-                'form_schadule_id' => 4,
-                'kode'             => '2221664',
-                'nama'             => 'SPP SEMESTER 2 BULAN 1',
-                'jumlah'           => 250000,
-                'x_sks'            => 'Y',
-                'user_id'          => 8,
-                'created_at'       => Carbon::parse('2025-07-22 18:53:50'),
-                'updated_at'       => Carbon::parse('2025-07-22 18:53:50'),
-            ],
-            [
-                'id'               => 2664,
-                'th_akademik_id'   => 24,
-                'th_angkatan_id'   => 21,
-                'prodi_id'         => 6,
-                'double_degree'    => 1,
-                'kelas_id'         => 6,
-                'form_schadule_id' => 1,
-                'kode'             => '2421661',
-                'nama'             => 'SPP SEMESTER 3 BULAN 6',
-                'jumlah'           => 250000,
-                'x_sks'            => 'Y',
-                'user_id'          => 8,
-                'created_at'       => Carbon::parse('2025-07-22 18:56:08'),
-                'updated_at'       => Carbon::parse('2025-07-22 18:56:08'),
-            ],
-            [
-                'id'               => 2658,
-                'th_akademik_id'   => 24,
-                'th_angkatan_id'   => 21,
-                'prodi_id'         => 6,
-                'double_degree'    => 1,
-                'kelas_id'         => 6,
-                'form_schadule_id' => 1,
-                'kode'             => '2421661',
-                'nama'             => 'HERREGISTRASI SEMESTER 3',
-                'jumlah'           => 300000,
-                'x_sks'            => 'Y',
-                'user_id'          => 8,
-                'created_at'       => Carbon::parse('2025-07-22 18:54:49'),
-                'updated_at'       => Carbon::parse('2025-07-22 18:54:49'),
-            ],
-            [
-                'id'               => 2654,
-                'th_akademik_id'   => 22,
-                'th_angkatan_id'   => 21,
-                'prodi_id'         => 6,
-                'double_degree'    => 1,
-                'kelas_id'         => 6,
-                'form_schadule_id' => 4,
-                'kode'             => '2221664',
-                'nama'             => 'SPP SEMESTER 2 BULAN 4',
-                'jumlah'           => 250000,
-                'x_sks'            => 'Y',
-                'user_id'          => 8,
-                'created_at'       => Carbon::parse('2025-07-22 18:54:11'),
-                'updated_at'       => Carbon::parse('2025-07-22 18:54:11'),
-            ],
-        ]);
+        // DB::table('keuangan_tagihan')->insert([
+        //     [
+        //         'id'               => 2651,
+        //         'th_akademik_id'   => 22,
+        //         'th_angkatan_id'   => 21,
+        //         'prodi_id'         => 6,
+        //         'double_degree'    => 1,
+        //         'kelas_id'         => 6,
+        //         'form_schadule_id' => 4,
+        //         'kode'             => '2221664',
+        //         'nama'             => 'SPP SEMESTER 2 BULAN 1',
+        //         'jumlah'           => 250000,
+        //         'x_sks'            => 'Y',
+        //         'user_id'          => 8,
+        //         'created_at'       => Carbon::parse('2025-07-22 18:53:50'),
+        //         'updated_at'       => Carbon::parse('2025-07-22 18:53:50'),
+        //     ],
+        //     [
+        //         'id'               => 2664,
+        //         'th_akademik_id'   => 24,
+        //         'th_angkatan_id'   => 21,
+        //         'prodi_id'         => 6,
+        //         'double_degree'    => 1,
+        //         'kelas_id'         => 6,
+        //         'form_schadule_id' => 1,
+        //         'kode'             => '2421661',
+        //         'nama'             => 'SPP SEMESTER 3 BULAN 6',
+        //         'jumlah'           => 250000,
+        //         'x_sks'            => 'Y',
+        //         'user_id'          => 8,
+        //         'created_at'       => Carbon::parse('2025-07-22 18:56:08'),
+        //         'updated_at'       => Carbon::parse('2025-07-22 18:56:08'),
+        //     ],
+        //     [
+        //         'id'               => 2658,
+        //         'th_akademik_id'   => 24,
+        //         'th_angkatan_id'   => 21,
+        //         'prodi_id'         => 6,
+        //         'double_degree'    => 1,
+        //         'kelas_id'         => 6,
+        //         'form_schadule_id' => 1,
+        //         'kode'             => '2421661',
+        //         'nama'             => 'HERREGISTRASI SEMESTER 3',
+        //         'jumlah'           => 300000,
+        //         'x_sks'            => 'Y',
+        //         'user_id'          => 8,
+        //         'created_at'       => Carbon::parse('2025-07-22 18:54:49'),
+        //         'updated_at'       => Carbon::parse('2025-07-22 18:54:49'),
+        //     ],
+        //     [
+        //         'id'               => 2654,
+        //         'th_akademik_id'   => 22,
+        //         'th_angkatan_id'   => 21,
+        //         'prodi_id'         => 6,
+        //         'double_degree'    => 1,
+        //         'kelas_id'         => 6,
+        //         'form_schadule_id' => 4,
+        //         'kode'             => '2221664',
+        //         'nama'             => 'SPP SEMESTER 2 BULAN 4',
+        //         'jumlah'           => 250000,
+        //         'x_sks'            => 'Y',
+        //         'user_id'          => 8,
+        //         'created_at'       => Carbon::parse('2025-07-22 18:54:11'),
+        //         'updated_at'       => Carbon::parse('2025-07-22 18:54:11'),
+        //     ],
+        // ]);
 
         DB::table('keuangan_saldo')->insert([
             [
