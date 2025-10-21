@@ -20,9 +20,8 @@ class DispensasiTagihanController extends Controller
             ->join('th_akademik', 'keuangan_dispensasi_tagihan.th_akademik_id', '=', 'th_akademik.id');
         if ($request->filled('search')) {
             $query->where(function ($q) use ($request) {
-                $q->where('nim', 'like', '%' . $request->search . '%')
-                    ->orWhere('keterangan', 'like', '%' . $request->search . '%')
-                    ->orWhere('th_akademik.kode', 'like', '%' . $request->search . '%');
+                $q->where('nim', 'LIKE',"%$request->search%")
+                    ->orWhere('keterangan', 'LIKE',"%$request->search%");
             });
         }
 

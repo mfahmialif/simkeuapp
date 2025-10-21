@@ -16,12 +16,12 @@ class DispensasiController extends Controller
 {
     public function index(Request $request)
     {
+        Log::info($request->search);
         $query = KeuanganDispensasi::join('users', 'keuangan_dispensasi.user_id', '=', 'users.id')->join('th_akademik', 'keuangan_dispensasi.th_akademik_id', '=', 'th_akademik.id');
         if ($request->filled('search')) {
             $query->where(function ($q) use ($request) {
-                $q->where('nim', 'like', '%' . $request->search . '%')
-                    ->orWhere('keterangan', 'like', '%' . $request->search . '%')
-                    ->orWhere('th_akademik_id', 'like', '%' . $request->search . '%');
+                $q->where('nim', 'LIKE',"%$request->search%")
+                    ->orWhere('keterangan', 'LIKE',"%$request->search%");
             });
         }
 
@@ -31,11 +31,10 @@ class DispensasiController extends Controller
 
         $query->select('keuangan_dispensasi.*', 'users.name as nama','th_akademik.kode as th_akademik');
         $query = $query->paginate($request->input('limit', 10));
-        $nim = Mahasiswa::nim(202585330020);
+        // $nim = Mahasiswa::nim(202585330020);
         return response()->json([
             'status' => 'true',
             'data' => $query,
-            'nim'=>$nim,
             'message' => 'Data dispensasi keuangan berhasil diambil',
             'jk' => Helper::getJenisKelaminUser()
         ]);
