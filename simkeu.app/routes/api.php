@@ -24,6 +24,7 @@ use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\CatatanDepositController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\JenisPembayaranController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\LaporanController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\PemasukanPengeluaranController;
+use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\DispensasiUasController;
 
 Route::prefix('auth')->group(function () {
     Route::post('/login', [AuthController::class, 'login']);
@@ -59,13 +60,17 @@ Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
 
             Route::get('catatan-deposit/nim/{nim}', [CatatanDepositController::class, 'nim'])->name('admin.pemasukan.mahasiswa.catatan-deposit.nim');
             Route::apiResource('catatan-deposit', CatatanDepositController::class);
-            Route::apiResource('catatan-deposit', CatatanDepositController::class);
 
             Route::apiResource('pemasukan-pengeluaran', PemasukanPengeluaranController::class);
-            Route::apiResource('dispensasi',DispensasiController::class);
+
             Route::get('dispensasi/auto-complete/{search}', [DispensasiController::class, 'autoComplete']);
+            Route::apiResource('dispensasi', DispensasiController::class);
+
             Route::get('dispensasi-tagihan/auto-complete/{search}', [DispensasiTagihanController::class, 'autoComplete']);
-            Route::apiResource('dispensasi-tagihan',DispensasiTagihanController::class);
+            Route::apiResource('dispensasi-tagihan', DispensasiTagihanController::class);
+
+            Route::get('dispensasi-uas/auto-complete/{search}', [DispensasiUasController::class, 'autoComplete']);
+            Route::apiResource('dispensasi-uas', DispensasiUasController::class);
 
             Route::prefix('laporan')->group(function () {
                 Route::get('harian', [LaporanController::class, 'harian']);

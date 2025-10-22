@@ -12,28 +12,14 @@ class TestingController extends Controller
 {
     public function index()
     {
+        return self::syncJkId();
         // dd(Mahasiswa::updateStatusMahasiswa('202485010002', 20));
         // $getSemester = Mahasiswa::getSemester(24, 6, 8);
         // $getMahasiswaBySemester = Mahasiswa::getMahasiswaBySemester(24, 6, 8, 1)->data;
         // $mahasiswa = collect($getMahasiswaBySemester->mahasiswa)->pluck('nim')->values();
         // dd($mahasiswa);
 
-        // $jkId = [8, 9];
-        // foreach ($jkId as $item) {
-        //     $nim = collect(Mahasiswa::all(null, null, null, null, null, [
-        //         ['mst_mhs.jk_id', '=', $item]
-        //     ]))
-        //         ->pluck('nim')        // pastikan jadi list NIM saja
-        //         ->filter()            // buang null/kosong
-        //         ->unique()
-        //         ->values();
-
-        //     foreach ($nim->chunk(1000) as $chunk) {
-        //         KeuanganPembayaran::whereIn('nim', $chunk->all())
-        //             ->update(['jk_id' => $item]);
-        //     }
-        // }
-        // return response()->json(['ok' => true, 'message' => 'Sinkron jk_id selesai (fast join).']);
+       
         // $pembayaranTanpaJenisPembayaran = KeuanganPembayaran::leftJoin('keuangan_jenis_pembayaran_detail', 'keuangan_pembayaran.id', '=', 'keuangan_jenis_pembayaran_detail.pembayaran_id')
         //     // ->whereNull('keuangan_jenis_pembayaran_detail.id')
         //     // ->select('keuangan_pembayaran.*', 'keuangan_jenis_pembayaran_detail.id as jenis_pembayaran_id')
@@ -95,5 +81,25 @@ class TestingController extends Controller
         //     // 'pending'     => $pending,
         // ];
 
+    }
+
+    public static function syncJkId()
+    {
+        $jkId = [8, 9];
+        foreach ($jkId as $item) {
+            $nim = collect(Mahasiswa::all(null, null, null, null, null, [
+                ['mst_mhs.jk_id', '=', $item]
+            ]))
+                ->pluck('nim')        // pastikan jadi list NIM saja
+                ->filter()            // buang null/kosong
+                ->unique()
+                ->values();
+
+            foreach ($nim->chunk(1000) as $chunk) {
+                KeuanganPembayaran::whereIn('nim', $chunk->all())
+                    ->update(['jk_id' => $item]);
+            }
+        }
+        return response()->json(['ok' => true, 'message' => 'Sinkron jk_id selesai (fast join).']);
     }
 }
