@@ -2,9 +2,10 @@
 
 namespace App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa;
 
-use App\Http\Controllers\Controller;
-use App\Models\KeuanganSetoran;
 use Illuminate\Http\Request;
+use App\Models\KeuanganSetoran;
+use App\Http\Controllers\Controller;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
 
 class SetoranController extends Controller
@@ -56,11 +57,8 @@ class SetoranController extends Controller
     {
         $v = Validator::make($request->all(), [
             'tanggal'      => 'required|date',
-            'user_id'      => 'required|integer',
             'jumlah'       => 'required|numeric',
-            'validator_id' => 'nullable|integer',
-            'status'       => 'nullable|string|max:255',
-            'kategori'     => 'nullable|string|max:255',
+            'kategori'     => 'required|string|max:255',
             'keterangan'   => 'nullable|string',
         ]);
 
@@ -68,15 +66,16 @@ class SetoranController extends Controller
             return response()->json(['status' => false, 'message' => $v->errors()], 422);
         }
 
-        $data = KeuanganSetoran::create($request->only([
-            'tanggal',
-            'user_id',
-            'jumlah',
-            'validator_id',
-            'status',
-            'kategori',
-            'keterangan'
-        ]));
+        $user = Auth::user();
+        $data = KeuanganSetoran::create([
+            'tanggal'      => $request->tanggal,
+            'jumlah'       => $request->jumlah,
+            'kategori'     => $request->kategori,
+            'keterangan'   => $request->keterangan,
+            'user_id'      => $user->id,
+            'validator_id' => $user->id,
+            'status'       => 'Belum Divalidasi',
+        ]);
 
         return response()->json([
             'status'  => true,
@@ -100,11 +99,8 @@ class SetoranController extends Controller
     {
         $v = Validator::make($request->all(), [
             'tanggal'      => 'required|date',
-            'user_id'      => 'required|integer',
             'jumlah'       => 'required|numeric',
-            'validator_id' => 'nullable|integer',
-            'status'       => 'nullable|string|max:255',
-            'kategori'     => 'nullable|string|max:255',
+            'kategori'     => 'required|string|max:255',
             'keterangan'   => 'nullable|string',
         ]);
         if ($v->fails()) {
@@ -118,10 +114,7 @@ class SetoranController extends Controller
 
         $data->update($request->only([
             'tanggal',
-            'user_id',
             'jumlah',
-            'validator_id',
-            'status',
             'kategori',
             'keterangan'
         ]));
@@ -148,4 +141,31 @@ class SetoranController extends Controller
             'message' => 'Setoran berhasil dihapus.',
         ]);
     }
+
+    // PUT/PATCH /keuangan/setoran/{id}/validasi
+    public function validasi(Request $request, $id)
+    {
+        $v = Validator::make($request->all(), [
+            'status'      => 'required|string|max:255',
+        ]);
+        if ($v->fails()) {
+            return response()->json(['status' => false, 'message' => $v->errors()], 422);
+        }
+
+        $data = KeuanganSetoran::find($id);
+        if (!$data) {
+            return response()->json(['status' => false, 'message' => 'Setoran tidak ditemukan.'], 404);
+        }
+
+        $data->update($request->only([
+            'status'
+        ]));
+
+        return response()->json([
+            'status'  => true,
+            'data'    => $data,
+            'message' => 'Setoran berhasil diperbarui.',
+        ]);
+    }
+
 }

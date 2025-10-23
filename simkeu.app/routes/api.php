@@ -57,6 +57,7 @@ Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
             Route::apiResource('pembayaran', PembayaranController::class);
 
             Route::apiResource('setoran', SetoranController::class);
+            Route::put('setoran/{id}/validasi', [SetoranController::class, 'validasi'])->name('admin.pemasukan.mahasiswa.setoran.validasi');
 
             Route::get('catatan-deposit/nim/{nim}', [CatatanDepositController::class, 'nim'])->name('admin.pemasukan.mahasiswa.catatan-deposit.nim');
             Route::apiResource('catatan-deposit', CatatanDepositController::class);
