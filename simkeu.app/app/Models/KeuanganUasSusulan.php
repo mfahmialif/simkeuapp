@@ -17,4 +17,8 @@ class KeuanganUasSusulan extends Model
     {
         return $this->belongsTo(User::class);
     }
+    
+    public function uasSusulanMk(){
+        return $this->hasMany(KeuanganUasSusulanMk::class, 'uas_susulan_id');
+    }
 }
