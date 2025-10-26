@@ -25,7 +25,7 @@ use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\JenisPembayaranController
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\LaporanController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\PemasukanPengeluaranController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\DispensasiUasController;
-use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\KeuanganUasSusulanController;
+use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\UasSusulanController;
 
 Route::prefix('auth')->group(function () {
     Route::post('/login', [AuthController::class, 'login']);
@@ -57,13 +57,17 @@ Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
             Route::get('pembayaran/kwitansi/{id}/view', [PembayaranController::class, 'kwitansiPreview'])->name('admin.pemasukan.mahasiswa.kwitansi.view');
             Route::apiResource('pembayaran', PembayaranController::class);
 
-            Route::post('uas-susulan/full', [KeuanganUasSusulanController::class, 'storeFull'])
+            Route::post('uas-susulan/full', [UasSusulanController::class, 'storeFull'])
                 ->name('admin.pemasukan.mahasiswa.uas-susulan.storeFull');
-            Route::put('uas-susulan/full/{id}', [KeuanganUasSusulanController::class, 'updateFull'])
+            Route::put('uas-susulan/full/{id}', [UasSusulanController::class, 'updateFull'])
                 ->name('admin.pemasukan.mahasiswa.uas-susulan.updateFull');
-            Route::delete('uas-susulan/full/{id}', [KeuanganUasSusulanController::class, 'destroyFull'])
+            Route::delete('uas-susulan/full/{id}', [UasSusulanController::class, 'destroyFull'])
                 ->name('admin.pemasukan.mahasiswa.uas-susulan.destroyFull');
-            Route::apiResource('uas-susulan', KeuanganUasSusulanController::class);
+            Route::get('uas-susulan/jadwal-kuliah', [UasSusulanController::class, 'getJadwalKuliah'])
+                ->name('admin.pemasukan.mahasiswa.uas-susulan.getJadwalKuliah');
+            Route::get('uas-susulan/excel', [UasSusulanController::class, 'excel'])
+                ->name('admin.pemasukan.mahasiswa.uas-susulan.excel');
+            Route::apiResource('uas-susulan', UasSusulanController::class);
 
             Route::apiResource('setoran', SetoranController::class);
             Route::put('setoran/{id}/validasi', [SetoranController::class, 'validasi'])->name('admin.pemasukan.mahasiswa.setoran.validasi');
@@ -114,4 +118,6 @@ Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
 Route::prefix('helper')->middleware('auth:sanctum')->group(function () {
     Route::get('/get-enum-values', [HelperController::class, 'getEnumValues']);
 });
+
+Route::get('admin/pemasukan/mahasiswa/uas-susulann/excel', [UasSusulanController::class, 'excel']);
 // Route::get('admin/pemasukan/mahasiswa/pembayaran/kwitansi/{id}', [PembayaranController::class, 'kwitansi'])->name('admin.pemasukan.mahasiswa.kwitansi.view');
