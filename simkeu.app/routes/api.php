@@ -26,6 +26,7 @@ use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\LaporanController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\PemasukanPengeluaranController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\DispensasiUasController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\UasSusulanController;
+use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\PembayaranIdnController;
 
 Route::prefix('auth')->group(function () {
     Route::post('/login', [AuthController::class, 'login']);
@@ -56,6 +57,8 @@ Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
             Route::get('pembayaran/kwitansi/{id}', [PembayaranController::class, 'kwitansi'])->name('admin.pemasukan.mahasiswa.kwitansi');
             Route::get('pembayaran/kwitansi/{id}/view', [PembayaranController::class, 'kwitansiPreview'])->name('admin.pemasukan.mahasiswa.kwitansi.view');
             Route::apiResource('pembayaran', PembayaranController::class);
+
+            Route::apiResource('pembayaran-idn', PembayaranIdnController::class);
 
             Route::post('uas-susulan/full', [UasSusulanController::class, 'storeFull'])
                 ->name('admin.pemasukan.mahasiswa.uas-susulan.storeFull');
