@@ -2,17 +2,21 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\Helper;
+use App\Services\Jadwal;
 use App\Services\Mahasiswa;
 use App\Models\KeuanganSetoran;
 use App\Models\KeuanganPembayaran;
-use App\Services\Helper;
 use Illuminate\Support\Facades\DB;
 
 class TestingController extends Controller
 {
     public function index()
     {
-        return self::syncJkId();
+        // return self::syncJkId();
+        
+        // $cek = Jadwal::mahasiswa('2025850100022', 24);
+        // dd($cek);
         // dd(Mahasiswa::updateStatusMahasiswa('202485010002', 20));
         // $getSemester = Mahasiswa::getSemester(24, 6, 8);
         // $getMahasiswaBySemester = Mahasiswa::getMahasiswaBySemester(24, 6, 8, 1)->data;
