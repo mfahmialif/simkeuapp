@@ -77,6 +77,7 @@ Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
             Route::apiResource('dispensasi', DispensasiController::class);
 
             Route::get('dispensasi-tagihan/auto-complete/{search}', [DispensasiTagihanController::class, 'autoComplete']);
+            Route::post('dispensasi-tagihan/join', [DispensasiTagihanController::class, 'gabung'])->name('admin.pemasukan.mahasiswa.dispensasi-tagihan.join');
             Route::apiResource('dispensasi-tagihan', DispensasiTagihanController::class);
 
             Route::get('dispensasi-uas/auto-complete/{search}', [DispensasiUasController::class, 'autoComplete']);
