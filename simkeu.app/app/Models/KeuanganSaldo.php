@@ -11,4 +11,14 @@ class KeuanganSaldo extends Model
 
     protected $table = 'keuangan_saldo';
     protected $guarded = [];
+
+    public function pemasukan()
+    {
+        return $this->hasMany(KeuanganSaldoPemasukan::class);
+    }
+
+    public function pengeluaran()
+    {
+        return $this->hasMany(KeuanganSaldoPengeluaran::class);
+    }
 }

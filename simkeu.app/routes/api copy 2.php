@@ -12,7 +12,6 @@ use App\Http\Controllers\Api\Admin\ProfilController;
 use App\Http\Controllers\Api\Admin\DashboardController;
 use App\Http\Controllers\Api\Admin\MahasiswaController;
 use App\Http\Controllers\Api\Admin\ThAkademikController;
-use App\Http\Controllers\Api\Admin\PengeluaranController;
 use App\Http\Controllers\Api\Admin\FormSchaduleController;
 use App\Http\Controllers\Api\Admin\Saldo\KategoriController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Pemasukan\TambahController;
@@ -41,7 +40,7 @@ Route::prefix('auth')->group(function () {
     });
 });
 
-Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,keuangan,pimpinan,staff'])->group(function () {
+Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
     Route::prefix('dashboard')->group(function () {
         Route::get('/tableOverview', [DashboardController::class, 'tableOverview'])->name('dashboard.tableOverview');
         Route::get('/getWidget', [DashboardController::class, 'getWidget'])->name('dashboard.getWidget');
@@ -91,7 +90,6 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,keuangan,pimpina
             Route::apiResource('dispensasi', DispensasiController::class);
 
             Route::get('dispensasi-tagihan/auto-complete/{search}', [DispensasiTagihanController::class, 'autoComplete']);
-            Route::post('dispensasi-tagihan/join', [DispensasiTagihanController::class, 'gabung'])->name('admin.pemasukan.mahasiswa.dispensasi-tagihan.join');
             Route::apiResource('dispensasi-tagihan', DispensasiTagihanController::class);
 
             Route::get('dispensasi-uas/auto-complete/{search}', [DispensasiUasController::class, 'autoComplete']);
@@ -111,8 +109,6 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,keuangan,pimpina
             Route::apiResource('tambah', TambahController::class);
         });
     });
-    
-    Route::apiResource('pengeluaran', PengeluaranController::class);
 
     Route::apiResource('users', UserController::class);
     Route::apiResource('role', RoleController::class);
