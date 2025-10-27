@@ -1,9 +1,10 @@
 <?php
 namespace App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa;
 
+use App\Services\Helper;
+use Illuminate\Http\Request;
 use App\Http\Controllers\Controller;
 use App\Models\KeuanganJenisPembayaran;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
 class JenisPembayaranController extends Controller
@@ -26,8 +27,11 @@ class JenisPembayaranController extends Controller
         if ($request->filled('search')) {
             $query->where(function ($q) use ($request) {
                 $q->orWhere('nama', 'LIKE', "%$request->search%");
+                $q->orWhere('kategori', 'LIKE', "%$request->search%");
             });
         }
+
+        $query->where('kategori', 'LIKE', "%" . Helper::getJenisKelaminUser()->kategori . "%");
 
         // Sorting
         $sortKey   = $request->input('sort_key', 'id');

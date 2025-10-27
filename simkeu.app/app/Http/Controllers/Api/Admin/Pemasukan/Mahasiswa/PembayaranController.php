@@ -41,6 +41,8 @@ class PembayaranController extends Controller
             });
         }
 
+        $query->where('keuangan_pembayaran.jk_id', 'LIKE', "%" . Helper::getJenisKelaminUser()->id . "%");
+
         if ($request->filled('th_akademik_id')) {
             $query->where('keuangan_pembayaran.th_akademik_id', $request->th_akademik_id);
         }

@@ -38,6 +38,9 @@ class PembayaranTambahanController extends Controller
             });
         }
 
+        $query->where('keuangan_pembayaran_tambahan.jenis_kelamin', 'LIKE', "%" . Helper::getJenisKelaminUser()->kode . "%");
+
+
         // Sorting
         $sortKey   = $request->input('sort_key', 'id');
         $sortOrder = $request->input('sort_order', 'desc'); // 'asc' or 'desc'

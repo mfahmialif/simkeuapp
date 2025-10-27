@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa;
 
 use Carbon\Carbon;
 use App\Models\Prodi;
+use App\Services\Helper;
 use App\Services\Jadwal;
 use Illuminate\Http\Request;
 use App\Exports\UasSusulanExport;
@@ -38,6 +39,8 @@ class UasSusulanController extends Controller
         // Filter spesifik (opsional)
         if ($request->filled('th_akademik_id'))       $q->where('th_akademik_id', $request->th_akademik_id);
 
+        $q = Helper::whereMahasiswaJkChunk($q, 'keuangan_uas_susulan.nim');
+        
         // Sorting (whitelist)
         $sortKey   = $request->input('sort_key', 'id');
         $sortOrder = strtolower($request->input('sort_order', 'desc')) === 'asc' ? 'asc' : 'desc';

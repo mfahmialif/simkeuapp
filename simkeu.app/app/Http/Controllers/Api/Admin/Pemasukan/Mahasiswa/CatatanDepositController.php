@@ -2,9 +2,10 @@
 
 namespace App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa;
 
-use App\Http\Controllers\Controller;
-use App\Models\KeuanganDeposit;
+use App\Services\Helper;
 use Illuminate\Http\Request;
+use App\Models\KeuanganDeposit;
+use App\Http\Controllers\Controller;
 use Illuminate\Support\Facades\Validator;
 
 class CatatanDepositController extends Controller
@@ -21,9 +22,11 @@ class CatatanDepositController extends Controller
             $search = $request->search;
             $query->where(function ($q) use ($search) {
                 $q->where('nim', 'LIKE', "%{$search}%")
-                  ->orWhere('keterangan', 'LIKE', "%{$search}%");
+                    ->orWhere('keterangan', 'LIKE', "%{$search}%");
             });
         }
+
+        $query = Helper::whereMahasiswaJkChunk($query, 'nim');
 
         // Optional filter by NIM
         if ($request->filled('nim')) {
@@ -68,7 +71,7 @@ class CatatanDepositController extends Controller
             ], 422);
         }
 
-        $data = KeuanganDeposit::where('nim',$request->nim)->first();
+        $data = KeuanganDeposit::where('nim', $request->nim)->first();
 
         if ($data) {
             $data->jumlah += $request->jumlah;

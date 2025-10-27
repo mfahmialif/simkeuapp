@@ -246,20 +246,18 @@ class Helper
             "kode" => "%",
         ];
 
-        return $putra;
+        $jenisKelamin = auth()->user()->jenis_kelamin != null ? auth()->user()->jenis_kelamin : 'Laki-laki';
 
-        $jenisKelamin = auth()->user()->jk_id != null ? auth()->user()->jk_id : 8;
-
-        if ($jenisKelamin == 9) {
+        if ($jenisKelamin == 'Perempuan') {
             return $putri;
         } else {
             if (auth()->user()->level_id == 1) { // jika admin
-                if (strtolower(Session::get('kategori_sistem')) == "putri") {
-                    return $putri;
-                }
-                if (strtolower(Session::get('kategori_sistem')) == "putra") {
-                    return $putra;
-                }
+                // if (strtolower(Session::get('kategori_sistem')) == "putri") {
+                //     return $putri;
+                // }
+                // if (strtolower(Session::get('kategori_sistem')) == "putra") {
+                //     return $putra;
+                // }
                 return $semua;
             }
 
@@ -274,5 +272,79 @@ class Helper
         } else {
             return false;
         }
+    }
+
+    public static function tempMahasiswaJk()
+    {
+        $nimList = collect(Mahasiswa::all(null, null, null, null, null, [
+            ['mst_mhs.jk_id', '=', Helper::getJenisKelaminUser()->id]
+        ]))
+            ->pluck('nim')        // pastikan jadi list NIM saja
+            ->filter()            // buang null/kosong
+            ->unique()
+            ->values();
+
+        $collation = 'utf8mb4_unicode_ci';
+
+        DB::statement("
+            CREATE TEMPORARY TABLE tmp_nims (
+                nim VARCHAR(32) COLLATE {$collation} PRIMARY KEY
+            ) ENGINE=Memory
+            DEFAULT CHARSET=utf8mb4
+            COLLATE={$collation}
+        ");
+        collect($nimList)->chunk(1000)->each(function ($chunk) {
+            DB::table('tmp_nims')->insert($chunk->map(fn($n) => ['nim' => $n])->all());
+        });
+    
+    }
+    public static function whereMahasiswaJkTemp($query, $column)
+    {
+        $nimList = collect(Mahasiswa::all(null, null, null, null, null, [
+            ['mst_mhs.jk_id', '=', Helper::getJenisKelaminUser()->id]
+        ]))
+            ->pluck('nim')        // pastikan jadi list NIM saja
+            ->filter()            // buang null/kosong
+            ->unique()
+            ->values();
+
+        $collation = 'utf8mb4_unicode_ci';
+
+        DB::statement("
+            CREATE TEMPORARY TABLE tmp_nims (
+                nim VARCHAR(32) COLLATE {$collation} PRIMARY KEY
+            ) ENGINE=Memory
+            DEFAULT CHARSET=utf8mb4
+            COLLATE={$collation}
+        ");
+        collect($nimList)->chunk(1000)->each(function ($chunk) {
+            DB::table('tmp_nims')->insert($chunk->map(fn($n) => ['nim' => $n])->all());
+        });
+
+        $query->join('tmp_nims', 'tmp_nims.nim', '=', $column);
+        return $query;
+    }
+
+    public static function whereMahasiswaJkChunk($query, $column)
+    {
+        $nimList = collect(Mahasiswa::all(null, null, null, null, null, [
+            ['mst_mhs.jk_id', '=', Helper::getJenisKelaminUser()->id]
+        ]))
+            ->pluck('nim')        // pastikan jadi list NIM saja
+            ->filter()            // buang null/kosong
+            ->unique()
+            ->values()
+            ->toArray();
+
+        if (!empty($nimList)) {
+            $chunks = array_chunk($nimList, 1000);
+            $query->where(function ($q) use ($chunks, $column) {
+                foreach ($chunks as $chunk) {
+                    $q->orWhereIn($column, $chunk);
+                }
+            });
+        }
+
+        return $query;
     }
 }

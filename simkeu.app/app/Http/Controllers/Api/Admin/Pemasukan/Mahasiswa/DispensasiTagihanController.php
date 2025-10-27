@@ -26,6 +26,8 @@ class DispensasiTagihanController extends Controller
             });
         }
 
+        $query = Helper::whereMahasiswaJkChunk($query, 'keuangan_dispensasi_tagihan.nim');
+
         $sortKey = $request->input('sort_key', 'id');
         $sortOrder = $request->input('sort_order', 'desc');
         $query->orderBy($sortKey, $sortOrder);
