@@ -43,8 +43,9 @@ Route::prefix('auth')->group(function () {
 
 Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,keuangan,pimpinan,staff'])->group(function () {
     Route::prefix('dashboard')->group(function () {
-        Route::get('/tableOverview', [DashboardController::class, 'tableOverview'])->name('dashboard.tableOverview');
-        Route::get('/getWidget', [DashboardController::class, 'getWidget'])->name('dashboard.getWidget');
+        Route::get('/widget', [DashboardController::class, 'widget'])->name('admin.dashboard.widget');
+        Route::get('/finance-overview', [DashboardController::class, 'financeOverview'])->name('admin.dashboard.finance-overview');
+        Route::get('/statistic', [DashboardController::class, 'statistic'])->name('admin.dashboard.statistic');
     });
 
     Route::prefix('saldo')->group(function () {
@@ -138,4 +139,5 @@ Route::prefix('helper')->middleware('auth:sanctum')->group(function () {
 
 Route::get('admin/pemasukan/mahasiswa/uas-susulann/excel', [UasSusulanController::class, 'excel']);
 Route::get('teskwitansi/{id}', [PembayaranTambahanController::class, 'kwitansi']);
+Route::get('tesStatistic', [DashboardController::class, 'statistic']);
 // Route::get('admin/pemasukan/mahasiswa/pembayaran/kwitansi/{id}', [PembayaranController::class, 'kwitansi'])->name('admin.pemasukan.mahasiswa.kwitansi.view');
