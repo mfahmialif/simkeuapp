@@ -251,7 +251,7 @@ class Helper
         if ($jenisKelamin == 'Perempuan') {
             return $putri;
         } else {
-            if (auth()->user()->level_id == 1) { // jika admin
+            if (auth()->user()->role_id == 1) { // jika admin
                 // if (strtolower(Session::get('kategori_sistem')) == "putri") {
                 //     return $putri;
                 // }

@@ -7,13 +7,16 @@ use App\Services\Jadwal;
 use App\Services\Mahasiswa;
 use App\Models\KeuanganSetoran;
 use App\Models\KeuanganPembayaran;
+use App\Services\TagihanMahasiswa;
 use Illuminate\Support\Facades\DB;
 
 class TestingController extends Controller
 {
     public function index()
     {
-        return self::syncJkId();
+        // return TagihanMahasiswa::tagihan('202085010067');
+        
+        // return self::syncJkId();
         
         // $cek = Jadwal::mahasiswa('2025850100022', 24);
         // dd($cek);
