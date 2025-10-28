@@ -41,7 +41,7 @@ Route::prefix('auth')->group(function () {
     });
 });
 
-Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,keuangan,pimpinan,staff'])->group(function () {
+Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuangan,kabag,staff,rumahtangga'])->group(function () {
     Route::prefix('dashboard')->group(function () {
         Route::get('/widget', [DashboardController::class, 'widget'])->name('admin.dashboard.widget');
         Route::get('/finance-overview', [DashboardController::class, 'financeOverview'])->name('admin.dashboard.finance-overview');

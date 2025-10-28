@@ -1,4 +1,5 @@
 <?php
+
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
@@ -41,11 +42,12 @@ class AuthController extends Controller
 
         $abilities = [];
 
-        if ($user->role->name === 'admin' || $user->role->name === 'staff') {
-            $abilities[] = 'manage:all';
-        } else {
-            $abilities[] = 'read:AclDemo';
-        }
+        $abilities[] = 'manage:all';
+        // if ($user->role->name === 'admin' || $user->role->name === 'staff') {
+        //     $abilities[] = 'manage:all';
+        // } else {
+        //     $abilities[] = 'read:AclDemo';
+        // }
 
         // Buat token baru
         $token = $user->createToken('api-token', $abilities)->plainTextToken;
@@ -136,7 +138,6 @@ class AuthController extends Controller
                     'message' => 'No authenticated user found',
                 ], 401);
             }
-
         } catch (\Throwable $th) {
             // Return error message if any exception occurs
             return response()->json([
