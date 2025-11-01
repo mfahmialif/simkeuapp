@@ -14,9 +14,12 @@ class TestingController extends Controller
 {
     public function index()
     {
-        // return TagihanMahasiswa::tagihan('202085010067');
+        // $m = Mahasiswa::nim('202385200080');
+        // $angkatan = (int) substr($m->th_akademik->kode, 0, 4);
+        // dd($angkatan);
+        // return TagihanMahasiswa::tagihan('202385200080');
         
-        return self::syncJkId();
+        // return self::syncJkId();
         
         // $cek = Jadwal::mahasiswa('2025850100022', 24);
         // dd($cek);
