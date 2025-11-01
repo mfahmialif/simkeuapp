@@ -56,6 +56,9 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
         Route::prefix('mahasiswa')->group(function () {
             Route::apiResource('jenis-pembayaran', JenisPembayaranController::class);
             Route::apiResource('tagihan', TagihanController::class);
+            
+            Route::get('cek-tagihan/pdf', [CekTagihanController::class, 'pdf']);
+            Route::get('cek-tagihan/excel', [CekTagihanController::class, 'excel']);
             Route::apiResource('cek-tagihan', CekTagihanController::class);
 
             Route::get('pembayaran/kwitansi/{id}', [PembayaranController::class, 'kwitansi'])->name('admin.pemasukan.mahasiswa.pembayaran.kwitansi');
@@ -138,6 +141,6 @@ Route::prefix('helper')->middleware('auth:sanctum')->group(function () {
 });
 
 Route::get('admin/pemasukan/mahasiswa/uas-susulann/excel', [UasSusulanController::class, 'excel']);
-Route::get('teskwitansi/{id}', [PembayaranTambahanController::class, 'kwitansi']);
-Route::get('tesStatistic', [DashboardController::class, 'statistic']);
+// Route::get('testing', [CekTagihanController::class, 'pdf']);
+// Route::get('testing2', [CekTagihanController::class, 'excel']);
 // Route::get('admin/pemasukan/mahasiswa/pembayaran/kwitansi/{id}', [PembayaranController::class, 'kwitansi'])->name('admin.pemasukan.mahasiswa.kwitansi.view');

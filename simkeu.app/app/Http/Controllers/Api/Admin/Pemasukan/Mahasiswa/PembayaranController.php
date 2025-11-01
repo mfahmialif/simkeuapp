@@ -27,7 +27,9 @@ class PembayaranController extends Controller
     {
         $query = KeuanganPembayaran::join('th_akademik', 'th_akademik.id', '=', 'keuangan_pembayaran.th_akademik_id')
             ->join('keuangan_tagihan', 'keuangan_tagihan.id', '=', 'keuangan_pembayaran.tagihan_id')
-            ->leftJoin('keuangan_nota', 'keuangan_nota.pembayaran_id', '=', 'keuangan_pembayaran.id');
+            ->leftJoin('keuangan_nota', 'keuangan_nota.pembayaran_id', '=', 'keuangan_pembayaran.id')
+            ->leftJoin('keuangan_jenis_pembayaran_detail', 'keuangan_jenis_pembayaran_detail.pembayaran_id', '=', 'keuangan_pembayaran.id')
+            ->leftJoin('keuangan_jenis_pembayaran', 'keuangan_jenis_pembayaran.id', '=', 'keuangan_jenis_pembayaran_detail.jenis_pembayaran_id');
 
         if ($request->filled('search')) {
             $query->where(function ($q) use ($request) {
@@ -53,7 +55,7 @@ class PembayaranController extends Controller
 
         $query->orderBy($sortKey, $sortOrder);
         $query
-            ->select('keuangan_pembayaran.*', 'th_akademik.kode as th_akademik_kode', 'keuangan_tagihan.nama as keuangan_tagihan_nama')
+            ->select('keuangan_pembayaran.*', 'th_akademik.kode as th_akademik_kode', 'keuangan_tagihan.nama as keuangan_tagihan_nama', 'keuangan_jenis_pembayaran.nama as keuangan_jenis_pembayaran_nama')
             ->addSelect(DB::raw(
                 "COALESCE(keuangan_nota.nota, keuangan_pembayaran.nomor) AS nota"
             ));

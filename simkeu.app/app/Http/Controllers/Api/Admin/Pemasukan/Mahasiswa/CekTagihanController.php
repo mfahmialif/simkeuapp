@@ -4,8 +4,11 @@ namespace App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa;
 
 use App\Services\Mahasiswa;
 use Illuminate\Http\Request;
-use App\Http\Controllers\Controller;
 use App\Services\TagihanMahasiswa;
+use App\Http\Controllers\Controller;
+use Maatwebsite\Excel\Facades\Excel;
+use App\Exports\LaporanTagihanExport;
+use App\Exports\pdf\LaporanTagihanPdf;
 use Illuminate\Support\Facades\Validator;
 
 class CekTagihanController extends Controller
@@ -81,5 +84,58 @@ class CekTagihanController extends Controller
     public function destroy(string $id)
     {
         //
+    }
+
+    public function pdf(Request $request)
+    {
+        try {
+            $dataValidated = $request->validate([
+                'nim' => 'required',
+                'prodi' => 'required',
+                'nama' => 'required',
+                'tahun_akademik' => 'required',
+                'deposit' => 'nullable',
+            ]);
+
+            return LaporanTagihanPdf::pdf($dataValidated);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'message' => 422,
+                'error' => implode(' ', collect($e->errors())->flatten()->toArray()),
+                'req' => $request->all()
+            ]);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status' => false,
+                'message' => $th->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function excel(Request $request)
+    {
+        try {
+            $dataValidated = $request->validate([
+                'nim' => 'required',
+                'prodi' => 'nullable',
+                'nama' => 'nullable',
+                'tahun_akademik' => 'nullable',
+                'deposit' => 'nullable',
+            ]);
+
+            return Excel::download(new LaporanTagihanExport($dataValidated['nim'], $dataValidated['prodi'], $dataValidated['nama'], $dataValidated['tahun_akademik'], $dataValidated['deposit']), 'Cek Tagihan.xlsx');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            \DB::rollBack();
+            return response()->json([
+                'message' => 422,
+                'error' => implode(' ', collect($e->errors())->flatten()->toArray()),
+                'req' => $request->all()
+            ]);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status' => false,
+                'message' => $th->getMessage(),
+            ], 500);
+        }
     }
 }

@@ -16,7 +16,7 @@ class TestingController extends Controller
     {
         // return TagihanMahasiswa::tagihan('202085010067');
         
-        // return self::syncJkId();
+        return self::syncJkId();
         
         // $cek = Jadwal::mahasiswa('2025850100022', 24);
         // dd($cek);

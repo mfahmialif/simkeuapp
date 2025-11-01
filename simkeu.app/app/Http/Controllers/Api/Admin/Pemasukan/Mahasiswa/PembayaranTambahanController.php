@@ -214,6 +214,7 @@ class PembayaranTambahanController extends Controller
 
             $pembayaran->update([
                 "tanggal" => $request->tanggal,
+                "tagihan" => $request->list_tagihan,
                 'th_akademik' => $request->th_akademik_1 . '-' . $request->th_akademik_2,
                 "nim" => strtoupper($request->nim),
                 "nama" => $request->nama,
@@ -233,6 +234,7 @@ class PembayaranTambahanController extends Controller
                 'status'  => true,
                 'message' => 'Berhasil mengupdate data.',
                 'code'     => 200,
+                'req' => $request->all()
             ]);
         } catch (\Throwable $th) {
             return response()->json([

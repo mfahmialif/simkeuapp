@@ -55,7 +55,7 @@ class MahasiswaController extends Controller
      */
     public function search($search)
     {
-        $data = Mahasiswa::all(null, 30, $search, 'mst_mhs.nama', 'asc');
+        $data = Mahasiswa::all(null, 30, $search, 'mst_mhs.nim', 'asc');
         return response()->json($data);
     }
 
@@ -67,13 +67,13 @@ class MahasiswaController extends Controller
      */
     public function getSemester(Request $request)
     {
-        $data = Mahasiswa::getSemester($request);
+        $data = Mahasiswa::getSemester($request->th_akademik_id, $request->prodi_id, $request->jk_id);
         return response()->json($data);
     }
 
     public function updateStatusMahasiswa(Request $request)
     {
-        $data = Mahasiswa::updateStatusMahasiswa($request);
+        $data = Mahasiswa::updateStatusMahasiswa($request->nim, $request->status_id);
         return response()->json($data);
     }
 
