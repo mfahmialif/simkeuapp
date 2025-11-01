@@ -55,7 +55,7 @@ class PembayaranController extends Controller
 
         $query->orderBy($sortKey, $sortOrder);
         $query
-            ->select('keuangan_pembayaran.*', 'th_akademik.kode as th_akademik_kode', 'keuangan_tagihan.nama as keuangan_tagihan_nama', 'keuangan_jenis_pembayaran.nama as keuangan_jenis_pembayaran_nama')
+            ->select('keuangan_pembayaran.*', 'th_akademik.kode as th_akademik_kode', 'keuangan_tagihan.nama as keuangan_tagihan_nama', 'keuangan_jenis_pembayaran.nama as keuangan_jenis_pembayaran_nama', 'keuangan_tagihan.double_degree as keuangan_tagihan_double_degree')
             ->addSelect(DB::raw(
                 "COALESCE(keuangan_nota.nota, keuangan_pembayaran.nomor) AS nota"
             ));
