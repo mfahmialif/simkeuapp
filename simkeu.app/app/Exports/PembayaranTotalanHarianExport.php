@@ -24,14 +24,16 @@ class PembayaranTotalanHarianExport implements FromView
     public $jenisPembayaran;
     public $tanggal;
     public $kategori;
+    public $userId;
 
-    public function __construct($tanggal, $kategori, $prodi, $tahunAkademik, $jenisPembayaran)
+    public function __construct($tanggal, $kategori, $prodi, $tahunAkademik, $jenisPembayaran, $userId = false)
     {
         $this->prodi = $prodi;
         $this->tahunAkademik = $tahunAkademik;
         $this->jenisPembayaran = $jenisPembayaran;
         $this->tanggal = $tanggal;
         $this->kategori = $kategori;
+        $this->userId = $userId;
     }
 
     public function kategori()
@@ -142,6 +144,7 @@ class PembayaranTotalanHarianExport implements FromView
         $prodi = $this->prodi;
         $tahunAkademik = $this->tahunAkademik;
         $jenisPembayaran = $this->jenisPembayaran;
+        $userId = $this->userId;
 
         $jp = Helper::getJenisKelaminUser();
         $jenisKelamin = Ref::where('table', 'JenisKelamin')->get();
@@ -209,7 +212,8 @@ class PembayaranTotalanHarianExport implements FromView
                 'semuaProdi',
                 'tagihanSisaPembayaranTambahan',
                 'jenisKelamin',
-                'jp'
+                'jp',
+                'userId'
             )
         );
     }

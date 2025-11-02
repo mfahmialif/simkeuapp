@@ -14,6 +14,7 @@ class TestingController extends Controller
 {
     public function index()
     {
+        // return Mahasiswa::all(null, 30, '202585330013', 'mst_mhs.nim', 'asc');
         // $m = Mahasiswa::nim('202385200080');
         // $angkatan = (int) substr($m->th_akademik->kode, 0, 4);
         // dd($angkatan);

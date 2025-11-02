@@ -1,10 +1,14 @@
 <?php
+
 namespace App\Http\Controllers\Api;
 
-use App\Http\Controllers\Controller;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\JsonResponse;
+use App\Models\KeuanganDispensasi;
+use App\Models\KeuanganPembayaran;
 use Illuminate\Support\Facades\DB;
+use App\Http\Controllers\Controller;
+use Carbon\Carbon;
 
 class HelperController extends Controller
 {
@@ -49,5 +53,68 @@ class HelperController extends Controller
         }
 
         return response()->json($enum);
+    }
+
+
+    public function cekPembayaran(Request $request)
+    {
+        try {
+            $request->validate([
+                'nim' => 'required',
+                'th_akademik_id' => 'required'
+            ]);
+
+            $nim = $request->nim;
+            $th_akademik_id = $request->th_akademik_id;
+
+            $krs1 = 'krs-1';
+            $krs2 = 'krs-2';
+
+            $bayar = KeuanganPembayaran::where('th_akademik_id', $th_akademik_id)
+                ->where('nim', $nim)->first();
+
+            if ($bayar) {
+                $kode_form = $bayar->tagihan->form_schadule->kode;
+                if ((strtolower($kode_form) == strtolower($krs1)) || (strtolower($kode_form) == strtolower($krs2))) {
+                    $return = [
+                        'status' => true,
+                        'message' => 'Pembayaran ' . $bayar->tagihan->nama . ' Nomor ' . $bayar->nomor . ' Tanggal ' . Carbon::parse($bayar->tanggal)->format('d-m-Y'),
+                    ];
+                } else {
+                    $return = [
+                        'status' => false,
+                        'message' => 'null',
+                    ];
+                }
+            } else {
+                $dispensasi = KeuanganDispensasi::where('th_akademik_id', $th_akademik_id)
+                    ->where('nim', $nim)->first();
+                if ($dispensasi) {
+                    $return = [
+                        'status' => true,
+                        'message' => ' Tanggal Dispensasi ' . $dispensasi->created_at,
+                    ];
+                } else {
+                    $return = [
+                        'status' => false,
+                        'message' => 'null',
+                    ];
+                }
+            }
+            return $return;
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            \DB::rollBack();
+            return response()->json([
+                'message' => 422,
+                'error' => implode(' ', collect($e->errors())->flatten()->toArray()),
+                'req' => $request->all()
+            ]);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status'  => false,
+                'message' => $th->getMessage(),
+                'code'     => 500,
+            ], 500);
+        }
     }
 }

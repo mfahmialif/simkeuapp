@@ -32,8 +32,10 @@ class TagihanMahasiswa
         $nim = strtoupper($nim);
         $mhs = Mahasiswa::nim($nim);
         $angkatan = (int) substr($mhs->th_akademik->kode, 0, 4);
-        if ($angkatan <= 2023) {
-            $mhs->th_akademik_id = 21;
+        if ($mhs->prodi_double_degree_id) {
+            if ($angkatan <= 2023) {
+                $mhs->th_akademik_id = 21;
+            }
         }
         if ($mhs) {
             $tagihan = KeuanganTagihan::where('th_angkatan_id', $mhs->th_akademik_id)

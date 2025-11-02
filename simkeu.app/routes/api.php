@@ -56,7 +56,7 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
         Route::prefix('mahasiswa')->group(function () {
             Route::apiResource('jenis-pembayaran', JenisPembayaranController::class);
             Route::apiResource('tagihan', TagihanController::class);
-            
+
             Route::get('cek-tagihan/pdf', [CekTagihanController::class, 'pdf']);
             Route::get('cek-tagihan/excel', [CekTagihanController::class, 'excel']);
             Route::apiResource('cek-tagihan', CekTagihanController::class);
@@ -115,7 +115,7 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
             Route::apiResource('tambah', TambahController::class);
         });
     });
-    
+
     Route::apiResource('pengeluaran', PengeluaranController::class);
 
     Route::apiResource('users', UserController::class);
@@ -136,8 +136,9 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
     });
 });
 
-Route::prefix('helper')->middleware('auth:sanctum')->group(function () {
-    Route::get('/get-enum-values', [HelperController::class, 'getEnumValues']);
+Route::prefix('helper')->group(function () {
+    Route::get('/get-enum-values', [HelperController::class, 'getEnumValues'])->middleware('auth:sanctum');
+    Route::get('cek-pembayaran', [HelperController::class, 'cekPembayaran']);
 });
 
 Route::get('admin/pemasukan/mahasiswa/uas-susulann/excel', [UasSusulanController::class, 'excel']);

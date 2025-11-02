@@ -60,6 +60,29 @@ class LaporanController extends Controller
                 }
 
                 return Excel::download(new PembayaranHarianExport($dataValidated['tanggal'], $dataValidated['kategori'], $prodi, $tahunAkademik, $jenisPembayaran), 'laporanharian.xlsx');
+            } else if ($dataValidated['action'] == "excelTotalanStaff") {
+                $data = $request->all();
+
+                $prodi = isset($data['prodi']) ? $data['prodi'] : "";
+                if ($prodi == "Semua") {
+                    $prodi = "";
+                }
+                $tahunAkademik = isset($data['tahun_akademik']) ? $data['tahun_akademik'] : "";
+                if ($tahunAkademik == "Semua") {
+                    $tahunAkademik = "";
+                }
+                $jenisPembayaran = isset($data['jenis_pembayaran']) ? $data['jenis_pembayaran'] : "";
+                if ($jenisPembayaran == "Semua") {
+                    $jenisPembayaran = "";
+                }
+
+                if (\Auth::user()->role->name == 'admin') {
+                    $userId = null;
+                } else {
+                    $userId = \Auth::user()->id;
+                }
+
+                return Excel::download(new PembayaranTotalanHarianExport($dataValidated['tanggal'], $dataValidated['kategori'], $prodi, $tahunAkademik, $jenisPembayaran, $userId), 'laporantotalanharian.xlsx');
             } else if ($dataValidated['action'] == "excelTotalan") {
                 $data = $request->all();
 

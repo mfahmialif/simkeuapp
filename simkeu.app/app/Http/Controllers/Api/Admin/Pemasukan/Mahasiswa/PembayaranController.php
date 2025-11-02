@@ -131,13 +131,9 @@ class PembayaranController extends Controller
                             stripos(strtolower($pembayaran->tagihan->nama), 'daftar ulang') !== false ||
                             stripos(strtolower($pembayaran->tagihan->nama), 'regist') !== false
                         ) {
-                            // // update mahasiswa jadi aktif
-                            // $mhs = Mahasiswa::where('nim', $dataValidated['nim'])->first();
-                            // if ($mhs) {
-                            //     $mhs->status_id = 18; //status Aktif
-                            //     $mhs->user_id   = Auth::user()->id;
-                            //     $mhs->save();
-                            // }
+                            // update mahasiswa jadi aktif
+
+                            Mahasiswa::updateStatusMahasiswa($dataValidated['nim'], 18);
                         }
                     }
 
@@ -175,6 +171,7 @@ class PembayaranController extends Controller
                             stripos(strtolower($pembayaran->tagihan->nama), 'daftar ulang') !== false ||
                             stripos(strtolower($pembayaran->tagihan->nama), 'regist') !== false
                         ) {
+                            Mahasiswa::updateStatusMahasiswa($dataValidated['nim'], 18);
                         }
                     }
                 }

@@ -78,6 +78,8 @@ class DispensasiController extends Controller
             'user_id' => Auth::user()->id,
             'keterangan' => $request->keterangan,
         ]);
+        
+        Mahasiswa::updateStatusMahasiswa($request->nim, 18);
         return response()->json([
             'status' => 'true',
             'data' => $data,

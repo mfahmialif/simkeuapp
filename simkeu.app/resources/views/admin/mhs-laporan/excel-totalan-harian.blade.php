@@ -72,6 +72,9 @@
                                 ['kt.prodi_id', $jtId],
                                 ['kjpd.jenis_pembayaran_id', $gjp->id],
                             ])
+                            ->when($userId, function ($query) use ($userId) {
+                                return $query->where('keuangan_pembayaran.user_id', $userId);
+                            })
                             ->select('*', 'keuangan_pembayaran.jumlah as dibayar')
                             ->get();
 
@@ -95,6 +98,9 @@
                                 )
                                 ->whereDate('tanggal', '=', $pilihTanggal)
                                 ->where([['kt.nama', 'LIKE', "%$jt->id%"], ['kjpd.jenis_pembayaran_id', $gjp->id]])
+                                ->when($userId, function ($query) use ($userId) {
+                                    return $query->where('keuangan_pembayaran.user_id', $userId);
+                                })
                                 ->select('*', 'keuangan_pembayaran.jumlah as dibayar')
                                 ->get();
                         }
@@ -313,6 +319,9 @@
                                                 ['jenis_pembayaran', $gjp->nama],
                                                 ['jenis_kelamin', $jk->kode],
                                             ])
+                                            ->when($userId, function ($query) use ($userId) {
+                                                return $query->where('keuangan_pembayaran_tambahan.user_id', $userId);
+                                            })
                                             ->get();
                                     }
 
@@ -334,6 +343,9 @@
                                                 ['jenis_pembayaran', $gjp->nama],
                                                 ['jenis_kelamin', $jk->kode],
                                             ])
+                                            ->when($userId, function ($query) use ($userId) {
+                                                return $query->where('keuangan_pembayaran_tambahan.user_id', $userId);
+                                            })
                                             ->get();
                                     }
 
