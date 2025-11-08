@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\Admin\UserController;
 use App\Http\Controllers\Api\Admin\ProdiController;
 use App\Http\Controllers\Api\Admin\ProfilController;
 use App\Http\Controllers\Api\Admin\DashboardController;
+use App\Http\Controllers\Api\Admin\DosenController;
 use App\Http\Controllers\Api\Admin\MahasiswaController;
 use App\Http\Controllers\Api\Admin\ThAkademikController;
 use App\Http\Controllers\Api\Admin\PengeluaranController;
@@ -134,6 +135,13 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
         Route::get('/', [ProfilController::class, 'index']);
         Route::put('/', [ProfilController::class, 'update']);
     });
+
+    Route::prefix('dosen')->group(function () {
+        Route::get('/', [DosenController::class, 'index']);
+        Route::get('/search/{search}', [DosenController::class, 'search']);
+        Route::get('/find/{id}', [DosenController::class, 'find']);
+    });
+    
 });
 
 Route::prefix('helper')->group(function () {
