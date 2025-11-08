@@ -17,7 +17,8 @@ class DosenController extends Controller
     public function index(Request $request)
     {
 
-        $data = Dosen::all(null, 30,null,null,null);
+        // return response()->json('asdasd', 200);
+        $data = Dosen::table($request);
         return response()->json($data);
     }
 
