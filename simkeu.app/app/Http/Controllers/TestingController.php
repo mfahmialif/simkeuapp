@@ -14,14 +14,17 @@ class TestingController extends Controller
 {
     public function index()
     {
+
+        return redirect('/');
+        // return self::fixPembayaran();
         // return Mahasiswa::all(null, 30, '202585330013', 'mst_mhs.nim', 'asc');
         // $m = Mahasiswa::nim('202385200080');
         // $angkatan = (int) substr($m->th_akademik->kode, 0, 4);
         // dd($angkatan);
         // return TagihanMahasiswa::tagihan('202385200080');
-        
+
         // return self::syncJkId();
-        
+
         // $cek = Jadwal::mahasiswa('2025850100022', 24);
         // dd($cek);
         // dd(Mahasiswa::updateStatusMahasiswa('202485010002', 20));
@@ -30,7 +33,7 @@ class TestingController extends Controller
         // $mahasiswa = collect($getMahasiswaBySemester->mahasiswa)->pluck('nim')->values();
         // dd($mahasiswa);
 
-       
+
         // $pembayaranTanpaJenisPembayaran = KeuanganPembayaran::leftJoin('keuangan_jenis_pembayaran_detail', 'keuangan_pembayaran.id', '=', 'keuangan_jenis_pembayaran_detail.pembayaran_id')
         //     // ->whereNull('keuangan_jenis_pembayaran_detail.id')
         //     // ->select('keuangan_pembayaran.*', 'keuangan_jenis_pembayaran_detail.id as jenis_pembayaran_id')
@@ -112,5 +115,35 @@ class TestingController extends Controller
             }
         }
         return response()->json(['ok' => true, 'message' => 'Sinkron jk_id selesai (fast join).']);
+    }
+
+    public static function fixPembayaran()
+    {
+        try {
+            //code...
+            $pembayaran = KeuanganPembayaran::join('keuangan_tagihan', 'keuangan_tagihan.id', '=', 'keuangan_pembayaran.tagihan_id')
+                ->where('keuangan_pembayaran.tanggal', '>=', '2025-10-29')
+                ->where(function($q){
+                    $q->where('keuangan_tagihan.nama', 'LIKE', '%daftar ulang%')
+                    ->orWhere('keuangan_tagihan.nama', 'LIKE', '%regist%');
+                })
+                ->select('keuangan_pembayaran.nim')
+                ->distinct()
+                ->pluck('nim');
+
+            foreach ($pembayaran as $key => $nim) {
+                Mahasiswa::updateStatusMahasiswa($nim, 18);
+            }
+            return response()->json([
+                'status' => true,
+                'nim' => $nim
+            ]);
+        } catch (\Throwable $th) {
+            //throw $th;
+            return response()->json([
+                'status' => false,
+                'message' => $th->getMessage()
+            ]);
+        }
     }
 }
