@@ -273,6 +273,7 @@ class PembayaranController extends Controller
                 'tanggal'      => 'required|date',
                 'th_akademik_id' => 'required|integer',
                 'jumlah'       => 'required|numeric',
+                'jenis_pembayaran' => 'required'
             ]);
 
             if ($v->fails()) {
@@ -289,11 +290,15 @@ class PembayaranController extends Controller
                 ], 404);
             }
 
+            KeuanganJenisPembayaranDetail::where('pembayaran_id', $pembayaran->id)->update([
+                'jenis_pembayaran_id' => $request->input('jenis_pembayaran'),
+            ]);
+
             $pembayaran->update([
                 'tanggal'        => $request->input('tanggal'),
                 'th_akademik_id' => $request->input('th_akademik_id'),
                 'jumlah'         => $request->input('jumlah'),
-                'user_id'        => Auth::user()->id,
+                // 'user_id'        => Auth::user()->id,
             ]);
 
             return response()->json([
