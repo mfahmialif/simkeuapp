@@ -150,6 +150,7 @@ Route::prefix('helper')->group(function () {
 });
 
 Route::get('admin/pemasukan/mahasiswa/uas-susulann/excel', [UasSusulanController::class, 'excel']);
+// Route::get('/testingcoy', [DosenController::class, 'index']);
 // Route::get('testing', [CekTagihanController::class, 'pdf']);
 // Route::get('testing2', [CekTagihanController::class, 'excel']);
 // Route::get('admin/pemasukan/mahasiswa/pembayaran/kwitansi/{id}', [PembayaranController::class, 'kwitansi'])->name('admin.pemasukan.mahasiswa.kwitansi.view');
