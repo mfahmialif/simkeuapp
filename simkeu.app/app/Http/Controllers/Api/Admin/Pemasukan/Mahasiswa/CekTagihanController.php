@@ -20,6 +20,7 @@ class CekTagihanController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'nim'           => 'required|string|max:255',
+            'cekNilai'      => 'nullable'
         ]);
 
         if ($validator->fails()) {
@@ -31,6 +32,32 @@ class CekTagihanController extends Controller
 
         $validate = $validator->validated();
         $data = TagihanMahasiswa::tagihan($validate['nim']);
+        if ($request->cekNilai == 1) {
+            $hasSkripsi = false;
+            $cekNilai   = [
+                'status'  => true,
+                'message' => 'Tanpa cek kelengkapan',
+            ];
+
+            if (isset($data['list_tagihan'])) {
+                foreach ($data['list_tagihan'] as $tagihan) {
+                    if (stripos($tagihan['nama'], 'skripsi') !== false) {
+                        $hasSkripsi = true;
+                        break;
+                    }
+                }
+            }
+
+            if ($hasSkripsi) {
+                $cekNilai = Mahasiswa::cekNilai($validate['nim']);
+                if (!$cekNilai->status) {
+                    return response()->json([
+                        'status'  => false,
+                        'message' => $cekNilai->message,
+                    ], 200);
+                }
+            }
+        }
         return response()->json([
             'status' => true,
             'data' => $data,

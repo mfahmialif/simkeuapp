@@ -14,6 +14,33 @@ class TestingController extends Controller
 {
     public function index()
     {
+        // $nim = '202185010011';
+        // $cekPelanggaran = Mahasiswa::cekPelanggaran($nim);
+        // dd($cekPelanggaran);
+        
+        // $dataTagihan = TagihanMahasiswa::tagihan($nim);
+        // $hasSkripsi = false;
+        // $cekNilai   = [
+        //     'status'  => true,
+        //     'message' => 'Tanpa cek kelengkapan',
+        // ];
+
+        
+        // if (true) {
+        //     if (isset($dataTagihan['list_tagihan'])) {
+        //         foreach ($dataTagihan['list_tagihan'] as $tagihan) {
+        //             if (stripos($tagihan['nama'], 'skripsi') !== false) {
+        //                 $hasSkripsi = true;
+        //                 break;
+        //             }
+        //         }
+        //     }
+
+        //     if ($hasSkripsi) {
+        //         $cekNilai = Mahasiswa::cekNilai($nim);
+        //     }
+        // }
+
 
         return redirect('/');
         // return self::fixPembayaran();
@@ -123,9 +150,9 @@ class TestingController extends Controller
             //code...
             $pembayaran = KeuanganPembayaran::join('keuangan_tagihan', 'keuangan_tagihan.id', '=', 'keuangan_pembayaran.tagihan_id')
                 ->where('keuangan_pembayaran.tanggal', '>=', '2025-10-29')
-                ->where(function($q){
+                ->where(function ($q) {
                     $q->where('keuangan_tagihan.nama', 'LIKE', '%daftar ulang%')
-                    ->orWhere('keuangan_tagihan.nama', 'LIKE', '%regist%');
+                        ->orWhere('keuangan_tagihan.nama', 'LIKE', '%regist%');
                 })
                 ->select('keuangan_pembayaran.nim')
                 ->distinct()

@@ -127,6 +127,7 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
 
     Route::get('/mahasiswa/search/{search}', [MahasiswaController::class, 'search']);
     Route::get('/mahasiswa/nim', [MahasiswaController::class, 'nim']);
+    Route::get('/mahasiswa/cek-pelanggaran/{nim}', [MahasiswaController::class, 'cekPelanggaran']);
     Route::apiResource('mahasiswa', MahasiswaController::class);
 
     Route::apiResource('form-schadule', FormSchaduleController::class);
@@ -149,8 +150,8 @@ Route::prefix('helper')->group(function () {
     Route::get('cek-pembayaran', [HelperController::class, 'cekPembayaran']);
 });
 
-Route::get('admin/pemasukan/mahasiswa/uas-susulann/excel', [UasSusulanController::class, 'excel']);
+// Route::get('admin/pemasukan/mahasiswa/uas-susulann/excel', [UasSusulanController::class, 'excel']);
 // Route::get('/testingcoy', [DosenController::class, 'index']);
-// Route::get('testing', [CekTagihanController::class, 'pdf']);
+// Route::get('testing/{nim}', [MahasiswaController::class, 'cekPelanggaran']);
 // Route::get('testing2', [CekTagihanController::class, 'excel']);
 // Route::get('admin/pemasukan/mahasiswa/pembayaran/kwitansi/{id}', [PembayaranController::class, 'kwitansi'])->name('admin.pemasukan.mahasiswa.kwitansi.view');

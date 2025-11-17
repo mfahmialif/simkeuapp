@@ -77,4 +77,10 @@ class MahasiswaController extends Controller
         return response()->json($data);
     }
 
+    public function cekPelanggaran($nim)
+    {
+        $data = Mahasiswa::cekPelanggaran($nim);
+        return response()->json($data);
+    }
+
 }
