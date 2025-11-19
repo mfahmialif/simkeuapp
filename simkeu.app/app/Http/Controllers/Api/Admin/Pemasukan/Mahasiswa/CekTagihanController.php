@@ -32,6 +32,8 @@ class CekTagihanController extends Controller
 
         $validate = $validator->validated();
         $data = TagihanMahasiswa::tagihan($validate['nim']);
+        $nilai = true;
+
         if ($request->cekNilai == 1) {
             $hasSkripsi = false;
             $cekNilai   = [
@@ -51,16 +53,18 @@ class CekTagihanController extends Controller
             if ($hasSkripsi) {
                 $cekNilai = Mahasiswa::cekNilai($validate['nim']);
                 if (!$cekNilai->status) {
-                    return response()->json([
-                        'status'  => false,
-                        'message' => $cekNilai->message,
-                    ], 200);
+                    $nilai = false;
+                    // return response()->json([
+                    //     'status'  => false,
+                    //     'message' => $cekNilai->message,
+                    // ], 200);
                 }
             }
         }
         return response()->json([
             'status' => true,
             'data' => $data,
+            'cekNilai' => $nilai,
             'request' => $request->all()
         ]);
     }
