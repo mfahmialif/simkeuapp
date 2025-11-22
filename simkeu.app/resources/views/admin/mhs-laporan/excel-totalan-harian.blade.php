@@ -299,6 +299,9 @@
                                             ['jenis_pembayaran', $gjp->nama],
                                             ['jenis_kelamin', $jk->kode],
                                         ])
+                                        ->when($userId, function ($query) use ($userId) {
+                                            return $query->where('keuangan_pembayaran_tambahan.user_id', $userId);
+                                        })
                                         ->get();
 
                                     $dataCek = (object) [
