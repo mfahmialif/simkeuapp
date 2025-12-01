@@ -66,7 +66,7 @@ class SlipGajiPdf
 
         $fpdf->Cell($leftWidth, 5, "Prodi", 0, 0);
         $fpdf->Cell($colonWidth, 5, ":", 0, 0);
-        $fpdf->Cell($rightWidth, 5, @$data->dosen->prodi->nama, 0, 1);
+        $fpdf->Cell($rightWidth, 5, @$data->dosen->prodi->alias, 0, 1);
 
         $fpdf->Ln(4);
 
