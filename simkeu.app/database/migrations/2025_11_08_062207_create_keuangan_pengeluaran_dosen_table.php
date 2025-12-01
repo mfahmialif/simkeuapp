@@ -11,12 +11,14 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('keuangan_barokah_dosen', function (Blueprint $table) {
+        Schema::create('keuangan_pengeluaran_dosen', function (Blueprint $table) {
             $table->id();
-            $table->integer('dosen_id');
-            $table->integer('jadwal_id');
-            $table->integer('transprot');
-            $table->integer('barokah');
+            $table->date('tanggal');
+            $table->integer('jam');
+            $table->integer('hari');
+            $table->integer('dosen_kode');
+            $table->integer('transport')->nullable();
+            $table->integer('barokah')->nullable();
             $table->integer('total');
             $table->timestamps();
         });
@@ -27,6 +29,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('keuangan_barokah_dosen');
+        Schema::dropIfExists('keuangan_pengeluaran_dosen');
     }
 };

@@ -8,12 +8,21 @@ use Illuminate\Http\Request;
 
 class JadwalController extends Controller
 {
-    function index() {
-        $data = Jadwal::all();
+    public function index(Request $request)
+    {
+        $data = Jadwal::table($request);
         return response()->json($data);
     }
-    function find(Request $request) {
-        $data = Jadwal::find($request->id);
+    
+    public function dosenTable(Request $request)
+    {
+        $data = Jadwal::dosenTable($request);
+        return response()->json($data);
+    }
+
+    public function show($id)
+    {
+        $data = Jadwal::find($id);
         return response()->json($data);
     }
 }

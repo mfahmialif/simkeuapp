@@ -42,7 +42,7 @@ class Jadwal
         return $response->data;
     }
 
-     public static function find($id, $whereIn = null)
+    public static function find($id, $whereIn = null)
     {
         // if ($whereIn) {
         // $id = json_encode($id);
@@ -70,6 +70,25 @@ class Jadwal
         return isset($response->data) ? $response->data : null;
     }
 
+    public static function table($request)
+    {
+        $apiKey = config('simkeu.simkeu_api_key');
+        $url = config('simkeu.simkeu_url') . "jadwal/table";
+        $post = $request->all();
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $post);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            "apikey: $apiKey",
+
+        ]);
+        $response = curl_exec($ch);
+        curl_close($ch);
+
+        $response = json_decode($response);
+        return $response;
+    }
+
 
     /**
      * Get jadwal for table
@@ -89,6 +108,57 @@ class Jadwal
             'nim' => $nim,
             'th_akademik_id' => $thAkademikId
         ];
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $post);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            "apikey: $apiKey",
+
+        ]);
+        $response = curl_exec($ch);
+        curl_close($ch);
+
+        $response = json_decode($response);
+        return $response;
+    }
+
+    /**
+     * Get jadwal for table
+     * @param int $offset offset, default null
+     * @param int $limit limit, default null
+     * @param string $search search jadwal, default null
+     * @param string $order order jadwal
+     * @param string $dir dir mahasiswa, default null asc or desc
+     * @param array $where where mahasiswa
+     * @return array as data mahasiswa
+     */
+    public static function dosen($nim, $thAkademikId)
+    {
+        $apiKey = config('simkeu.simkeu_api_key');
+        $url = config('simkeu.simkeu_url') . "jadwal/dosen";
+        $post = [
+            'nim' => $nim,
+            'th_akademik_id' => $thAkademikId
+        ];
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $post);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            "apikey: $apiKey",
+
+        ]);
+        $response = curl_exec($ch);
+        curl_close($ch);
+
+        $response = json_decode($response);
+        return $response;
+    }
+
+    public static function dosenTable($request)
+    {
+        $apiKey = config('simkeu.simkeu_api_key');
+        $url = config('simkeu.simkeu_url') . "jadwal/dosenTable";
+        $post = $request->all();
         $ch = curl_init($url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, $post);

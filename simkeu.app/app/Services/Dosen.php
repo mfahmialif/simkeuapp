@@ -74,4 +74,26 @@ class Dosen
         return $response;
     }
 
+    public static function kode($kode)
+    {
+        $post = [
+            'kode' => $kode,
+        ];
+
+        $apiKey = config('simkeu.simkeu_api_key');
+        $url = config('simkeu.simkeu_url') . "dosen/kode";
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $post);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            "apikey: $apiKey",
+
+        ]);
+        $response = curl_exec($ch);
+        curl_close($ch);
+
+        $response = json_decode($response);
+        return $response->data;
+    }
+
 }

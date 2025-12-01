@@ -58,7 +58,7 @@ class DatabaseSeeder extends Seeder
             'username'      => 'admin',
             'name'          => 'Admin',
             'role_id'       => 1,
-            'password'      => bcrypt('admin'),
+            'password'      => bcrypt('dalwa123321123'),
             'email'         => 'admin@admin.com',
             'jenis_kelamin' => '*',
             'avatar'        => '/images/avatars/avatar-1.png',
@@ -1135,5 +1135,16 @@ class DatabaseSeeder extends Seeder
         //     ],
         // ]);
 
+        DB::table('keuangan_pengeluaran_dosen')->insert([
+            [
+                'dosen_kode' => "80125",
+                'tanggal' => '2025-11-25',
+                'jam' => 1,
+                'hari' => 3,
+                'transport' => 150000,
+                'barokah' => 50000,
+                'total' => 200000,
+            ]
+        ]);
     }
 }

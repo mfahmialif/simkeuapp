@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\Admin\AbsensiController;
 use App\Models\FormSchadule;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\AuthController;
@@ -7,10 +8,11 @@ use App\Http\Controllers\Api\HelperController;
 use App\Http\Controllers\Api\Admin\RefController;
 use App\Http\Controllers\Api\Admin\RoleController;
 use App\Http\Controllers\Api\Admin\UserController;
+use App\Http\Controllers\Api\Admin\DosenController;
 use App\Http\Controllers\Api\Admin\ProdiController;
+use App\Http\Controllers\Api\Admin\JadwalController;
 use App\Http\Controllers\Api\Admin\ProfilController;
 use App\Http\Controllers\Api\Admin\DashboardController;
-use App\Http\Controllers\Api\Admin\DosenController;
 use App\Http\Controllers\Api\Admin\MahasiswaController;
 use App\Http\Controllers\Api\Admin\ThAkademikController;
 use App\Http\Controllers\Api\Admin\PengeluaranController;
@@ -31,6 +33,7 @@ use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\JenisPembayaranController
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\DispensasiTagihanController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\PembayaranTambahanController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\PemasukanPengeluaranController;
+use App\Http\Controllers\Api\Admin\Pengeluaran\DosenController as PengeluaranDosenController;
 
 Route::prefix('auth')->group(function () {
     Route::post('/login', [AuthController::class, 'login']);
@@ -42,7 +45,7 @@ Route::prefix('auth')->group(function () {
     });
 });
 
-Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuangan,kabag,staff,rumahtangga'])->group(function () {
+Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuangan,kabag,staff,rumahtangga,barokahdosen'])->group(function () {
     Route::prefix('dashboard')->group(function () {
         Route::get('/widget', [DashboardController::class, 'widget'])->name('admin.dashboard.widget');
         Route::get('/finance-overview', [DashboardController::class, 'financeOverview'])->name('admin.dashboard.finance-overview');
@@ -117,6 +120,11 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
         });
     });
 
+    Route::prefix('pengeluaran')->group(function () {
+        Route::get('/dosen/print-slip/{id}', [PengeluaranDosenController::class, 'printSlip']);
+        Route::get('/dosen/export-excel', [PengeluaranDosenController::class, 'exportExcel']);
+        Route::apiResource('dosen', PengeluaranDosenController::class);
+    });
     Route::apiResource('pengeluaran', PengeluaranController::class);
 
     Route::apiResource('users', UserController::class);
@@ -139,10 +147,20 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
 
     Route::prefix('dosen')->group(function () {
         Route::get('/', [DosenController::class, 'index']);
+        Route::get('/kode', [DosenController::class, 'kode']);
         Route::get('/search/{search}', [DosenController::class, 'search']);
-        Route::get('/find/{id}', [DosenController::class, 'find']);
+        Route::get('/show/{id}', [DosenController::class, 'show']);
     });
-    
+
+    Route::prefix('jadwal')->group(function () {
+        Route::get('/', [JadwalController::class, 'index']);
+        Route::get('/dosenTable', [JadwalController::class, 'dosenTable']);
+        Route::get('/show/{id}', [JadwalController::class, 'show']);
+    });
+
+    Route::prefix('absensi')->group(function () {
+        Route::get('/', [AbsensiController::class, 'index']);
+    });
 });
 
 Route::prefix('helper')->group(function () {
@@ -150,8 +168,12 @@ Route::prefix('helper')->group(function () {
     Route::get('cek-pembayaran', [HelperController::class, 'cekPembayaran']);
 });
 
+Route::prefix('pengeluaran')->group(function () {
+    Route::apiResource('dosen', PengeluaranDosenController::class);
+});
 // Route::get('admin/pemasukan/mahasiswa/uas-susulann/excel', [UasSusulanController::class, 'excel']);
-// Route::get('/testingcoy', [DosenController::class, 'index']);
+Route::get('/testing/{id}', [PengeluaranDosenController::class, 'printSlip']);
+Route::get('/testingexcel', [PengeluaranDosenController::class, 'exportExcel']);
 // Route::get('testing/{nim}', [MahasiswaController::class, 'cekPelanggaran']);
 // Route::get('testing2', [CekTagihanController::class, 'excel']);
 // Route::get('admin/pemasukan/mahasiswa/pembayaran/kwitansi/{id}', [PembayaranController::class, 'kwitansi'])->name('admin.pemasukan.mahasiswa.kwitansi.view');

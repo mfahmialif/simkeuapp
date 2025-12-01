@@ -1,4 +1,5 @@
 <?php
+
 namespace App\Http\Controllers\Api\Admin;
 
 use App\Models\Role;
@@ -21,8 +22,6 @@ class DosenController extends Controller
         $data = Dosen::table($request);
         return response()->json($data);
     }
-
-
     /**
      * Display the specified resource.
      *
@@ -33,10 +32,16 @@ class DosenController extends Controller
     {
         return response()->json(Dosen::find($id), 200);
     }
+
     public function search($search)
     {
-        $data = Dosen::all(null, 30, $search, 'mst_dosen.nama', 'asc');  
-        return response()->json($data);  
+        $data = Dosen::all(null, 30, $search, 'mst_dosen.nama', 'asc');
+        return response()->json($data);
     }
 
+    public function kode(Request $request)
+    {
+        $data = Dosen::kode($request->kode);
+        return response()->json($data);
+    }
 }
