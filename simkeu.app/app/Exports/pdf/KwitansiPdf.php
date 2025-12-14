@@ -38,8 +38,8 @@ class KwitansiPdf
         // Kembalikan via response() supaya middleware CORS ikut bekerja
         return response($binary, 200)
             ->header('Content-Type', 'application/pdf')
-            ->header('Content-Disposition', 'inline; filename="Kwitansi Pembayaran'.$nomor.'.pdf"');
-            // TIDAK perlu set CORS header manual; biarkan middleware CORS menambahkannya
+            ->header('Content-Disposition', 'inline; filename="Kwitansi Pembayaran' . $nomor . '.pdf"');
+        // TIDAK perlu set CORS header manual; biarkan middleware CORS menambahkannya
 
     }
 
@@ -85,8 +85,8 @@ class KwitansiPdf
 
             $i++;
             if (!str_contains(strtolower($jenisPembayaran), 'deposit')) {
-                $total += $t->jumlah;
             }
+            $total += $t->jumlah;
 
             if ($posY > 100) {
                 $fpdf->AddPage();
@@ -101,5 +101,4 @@ class KwitansiPdf
 
         return $total;
     }
-
 }

@@ -82,9 +82,9 @@ class KwitansiPreviewPdf
             $fpdf->MultiCell(35, 4, number_format($t->jumlah, 0, ',', '.') . $offset['Sub Total(Rp)'], 'B', 'R', 0);
 
             $i++;
-            if (!str_contains(strtolower($jenisPembayaran), 'deposit')) {
-                $total += $t->jumlah;
-            }
+            // if (!str_contains(strtolower($jenisPembayaran), 'deposit')) {
+            // }
+            $total += $t->jumlah;
 
             if ($posY > 100) {
                 $fpdf->AddPage();
