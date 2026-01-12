@@ -166,6 +166,7 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
 Route::prefix('helper')->group(function () {
     Route::get('/get-enum-values', [HelperController::class, 'getEnumValues'])->middleware('auth:sanctum');
     Route::get('cek-pembayaran', [HelperController::class, 'cekPembayaran']);
+    Route::get('cek-pembayaran-uas', [HelperController::class, 'cekPembayaranUas']);
 });
 
 Route::prefix('pengeluaran')->group(function () {
