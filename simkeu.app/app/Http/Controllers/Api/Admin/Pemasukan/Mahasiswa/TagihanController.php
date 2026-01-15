@@ -2,9 +2,12 @@
 namespace App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa;
 
 use App\Http\Controllers\Controller;
+use App\Exports\TagihanTemplateExport;
+use App\Imports\TagihanImport;
 use App\Models\KeuanganTagihan;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
+use Maatwebsite\Excel\Facades\Excel;
 
 class TagihanController extends Controller
 {
@@ -254,4 +257,64 @@ class TagihanController extends Controller
             'message' => 'Tagihan deleted successfully',
         ]);
     }
+
+    /**
+     * Import tagihan from Excel file.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\Response
+     */
+    public function import(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'file' => 'required|mimes:xlsx,xls,csv|max:10240',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status'  => false,
+                'message' => $validator->errors(),
+            ], 422);
+        }
+
+        try {
+            $import = new TagihanImport();
+            Excel::import($import, $request->file('file'));
+
+            $failures = $import->failures();
+            $failureMessages = [];
+            foreach ($failures as $failure) {
+                $failureMessages[] = [
+                    'row'     => $failure->row(),
+                    'errors'  => $failure->errors(),
+                    'values'  => $failure->values(),
+                ];
+            }
+
+            return response()->json([
+                'status'        => true,
+                'message'       => 'Import selesai',
+                'success_count' => $import->getSuccessCount(),
+                'skip_count'    => $import->getSkipCount(),
+                'skip_reasons'  => $import->getSkipReasons(),
+                'failures'      => $failureMessages,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'Gagal import: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Download Excel template for import.
+     *
+     * @return \Illuminate\Http\Response
+     */
+    public function downloadTemplate()
+    {
+        return Excel::download(new TagihanTemplateExport, 'template_tagihan.xlsx');
+    }
 }
+

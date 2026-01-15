@@ -59,6 +59,8 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
     Route::prefix('pemasukan')->group(function () {
         Route::prefix('mahasiswa')->group(function () {
             Route::apiResource('jenis-pembayaran', JenisPembayaranController::class);
+            Route::post('tagihan/import', [TagihanController::class, 'import']);
+            Route::get('tagihan/template', [TagihanController::class, 'downloadTemplate']);
             Route::apiResource('tagihan', TagihanController::class);
 
             Route::get('cek-tagihan/pdf', [CekTagihanController::class, 'pdf']);
