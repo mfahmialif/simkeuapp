@@ -18,6 +18,7 @@ use App\Http\Controllers\Api\Admin\ThAkademikController;
 use App\Http\Controllers\Api\Admin\PengeluaranController;
 use App\Http\Controllers\Api\Admin\FormSchaduleController;
 use App\Http\Controllers\Api\Admin\Saldo\KategoriController;
+use App\Http\Controllers\Api\Admin\Saldo\CatatanHarianController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Pemasukan\TambahController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\LaporanController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\SetoranController;
@@ -49,11 +50,14 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
     Route::prefix('dashboard')->group(function () {
         Route::get('/widget', [DashboardController::class, 'widget'])->name('admin.dashboard.widget');
         Route::get('/finance-overview', [DashboardController::class, 'financeOverview'])->name('admin.dashboard.finance-overview');
+        Route::get('/finance-overview-detail', [DashboardController::class, 'financeOverviewDetail'])->name('admin.dashboard.finance-overview-detail');
         Route::get('/statistic', [DashboardController::class, 'statistic'])->name('admin.dashboard.statistic');
     });
 
     Route::prefix('saldo')->group(function () {
         Route::apiResource('kategori', KategoriController::class);
+        Route::get('catatan-harian/summary', [CatatanHarianController::class, 'summary']);
+        Route::apiResource('catatan-harian', CatatanHarianController::class);
     });
 
     Route::prefix('pemasukan')->group(function () {

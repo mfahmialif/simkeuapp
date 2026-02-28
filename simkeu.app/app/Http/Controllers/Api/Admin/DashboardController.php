@@ -40,48 +40,49 @@ class DashboardController extends Controller
         ]);
     }
 
-    public function financeOverview()
+    public function financeOverview(Request $request)
     {
         try {
-            //code...
-            $spp = KeuanganPembayaran::join('keuangan_tagihan', 'keuangan_tagihan.id', '=', 'keuangan_pembayaran.tagihan_id')
-                ->where('keuangan_tagihan.nama', 'LIKE', '%SPP%')
-                ->sum('keuangan_pembayaran.jumlah');
+            $query = DB::table('keuangan_tagihan')
+                ->leftJoin('keuangan_pembayaran', 'keuangan_tagihan.id', '=', 'keuangan_pembayaran.tagihan_id');
 
-            $registrasi = KeuanganPembayaran::join('keuangan_tagihan', 'keuangan_tagihan.id', '=', 'keuangan_pembayaran.tagihan_id')
-                ->where('keuangan_tagihan.nama', 'LIKE', '%regis%')
-                ->orWhere('keuangan_tagihan.nama', 'LIKE', '%daftar%')
-                ->sum('keuangan_pembayaran.jumlah');
-
-            // $lainnya = KeuanganSaldoPemasukan::selectRaw('
-            //             keuangan_saldo.nama as nama_saldo,
-            //             SUM(keuangan_saldo_pemasukan.jumlah) as total
-            //         ')
-            //     ->join('keuangan_saldo', 'keuangan_saldo.id', '=', 'keuangan_saldo_pemasukan.saldo_id')
-            //     ->groupBy('keuangan_saldo.nama')
-            //     ->get();
-            // foreach ($lainnya as $key => $value) {
-            //     $finance[$value->nama_saldo] = $value->total;
-            // }
-            $lainnya = KeuanganSaldoPemasukan::sum('jumlah');
-
-            $finance = [
-                'spp' => $spp,
-                'registrasi' => $registrasi,
-                'lainnya' => $lainnya,
-            ];
-
-
-            $total = count($finance) > 0 ? array_sum($finance) : 0;
-
-            $data = [];
-            foreach ($finance as $key => $value) {
-                $data[] = [
-                    'name' => $key,
-                    'amount' => $value,
-                    'percent' => number_format($value / $total * 100, 2),
-                ];
+            // Filter opsional
+            if ($request->th_akademik_id) {
+                $query->where('keuangan_tagihan.th_akademik_id', $request->th_akademik_id);
             }
+            if ($request->prodi_id) {
+                $query->where('keuangan_tagihan.prodi_id', $request->prodi_id);
+            }
+            if ($request->jk_id) {
+                $query->where('keuangan_pembayaran.jk_id', $request->jk_id);
+            }
+
+            // Bundle grouping: SPP, Registrasi, UAS — sisanya tetap nama asli
+            $caseExpr = "CASE
+                WHEN keuangan_tagihan.nama LIKE '%SPP%' THEN 'SPP'
+                WHEN keuangan_tagihan.nama LIKE '%regis%' OR keuangan_tagihan.nama LIKE '%daftar%' THEN 'Registrasi'
+                WHEN keuangan_tagihan.nama LIKE '%UAS%' THEN 'UAS'
+                ELSE keuangan_tagihan.nama
+            END";
+
+            $data = $query
+                ->selectRaw("{$caseExpr} as name, COALESCE(SUM(keuangan_pembayaran.jumlah), 0) as amount")
+                ->groupByRaw($caseExpr)
+                ->orderByDesc('amount')
+                ->get()
+                ->map(function ($item) {
+                    return [
+                        'name' => $item->name,
+                        'amount' => (float) $item->amount,
+                    ];
+                });
+
+            $total = $data->sum('amount');
+
+            $data = $data->map(function ($item) use ($total) {
+                $item['percent'] = $total > 0 ? number_format($item['amount'] / $total * 100, 2) : 0;
+                return $item;
+            })->values();
 
             return response()->json([
                 'status' => true,
@@ -92,6 +93,118 @@ class DashboardController extends Controller
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => false,
+                'message' => $th->getMessage()
+            ]);
+        }
+    }
+
+    /**
+     * Detail breakdown per kategori tagihan
+     * Query params:
+     *   - category: SPP | Registrasi | UAS | nama tagihan lainnya
+     *   - group_by: semester | prodi | bulan | tahun
+     *   - th_akademik_id, prodi_id, jk_id (filter opsional)
+     */
+    public function financeOverviewDetail(Request $request)
+    {
+        try {
+            $category = $request->category;
+            $groupBy  = $request->group_by ?? 'semester';
+
+            $query = DB::table('keuangan_tagihan')
+                ->leftJoin('keuangan_pembayaran', 'keuangan_tagihan.id', '=', 'keuangan_pembayaran.tagihan_id')
+                ->leftJoin('th_akademik', 'keuangan_tagihan.th_akademik_id', '=', 'th_akademik.id')
+                ->leftJoin('prodi', 'keuangan_tagihan.prodi_id', '=', 'prodi.id');
+
+            // Filter berdasarkan kategori bundle
+            switch ($category) {
+                case 'SPP':
+                    $query->where('keuangan_tagihan.nama', 'LIKE', '%SPP%');
+                    break;
+                case 'Registrasi':
+                    $query->where(function ($q) {
+                        $q->where('keuangan_tagihan.nama', 'LIKE', '%regis%')
+                          ->orWhere('keuangan_tagihan.nama', 'LIKE', '%daftar%');
+                    });
+                    break;
+                case 'UAS':
+                    $query->where('keuangan_tagihan.nama', 'LIKE', '%UAS%');
+                    break;
+                default:
+                    $query->where('keuangan_tagihan.nama', $category);
+                    break;
+            }
+
+            // Filter opsional
+            if ($request->th_akademik_id) {
+                $query->where('keuangan_tagihan.th_akademik_id', $request->th_akademik_id);
+            }
+            if ($request->prodi_id) {
+                $query->where('keuangan_tagihan.prodi_id', $request->prodi_id);
+            }
+            if ($request->jk_id) {
+                $query->where('keuangan_pembayaran.jk_id', $request->jk_id);
+            }
+
+            // Group by pilihan
+            switch ($groupBy) {
+                case 'semester':
+                    $query->selectRaw("CONCAT(th_akademik.nama, ' - ', th_akademik.semester) as label, COALESCE(SUM(keuangan_pembayaran.jumlah), 0) as amount")
+                          ->groupBy('th_akademik.id', 'th_akademik.nama', 'th_akademik.semester')
+                          ->orderBy('th_akademik.nama', 'desc');
+                    break;
+
+                case 'prodi':
+                    $query->selectRaw("COALESCE(prodi.nama, 'Tanpa Prodi') as label, COALESCE(SUM(keuangan_pembayaran.jumlah), 0) as amount")
+                          ->groupBy('prodi.id', 'prodi.nama')
+                          ->orderByDesc('amount');
+                    break;
+
+                case 'bulan':
+                    $query->selectRaw("DATE_FORMAT(keuangan_pembayaran.tanggal, '%Y-%m') as label, COALESCE(SUM(keuangan_pembayaran.jumlah), 0) as amount")
+                          ->groupByRaw("DATE_FORMAT(keuangan_pembayaran.tanggal, '%Y-%m')")
+                          ->orderBy('label', 'desc');
+                    break;
+
+                case 'tahun':
+                    $query->selectRaw("YEAR(keuangan_pembayaran.tanggal) as label, COALESCE(SUM(keuangan_pembayaran.jumlah), 0) as amount")
+                          ->groupByRaw("YEAR(keuangan_pembayaran.tanggal)")
+                          ->orderBy('label', 'desc');
+                    break;
+
+                case 'detail':
+                    // Tanpa bundle — tampilkan per nama tagihan asli
+                    $query->selectRaw("keuangan_tagihan.nama as label, COALESCE(SUM(keuangan_pembayaran.jumlah), 0) as amount")
+                          ->groupBy('keuangan_tagihan.nama')
+                          ->orderByDesc('amount');
+                    break;
+            }
+
+            $data = $query->get()->map(function ($item) {
+                return [
+                    'label'  => $item->label ?? '-',
+                    'amount' => (float) $item->amount,
+                ];
+            });
+
+            $total = $data->sum('amount');
+
+            $data = $data->map(function ($item) use ($total) {
+                $item['percent'] = $total > 0 ? number_format($item['amount'] / $total * 100, 2) : 0;
+                return $item;
+            })->values();
+
+            return response()->json([
+                'status'   => true,
+                'message'  => 'Data berhasil diambil',
+                'category' => $category,
+                'group_by' => $groupBy,
+                'data'     => $data,
+                'total'    => $total,
+            ]);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status'  => false,
                 'message' => $th->getMessage()
             ]);
         }
@@ -176,3 +289,4 @@ class DashboardController extends Controller
         }
     }
 }
+
