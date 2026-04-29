@@ -52,6 +52,8 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
         Route::get('/finance-overview', [DashboardController::class, 'financeOverview'])->name('admin.dashboard.finance-overview');
         Route::get('/finance-overview-detail', [DashboardController::class, 'financeOverviewDetail'])->name('admin.dashboard.finance-overview-detail');
         Route::get('/statistic', [DashboardController::class, 'statistic'])->name('admin.dashboard.statistic');
+        Route::get('/krs-report', [DashboardController::class, 'krsReport'])->name('admin.dashboard.krs-report');
+        Route::get('/krs-report-detail', [DashboardController::class, 'krsReportDetail'])->name('admin.dashboard.krs-report-detail');
     });
 
     Route::prefix('saldo')->group(function () {

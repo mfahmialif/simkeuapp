@@ -316,4 +316,195 @@ class DashboardController extends Controller
             ]);
         }
     }
+
+    /**
+     * KRS Report Summary
+     * Returns count of students who paid KRS (registrasi/daftar ulang),
+     * total amount, and breakdown stats.
+     */
+    public function krsReport(Request $request)
+    {
+        try {
+            $thAkademikId = $request->th_akademik_id;
+            $prodiId      = $request->prodi_id;
+            $jkId         = $request->jk_id;
+
+            // Get all KRS tagihan (registrasi / daftar ulang)
+            $tagihanQuery = DB::table('keuangan_tagihan')
+                ->where(function ($q) {
+                    $q->where('keuangan_tagihan.nama', 'LIKE', '%registrasi%')
+                      ->orWhere('keuangan_tagihan.nama', 'LIKE', '%daftar ulang%');
+                });
+
+            if ($thAkademikId) {
+                $tagihanQuery->where('keuangan_tagihan.th_akademik_id', $thAkademikId);
+            }
+            if ($prodiId) {
+                $tagihanQuery->where('keuangan_tagihan.prodi_id', $prodiId);
+            }
+
+            $tagihanIds = $tagihanQuery->pluck('id');
+
+            if ($tagihanIds->isEmpty()) {
+                return response()->json([
+                    'status' => true,
+                    'data'   => [
+                        'total_mahasiswa_bayar' => 0,
+                        'total_amount'          => 0,
+                        'total_lunas'           => 0,
+                        'total_belum_lunas'     => 0,
+                    ],
+                ]);
+            }
+
+            // Count distinct students who made KRS payments
+            $paymentQuery = DB::table('keuangan_pembayaran')
+                ->whereIn('keuangan_pembayaran.tagihan_id', $tagihanIds);
+
+            if ($thAkademikId) {
+                $paymentQuery->where('keuangan_pembayaran.th_akademik_id', $thAkademikId);
+            }
+            if ($jkId) {
+                $paymentQuery->where('keuangan_pembayaran.jk_id', $jkId);
+            }
+
+            // Get per-student summary: total paid vs tagihan amount
+            $studentPayments = DB::table('keuangan_pembayaran')
+                ->join('keuangan_tagihan', 'keuangan_tagihan.id', '=', 'keuangan_pembayaran.tagihan_id')
+                ->whereIn('keuangan_pembayaran.tagihan_id', $tagihanIds)
+                ->when($thAkademikId, fn($q) => $q->where('keuangan_pembayaran.th_akademik_id', $thAkademikId))
+                ->when($jkId, fn($q) => $q->where('keuangan_pembayaran.jk_id', $jkId))
+                ->selectRaw('
+                    keuangan_pembayaran.nim,
+                    keuangan_pembayaran.tagihan_id,
+                    keuangan_tagihan.jumlah as tagihan_amount,
+                    SUM(keuangan_pembayaran.jumlah) as total_paid
+                ')
+                ->groupBy('keuangan_pembayaran.nim', 'keuangan_pembayaran.tagihan_id', 'keuangan_tagihan.jumlah')
+                ->get();
+
+            $totalMahasiswaBayar = $studentPayments->unique('nim')->count();
+            $totalAmount         = $studentPayments->sum('total_paid');
+
+            // Calculate lunas: paid >= tagihan amount
+            $lunasCount = $studentPayments->filter(fn($s) => $s->total_paid >= $s->tagihan_amount)->unique('nim')->count();
+            $belumLunasCount = $totalMahasiswaBayar - $lunasCount;
+
+            return response()->json([
+                'status' => true,
+                'data'   => [
+                    'total_mahasiswa_bayar' => $totalMahasiswaBayar,
+                    'total_amount'          => (float) $totalAmount,
+                    'total_lunas'           => $lunasCount,
+                    'total_belum_lunas'     => $belumLunasCount,
+                ],
+            ]);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status'  => false,
+                'message' => $th->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * KRS Report Detail
+     * Returns paginated list of students with their KRS payment details.
+     */
+    public function krsReportDetail(Request $request)
+    {
+        try {
+            $thAkademikId = $request->th_akademik_id;
+            $prodiId      = $request->prodi_id;
+            $jkId         = $request->jk_id;
+            $search       = $request->search;
+            $perPage      = $request->input('per_page', 15);
+
+            // Get KRS tagihan IDs
+            $tagihanQuery = DB::table('keuangan_tagihan')
+                ->where(function ($q) {
+                    $q->where('keuangan_tagihan.nama', 'LIKE', '%registrasi%')
+                      ->orWhere('keuangan_tagihan.nama', 'LIKE', '%daftar ulang%');
+                });
+
+            if ($thAkademikId) {
+                $tagihanQuery->where('keuangan_tagihan.th_akademik_id', $thAkademikId);
+            }
+            if ($prodiId) {
+                $tagihanQuery->where('keuangan_tagihan.prodi_id', $prodiId);
+            }
+
+            $tagihanIds = $tagihanQuery->pluck('id');
+
+            if ($tagihanIds->isEmpty()) {
+                return response()->json([
+                    'status' => true,
+                    'data'   => [
+                        'data'         => [],
+                        'current_page' => 1,
+                        'last_page'    => 1,
+                        'total'        => 0,
+                    ],
+                ]);
+            }
+
+            // Build the main query with pagination
+            $query = DB::table('keuangan_pembayaran')
+                ->join('keuangan_tagihan', 'keuangan_tagihan.id', '=', 'keuangan_pembayaran.tagihan_id')
+                ->leftJoin('th_akademik', 'keuangan_pembayaran.th_akademik_id', '=', 'th_akademik.id')
+                ->leftJoin('prodi', 'keuangan_tagihan.prodi_id', '=', 'prodi.id')
+                ->whereIn('keuangan_pembayaran.tagihan_id', $tagihanIds)
+                ->when($thAkademikId, fn($q) => $q->where('keuangan_pembayaran.th_akademik_id', $thAkademikId))
+                ->when($jkId, fn($q) => $q->where('keuangan_pembayaran.jk_id', $jkId))
+                ->when($search, fn($q) => $q->where(function ($sq) use ($search) {
+                    $sq->where('keuangan_pembayaran.nim', 'LIKE', "%{$search}%")
+                       ->orWhere('keuangan_pembayaran.nama', 'LIKE', "%{$search}%");
+                }))
+                ->selectRaw('
+                    keuangan_pembayaran.nim,
+                    keuangan_pembayaran.nama,
+                    keuangan_tagihan.nama as tagihan_nama,
+                    keuangan_tagihan.jumlah as tagihan_amount,
+                    SUM(keuangan_pembayaran.jumlah) as total_paid,
+                    MAX(keuangan_pembayaran.tanggal) as last_payment_date,
+                    COALESCE(prodi.nama, "-") as prodi_nama,
+                    CONCAT(COALESCE(th_akademik.nama, ""), " - ", COALESCE(th_akademik.semester, "")) as th_akademik_nama
+                ')
+                ->groupBy(
+                    'keuangan_pembayaran.nim',
+                    'keuangan_pembayaran.nama',
+                    'keuangan_tagihan.nama',
+                    'keuangan_tagihan.jumlah',
+                    'prodi.nama',
+                    'th_akademik.nama',
+                    'th_akademik.semester'
+                )
+                ->orderByDesc('last_payment_date');
+
+            $paginated = $query->paginate($perPage);
+
+            // Add lunas status
+            $items = collect($paginated->items())->map(function ($item) {
+                $item->sisa       = max(0, $item->tagihan_amount - $item->total_paid);
+                $item->is_lunas   = $item->total_paid >= $item->tagihan_amount;
+                return $item;
+            });
+
+            return response()->json([
+                'status' => true,
+                'data'   => [
+                    'data'         => $items,
+                    'current_page' => $paginated->currentPage(),
+                    'last_page'    => $paginated->lastPage(),
+                    'total'        => $paginated->total(),
+                    'per_page'     => $paginated->perPage(),
+                ],
+            ]);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status'  => false,
+                'message' => $th->getMessage(),
+            ]);
+        }
+    }
 }
