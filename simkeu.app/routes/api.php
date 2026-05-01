@@ -46,6 +46,8 @@ Route::prefix('auth')->group(function () {
     });
 });
 
+use App\Http\Controllers\Api\Admin\SyaratTagihanController;
+
 Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuangan,kabag,staff,rumahtangga,barokahdosen'])->group(function () {
     Route::prefix('dashboard')->group(function () {
         Route::get('/widget', [DashboardController::class, 'widget'])->name('admin.dashboard.widget');
@@ -153,6 +155,10 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
     Route::apiResource('mahasiswa', MahasiswaController::class);
 
     Route::apiResource('form-schadule', FormSchaduleController::class);
+
+    Route::post('syarat-tagihan/sync', [SyaratTagihanController::class, 'sync'])->name('admin.syarat-tagihan.sync');
+    Route::get('syarat-tagihan/stats', [SyaratTagihanController::class, 'stats'])->name('admin.syarat-tagihan.stats');
+    Route::apiResource('syarat-tagihan', SyaratTagihanController::class);
 
     Route::prefix('profil')->group(function () {
         Route::get('/', [ProfilController::class, 'index']);

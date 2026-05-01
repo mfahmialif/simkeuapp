@@ -1,7 +1,10 @@
 <?php
+
 namespace App\Services;
 
 use App\Services\Mahasiswa;
+use App\Models\ThAkademik;
+use App\Models\SyaratTagihan;
 use App\Models\KeuanganTagihan;
 use App\Models\KeuanganPembayaran;
 use Illuminate\Support\Facades\DB;
@@ -42,7 +45,7 @@ class TagihanMahasiswa
                 ->where('kelas_id', $mhs->kelas_id)
                 ->when($mhs->prodi_double_degree_id == null, function ($query) use ($mhs) {
                     $query->where('prodi_id', $mhs->prodi_id);
-                    $query->where(function($query){
+                    $query->where(function ($query) {
                         $query->where('double_degree', '=', 0);
                         $query->orWhereNull('double_degree');
                     });
@@ -55,9 +58,30 @@ class TagihanMahasiswa
                 })
                 ->get();
 
+            // Hitung semester mahasiswa saat ini
+            $thAkademikAktif = ThAkademik::where('aktif', 'Y')->first();
+            $semesterMhs = null;
+            if ($thAkademikAktif) {
+                $tahunAkademik = (int) substr($thAkademikAktif->kode, 0, 4);
+                $semesterType  = (int) substr($thAkademikAktif->kode, -1); // 1 = Ganjil, 2 = Genap
+                $angkatanMhs   = (int) substr($mhs->nim, 0, 4);
+                $semesterMhs   = ($tahunAkademik - $angkatanMhs) * 2 + $semesterType;
+            }
+
+            // Ambil semua syarat tagihan sekaligus (cache per request)
+            $syaratTagihanMap = SyaratTagihan::whereNotNull('smt')->pluck('smt', 'nama');
+
             $listTagihan = [];
 
             foreach ($tagihan as $row) {
+                // Filter berdasarkan syarat semester
+                if ($semesterMhs !== null && $syaratTagihanMap->has($row->nama)) {
+                    $syaratSmt = $syaratTagihanMap->get($row->nama);
+                    if ($semesterMhs < $syaratSmt) {
+                        continue; // Skip tagihan karena semester belum memenuhi syarat
+                    }
+                }
+
                 $sisa = TagihanMahasiswa::getSisaTagihan($mhs->nim, $row->id);
 
                 // dispensasi tagihan
@@ -99,7 +123,7 @@ class TagihanMahasiswa
             }
             $return = [
                 'nama_mhs'     => $mhs->nama,
-                'nama_prodi'   => $mhs->prodi_double_degree_id ? $mhs->prodi_double_degree->nama . ' - Double Degree': $mhs->prodi->nama,
+                'nama_prodi'   => $mhs->prodi_double_degree_id ? $mhs->prodi_double_degree->nama . ' - Double Degree' : $mhs->prodi->nama,
                 'nama_kelas'   => @$mhs->kelas->nama,
                 'list_tagihan' => $listTagihan,
                 'angkatan'     => @$mhs->th_akademik->kode,
@@ -188,5 +212,27 @@ class TagihanMahasiswa
             ];
         }
         return $return;
+    }
+
+    public static function getUniqueTagihan()
+    {
+        try {
+            $tagihan = \App\Models\KeuanganTagihan::select('nama')
+                ->whereNotNull('nama')
+                ->where('nama', '!=', '')
+                ->distinct()
+                ->orderBy('nama', 'asc')
+                ->pluck('nama');
+
+            return [
+                'status' => true,
+                'data' => $tagihan
+            ];
+        } catch (\Throwable $th) {
+            return [
+                'status'  => false,
+                'message' => $th->getMessage()
+            ];
+        }
     }
 }
