@@ -16,20 +16,28 @@ class DashboardController extends Controller
 {
     public function widget()
     {
-        $data = Cache::remember('dashboard_widget', 300, function () {
+        $data = Cache::remember('dashboard_widget_v3', 300, function () {
             // Gabungkan sum & count dalam satu query per tabel untuk efisiensi
             $saldoData = KeuanganSaldo::selectRaw('COALESCE(SUM(saldo), 0) as total_saldo, COUNT(*) as jumlah')->first();
             $pemasukanData = KeuanganSaldoPemasukan::selectRaw('COALESCE(SUM(jumlah), 0) as total, COUNT(*) as jumlah')->first();
-            $pengeluaranData = KeuanganSaldoPengeluaran::selectRaw('COALESCE(SUM(jumlah), 0) as total, COUNT(*) as jumlah')->first();
+            $pembayaranData = DB::table('keuangan_pembayaran')->selectRaw('COALESCE(SUM(jumlah), 0) as total, COUNT(*) as jumlah')->first();
+            $pengeluaranUmumData = KeuanganSaldoPengeluaran::selectRaw('COALESCE(SUM(jumlah), 0) as total, COUNT(*) as jumlah')->first();
+            $pengeluaranDosenData = DB::table('keuangan_pengeluaran_dosen')->selectRaw('COALESCE(SUM(total), 0) as total, COUNT(*) as jumlah')->first();
             $jumlahUser = User::count();
+
+            $totalPemasukan = (float) $pemasukanData->total + (float) $pembayaranData->total;
+            $jumlahDataPemasukan = (int) $pemasukanData->jumlah + (int) $pembayaranData->jumlah;
+
+            $totalPengeluaran = (float) $pengeluaranUmumData->total + (float) $pengeluaranDosenData->total;
+            $jumlahDataPengeluaran = (int) $pengeluaranUmumData->jumlah + (int) $pengeluaranDosenData->jumlah;
 
             return [
                 'saldo' => (float) $saldoData->total_saldo,
                 'jumlahSaldo' => (int) $saldoData->jumlah,
-                'pemasukan' => (float) $pemasukanData->total,
-                'pengeluaran' => (float) $pengeluaranData->total,
-                'jumlahPemasukan' => (int) $pemasukanData->jumlah,
-                'jumlahPengeluaran' => (int) $pengeluaranData->jumlah,
+                'pemasukan' => $totalPemasukan,
+                'pengeluaran' => $totalPengeluaran,
+                'jumlahPemasukan' => $jumlahDataPemasukan,
+                'jumlahPengeluaran' => $jumlahDataPengeluaran,
                 'jumlahUser' => $jumlahUser,
             ];
         });
@@ -318,18 +326,84 @@ class DashboardController extends Controller
     }
 
     /**
-     * KRS Report Summary
-     * Returns count of students who paid KRS (registrasi/daftar ulang),
-     * total amount, and breakdown stats.
+     * KRS Report - proxy ke external API krs/getDataInfo
      */
     public function krsReport(Request $request)
+    {
+        try {
+            $apiKey = config('simkeu.simkeu_api_key');
+            $url = config('simkeu.simkeu_url') . "krs/getDataInfo";
+
+            $post = array_filter($request->only(['th_akademik_id', 'prodi_id', 'kelas_id', 'th_angkatan_id']), function ($v) {
+                return $v !== null && $v !== '';
+            });
+
+            $ch = curl_init($url);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $post);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, [
+                "apikey: $apiKey",
+            ]);
+            $response = curl_exec($ch);
+            curl_close($ch);
+
+            $data = json_decode($response, true);
+
+            return response()->json([
+                'status' => true,
+                'data'   => $data,
+            ]);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status'  => false,
+                'message' => $th->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * KRS Report Detail - proxy ke external API krs/getData
+     */
+    public function krsReportDetail(Request $request)
+    {
+        try {
+            $apiKey = config('simkeu.simkeu_api_key');
+            $url = config('simkeu.simkeu_url') . "krs/getData";
+
+            $post = array_filter($request->all(), function ($v) {
+                return $v !== null && $v !== '';
+            });
+
+            $ch = curl_init($url);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $post);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, [
+                "apikey: $apiKey",
+            ]);
+            $response = curl_exec($ch);
+            curl_close($ch);
+
+            $data = json_decode($response, true);
+
+            return response()->json($data);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status'  => false,
+                'message' => $th->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * KRS Report Local - query dari database lokal keuangan
+     */
+    public function krsReportLocal(Request $request)
     {
         try {
             $thAkademikId = $request->th_akademik_id;
             $prodiId      = $request->prodi_id;
             $jkId         = $request->jk_id;
 
-            // Get all KRS tagihan (registrasi / daftar ulang)
             $tagihanQuery = DB::table('keuangan_tagihan')
                 ->where(function ($q) {
                     $q->where('keuangan_tagihan.nama', 'LIKE', '%registrasi%')
@@ -357,18 +431,6 @@ class DashboardController extends Controller
                 ]);
             }
 
-            // Count distinct students who made KRS payments
-            $paymentQuery = DB::table('keuangan_pembayaran')
-                ->whereIn('keuangan_pembayaran.tagihan_id', $tagihanIds);
-
-            if ($thAkademikId) {
-                $paymentQuery->where('keuangan_pembayaran.th_akademik_id', $thAkademikId);
-            }
-            if ($jkId) {
-                $paymentQuery->where('keuangan_pembayaran.jk_id', $jkId);
-            }
-
-            // Get per-student summary: total paid vs tagihan amount
             $studentPayments = DB::table('keuangan_pembayaran')
                 ->join('keuangan_tagihan', 'keuangan_tagihan.id', '=', 'keuangan_pembayaran.tagihan_id')
                 ->whereIn('keuangan_pembayaran.tagihan_id', $tagihanIds)
@@ -385,10 +447,8 @@ class DashboardController extends Controller
 
             $totalMahasiswaBayar = $studentPayments->unique('nim')->count();
             $totalAmount         = $studentPayments->sum('total_paid');
-
-            // Calculate lunas: paid >= tagihan amount
-            $lunasCount = $studentPayments->filter(fn($s) => $s->total_paid >= $s->tagihan_amount)->unique('nim')->count();
-            $belumLunasCount = $totalMahasiswaBayar - $lunasCount;
+            $lunasCount          = $studentPayments->filter(fn($s) => $s->total_paid >= $s->tagihan_amount)->unique('nim')->count();
+            $belumLunasCount     = $totalMahasiswaBayar - $lunasCount;
 
             return response()->json([
                 'status' => true,
@@ -408,10 +468,9 @@ class DashboardController extends Controller
     }
 
     /**
-     * KRS Report Detail
-     * Returns paginated list of students with their KRS payment details.
+     * KRS Report Detail Local - paginated list dari database lokal
      */
-    public function krsReportDetail(Request $request)
+    public function krsReportDetailLocal(Request $request)
     {
         try {
             $thAkademikId = $request->th_akademik_id;
@@ -420,7 +479,6 @@ class DashboardController extends Controller
             $search       = $request->search;
             $perPage      = $request->input('per_page', 15);
 
-            // Get KRS tagihan IDs
             $tagihanQuery = DB::table('keuangan_tagihan')
                 ->where(function ($q) {
                     $q->where('keuangan_tagihan.nama', 'LIKE', '%registrasi%')
@@ -448,7 +506,6 @@ class DashboardController extends Controller
                 ]);
             }
 
-            // Build the main query with pagination
             $query = DB::table('keuangan_pembayaran')
                 ->join('keuangan_tagihan', 'keuangan_tagihan.id', '=', 'keuangan_pembayaran.tagihan_id')
                 ->leftJoin('th_akademik', 'keuangan_pembayaran.th_akademik_id', '=', 'th_akademik.id')
@@ -457,12 +514,10 @@ class DashboardController extends Controller
                 ->when($thAkademikId, fn($q) => $q->where('keuangan_pembayaran.th_akademik_id', $thAkademikId))
                 ->when($jkId, fn($q) => $q->where('keuangan_pembayaran.jk_id', $jkId))
                 ->when($search, fn($q) => $q->where(function ($sq) use ($search) {
-                    $sq->where('keuangan_pembayaran.nim', 'LIKE', "%{$search}%")
-                       ->orWhere('keuangan_pembayaran.nama', 'LIKE', "%{$search}%");
+                    $sq->where('keuangan_pembayaran.nim', 'LIKE', "%{$search}%");
                 }))
                 ->selectRaw('
                     keuangan_pembayaran.nim,
-                    keuangan_pembayaran.nama,
                     keuangan_tagihan.nama as tagihan_nama,
                     keuangan_tagihan.jumlah as tagihan_amount,
                     SUM(keuangan_pembayaran.jumlah) as total_paid,
@@ -472,7 +527,6 @@ class DashboardController extends Controller
                 ')
                 ->groupBy(
                     'keuangan_pembayaran.nim',
-                    'keuangan_pembayaran.nama',
                     'keuangan_tagihan.nama',
                     'keuangan_tagihan.jumlah',
                     'prodi.nama',
@@ -483,10 +537,170 @@ class DashboardController extends Controller
 
             $paginated = $query->paginate($perPage);
 
-            // Add lunas status
             $items = collect($paginated->items())->map(function ($item) {
-                $item->sisa       = max(0, $item->tagihan_amount - $item->total_paid);
-                $item->is_lunas   = $item->total_paid >= $item->tagihan_amount;
+                $item->sisa     = max(0, $item->tagihan_amount - $item->total_paid);
+                $item->is_lunas = $item->total_paid >= $item->tagihan_amount;
+                return $item;
+            });
+
+            return response()->json([
+                'status' => true,
+                'data'   => [
+                    'data'         => $items,
+                    'current_page' => $paginated->currentPage(),
+                    'last_page'    => $paginated->lastPage(),
+                    'total'        => $paginated->total(),
+                    'per_page'     => $paginated->perPage(),
+                ],
+            ]);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status'  => false,
+                'message' => $th->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * UAS Report - summary dari database lokal keuangan
+     */
+    public function uasReport(Request $request)
+    {
+        try {
+            $thAkademikId = $request->th_akademik_id;
+            $prodiId      = $request->prodi_id;
+            $jkId         = $request->jk_id;
+
+            $tagihanQuery = DB::table('keuangan_tagihan')
+                ->where('keuangan_tagihan.nama', 'LIKE', '%UAS%');
+
+            if ($thAkademikId) {
+                $tagihanQuery->where('keuangan_tagihan.th_akademik_id', $thAkademikId);
+            }
+            if ($prodiId) {
+                $tagihanQuery->where('keuangan_tagihan.prodi_id', $prodiId);
+            }
+
+            $tagihanIds = $tagihanQuery->pluck('id');
+
+            if ($tagihanIds->isEmpty()) {
+                return response()->json([
+                    'status' => true,
+                    'data'   => [
+                        'total_mahasiswa_bayar' => 0,
+                        'total_amount'          => 0,
+                        'total_lunas'           => 0,
+                        'total_belum_lunas'     => 0,
+                    ],
+                ]);
+            }
+
+            $studentPayments = DB::table('keuangan_pembayaran')
+                ->join('keuangan_tagihan', 'keuangan_tagihan.id', '=', 'keuangan_pembayaran.tagihan_id')
+                ->whereIn('keuangan_pembayaran.tagihan_id', $tagihanIds)
+                ->when($thAkademikId, fn($q) => $q->where('keuangan_pembayaran.th_akademik_id', $thAkademikId))
+                ->when($jkId, fn($q) => $q->where('keuangan_pembayaran.jk_id', $jkId))
+                ->selectRaw('
+                    keuangan_pembayaran.nim,
+                    keuangan_pembayaran.tagihan_id,
+                    keuangan_tagihan.jumlah as tagihan_amount,
+                    SUM(keuangan_pembayaran.jumlah) as total_paid
+                ')
+                ->groupBy('keuangan_pembayaran.nim', 'keuangan_pembayaran.tagihan_id', 'keuangan_tagihan.jumlah')
+                ->get();
+
+            $totalMahasiswaBayar = $studentPayments->unique('nim')->count();
+            $totalAmount         = $studentPayments->sum('total_paid');
+            $lunasCount          = $studentPayments->filter(fn($s) => $s->total_paid >= $s->tagihan_amount)->unique('nim')->count();
+            $belumLunasCount     = $totalMahasiswaBayar - $lunasCount;
+
+            return response()->json([
+                'status' => true,
+                'data'   => [
+                    'total_mahasiswa_bayar' => $totalMahasiswaBayar,
+                    'total_amount'          => (float) $totalAmount,
+                    'total_lunas'           => $lunasCount,
+                    'total_belum_lunas'     => $belumLunasCount,
+                ],
+            ]);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status'  => false,
+                'message' => $th->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * UAS Report Detail - paginated list dari database lokal
+     */
+    public function uasReportDetail(Request $request)
+    {
+        try {
+            $thAkademikId = $request->th_akademik_id;
+            $prodiId      = $request->prodi_id;
+            $jkId         = $request->jk_id;
+            $search       = $request->search;
+            $perPage      = $request->input('per_page', 15);
+
+            $tagihanQuery = DB::table('keuangan_tagihan')
+                ->where('keuangan_tagihan.nama', 'LIKE', '%UAS%');
+
+            if ($thAkademikId) {
+                $tagihanQuery->where('keuangan_tagihan.th_akademik_id', $thAkademikId);
+            }
+            if ($prodiId) {
+                $tagihanQuery->where('keuangan_tagihan.prodi_id', $prodiId);
+            }
+
+            $tagihanIds = $tagihanQuery->pluck('id');
+
+            if ($tagihanIds->isEmpty()) {
+                return response()->json([
+                    'status' => true,
+                    'data'   => [
+                        'data'         => [],
+                        'current_page' => 1,
+                        'last_page'    => 1,
+                        'total'        => 0,
+                    ],
+                ]);
+            }
+
+            $query = DB::table('keuangan_pembayaran')
+                ->join('keuangan_tagihan', 'keuangan_tagihan.id', '=', 'keuangan_pembayaran.tagihan_id')
+                ->leftJoin('th_akademik', 'keuangan_pembayaran.th_akademik_id', '=', 'th_akademik.id')
+                ->leftJoin('prodi', 'keuangan_tagihan.prodi_id', '=', 'prodi.id')
+                ->whereIn('keuangan_pembayaran.tagihan_id', $tagihanIds)
+                ->when($thAkademikId, fn($q) => $q->where('keuangan_pembayaran.th_akademik_id', $thAkademikId))
+                ->when($jkId, fn($q) => $q->where('keuangan_pembayaran.jk_id', $jkId))
+                ->when($search, fn($q) => $q->where(function ($sq) use ($search) {
+                    $sq->where('keuangan_pembayaran.nim', 'LIKE', "%{$search}%");
+                }))
+                ->selectRaw('
+                    keuangan_pembayaran.nim,
+                    keuangan_tagihan.nama as tagihan_nama,
+                    keuangan_tagihan.jumlah as tagihan_amount,
+                    SUM(keuangan_pembayaran.jumlah) as total_paid,
+                    MAX(keuangan_pembayaran.tanggal) as last_payment_date,
+                    COALESCE(prodi.nama, "-") as prodi_nama,
+                    CONCAT(COALESCE(th_akademik.nama, ""), " - ", COALESCE(th_akademik.semester, "")) as th_akademik_nama
+                ')
+                ->groupBy(
+                    'keuangan_pembayaran.nim',
+                    'keuangan_tagihan.nama',
+                    'keuangan_tagihan.jumlah',
+                    'prodi.nama',
+                    'th_akademik.nama',
+                    'th_akademik.semester'
+                )
+                ->orderByDesc('last_payment_date');
+
+            $paginated = $query->paginate($perPage);
+
+            $items = collect($paginated->items())->map(function ($item) {
+                $item->sisa     = max(0, $item->tagihan_amount - $item->total_paid);
+                $item->is_lunas = $item->total_paid >= $item->tagihan_amount;
                 return $item;
             });
 

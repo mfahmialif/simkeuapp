@@ -54,6 +54,10 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
         Route::get('/statistic', [DashboardController::class, 'statistic'])->name('admin.dashboard.statistic');
         Route::get('/krs-report', [DashboardController::class, 'krsReport'])->name('admin.dashboard.krs-report');
         Route::get('/krs-report-detail', [DashboardController::class, 'krsReportDetail'])->name('admin.dashboard.krs-report-detail');
+        Route::get('/krs-report-local', [DashboardController::class, 'krsReportLocal'])->name('admin.dashboard.krs-report-local');
+        Route::get('/krs-report-detail-local', [DashboardController::class, 'krsReportDetailLocal'])->name('admin.dashboard.krs-report-detail-local');
+        Route::get('/uas-report', [DashboardController::class, 'uasReport'])->name('admin.dashboard.uas-report');
+        Route::get('/uas-report-detail', [DashboardController::class, 'uasReportDetail'])->name('admin.dashboard.uas-report-detail');
     });
 
     Route::prefix('saldo')->group(function () {
@@ -186,3 +190,5 @@ Route::get('/testingexcel', [PengeluaranDosenController::class, 'exportExcel']);
 // Route::get('testing/{nim}', [MahasiswaController::class, 'cekPelanggaran']);
 // Route::get('testing2', [CekTagihanController::class, 'excel']);
 // Route::get('admin/pemasukan/mahasiswa/pembayaran/kwitansi/{id}', [PembayaranController::class, 'kwitansi'])->name('admin.pemasukan.mahasiswa.kwitansi.view');
+Route::get('/krs-report', [DashboardController::class, 'krsReport'])->name('admin.dashboard.krs-report');
+Route::get('/krs-report-detail', [DashboardController::class, 'krsReportDetail'])->name('admin.dashboard.krs-report-detail');

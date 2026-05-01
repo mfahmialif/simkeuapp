@@ -133,7 +133,7 @@ class PembayaranController extends Controller
                         ) {
                             // update mahasiswa jadi aktif
 
-                            Mahasiswa::updateStatusMahasiswa($dataValidated['nim'], 18);
+                            // Mahasiswa::updateStatusMahasiswa($dataValidated['nim'], 18);
                         }
                     }
 
@@ -178,7 +178,7 @@ class PembayaranController extends Controller
             }
 
             // catatan-deposit
-            if ($dataValidated['dipakai_deposit_mhs'] != "") {
+            if (isset($dataValidated['dipakai_deposit_mhs']) && $dataValidated['dipakai_deposit_mhs'] > 0) {
                 $deposit = KeuanganDeposit::where('nim', $dataValidated['nim'])->first();
                 if ($deposit != null) {
                     $jumlahDepositBaru = $deposit->jumlah - $dataValidated['dipakai_deposit_mhs'];
