@@ -16,17 +16,30 @@ class DashboardController extends Controller
 {
     public function widget()
     {
-        $data = Cache::remember('dashboard_widget_v3', 300, function () {
-            // Gabungkan sum & count dalam satu query per tabel untuk efisiensi
+        $data = Cache::remember('dashboard_widget_v4', 300, function () {
+            $today = Carbon::today()->format('Y-m-d');
+            $startOfWeek = Carbon::now()->startOfWeek()->format('Y-m-d');
+            $startOfMonth = Carbon::now()->startOfMonth()->format('Y-m-d');
+
+            $selectRawPemasukan = "
+                COALESCE(SUM(jumlah), 0) as total_semua, 
+                COUNT(*) as jumlah_semua,
+                COALESCE(SUM(CASE WHEN DATE(tanggal) = ? THEN jumlah ELSE 0 END), 0) as total_harian,
+                SUM(CASE WHEN DATE(tanggal) = ? THEN 1 ELSE 0 END) as jumlah_harian,
+                COALESCE(SUM(CASE WHEN DATE(tanggal) >= ? THEN jumlah ELSE 0 END), 0) as total_mingguan,
+                SUM(CASE WHEN DATE(tanggal) >= ? THEN 1 ELSE 0 END) as jumlah_mingguan,
+                COALESCE(SUM(CASE WHEN DATE(tanggal) >= ? THEN jumlah ELSE 0 END), 0) as total_bulanan,
+                SUM(CASE WHEN DATE(tanggal) >= ? THEN 1 ELSE 0 END) as jumlah_bulanan
+            ";
+            $bindings = [$today, $today, $startOfWeek, $startOfWeek, $startOfMonth, $startOfMonth];
+
             $saldoData = KeuanganSaldo::selectRaw('COALESCE(SUM(saldo), 0) as total_saldo, COUNT(*) as jumlah')->first();
-            $pemasukanData = KeuanganSaldoPemasukan::selectRaw('COALESCE(SUM(jumlah), 0) as total, COUNT(*) as jumlah')->first();
-            $pembayaranData = DB::table('keuangan_pembayaran')->selectRaw('COALESCE(SUM(jumlah), 0) as total, COUNT(*) as jumlah')->first();
             $pengeluaranUmumData = KeuanganSaldoPengeluaran::selectRaw('COALESCE(SUM(jumlah), 0) as total, COUNT(*) as jumlah')->first();
             $pengeluaranDosenData = DB::table('keuangan_pengeluaran_dosen')->selectRaw('COALESCE(SUM(total), 0) as total, COUNT(*) as jumlah')->first();
             $jumlahUser = User::count();
 
-            $totalPemasukan = (float) $pemasukanData->total + (float) $pembayaranData->total;
-            $jumlahDataPemasukan = (int) $pemasukanData->jumlah + (int) $pembayaranData->jumlah;
+            $pemasukanData = KeuanganSaldoPemasukan::selectRaw($selectRawPemasukan, $bindings)->first();
+            $pembayaranData = DB::table('keuangan_pembayaran')->selectRaw($selectRawPemasukan, $bindings)->first();
 
             $totalPengeluaran = (float) $pengeluaranUmumData->total + (float) $pengeluaranDosenData->total;
             $jumlahDataPengeluaran = (int) $pengeluaranUmumData->jumlah + (int) $pengeluaranDosenData->jumlah;
@@ -34,9 +47,24 @@ class DashboardController extends Controller
             return [
                 'saldo' => (float) $saldoData->total_saldo,
                 'jumlahSaldo' => (int) $saldoData->jumlah,
-                'pemasukan' => $totalPemasukan,
+                
+                // Semua
+                'pemasukan' => (float) $pemasukanData->total_semua + (float) $pembayaranData->total_semua,
+                'jumlahPemasukan' => (int) $pemasukanData->jumlah_semua + (int) $pembayaranData->jumlah_semua,
+                
+                // Harian
+                'pemasukanHarian' => (float) $pemasukanData->total_harian + (float) $pembayaranData->total_harian,
+                'jumlahPemasukanHarian' => (int) $pemasukanData->jumlah_harian + (int) $pembayaranData->jumlah_harian,
+                
+                // Mingguan
+                'pemasukanMingguan' => (float) $pemasukanData->total_mingguan + (float) $pembayaranData->total_mingguan,
+                'jumlahPemasukanMingguan' => (int) $pemasukanData->jumlah_mingguan + (int) $pembayaranData->jumlah_mingguan,
+                
+                // Bulanan
+                'pemasukanBulanan' => (float) $pemasukanData->total_bulanan + (float) $pembayaranData->total_bulanan,
+                'jumlahPemasukanBulanan' => (int) $pemasukanData->jumlah_bulanan + (int) $pembayaranData->jumlah_bulanan,
+
                 'pengeluaran' => $totalPengeluaran,
-                'jumlahPemasukan' => $jumlahDataPemasukan,
                 'jumlahPengeluaran' => $jumlahDataPengeluaran,
                 'jumlahUser' => $jumlahUser,
             ];

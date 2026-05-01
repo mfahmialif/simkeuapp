@@ -133,7 +133,7 @@ class PembayaranController extends Controller
                         ) {
                             // update mahasiswa jadi aktif
 
-                            // Mahasiswa::updateStatusMahasiswa($dataValidated['nim'], 18);
+                            Mahasiswa::updateStatusMahasiswa($dataValidated['nim'], 18);
                         }
                     }
 
