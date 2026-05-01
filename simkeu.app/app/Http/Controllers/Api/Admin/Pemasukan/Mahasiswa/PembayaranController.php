@@ -174,9 +174,9 @@ class PembayaranController extends Controller
                     DB::raw('COALESCE(SUM(CASE WHEN keuangan_pembayaran.jk_id = 9 THEN keuangan_pembayaran.jumlah ELSE 0 END), 0) as perempuan'),
                     DB::raw('COALESCE(SUM(keuangan_pembayaran.jumlah), 0) as keseluruhan')
                 )
-                ->groupBy(DB::raw($caseExpr), DB::raw("COALESCE(UPPER(keuangan_jenis_pembayaran.nama), 'LAINNYA')"))
-                ->orderBy(DB::raw($caseExpr))
-                ->orderBy(DB::raw("COALESCE(UPPER(keuangan_jenis_pembayaran.nama), 'LAINNYA')"))
+                ->groupBy(DB::raw("category_name"), DB::raw("payment_method"))
+                ->orderBy(DB::raw("category_name"))
+                ->orderBy(DB::raw("payment_method"))
                 ->get()
                 ->map(function ($item) {
                     return [
