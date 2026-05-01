@@ -79,6 +79,8 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
 
             Route::get('pembayaran/kwitansi/{id}', [PembayaranController::class, 'kwitansi'])->name('admin.pemasukan.mahasiswa.pembayaran.kwitansi');
             Route::get('pembayaran/kwitansi/{id}/view', [PembayaranController::class, 'kwitansiPreview'])->name('admin.pemasukan.mahasiswa.pembayaran.kwitansi.view');
+            Route::get('pembayaran-statistic', [PembayaranController::class, 'statistic'])->name('admin.pemasukan.mahasiswa.pembayaran.statistic');
+            Route::get('pembayaran-statistic-detail-prodi', [PembayaranController::class, 'statisticDetailProdi'])->name('admin.pemasukan.mahasiswa.pembayaran.statistic-detail-prodi');
             Route::apiResource('pembayaran', PembayaranController::class);
 
             Route::get('pembayaran-tambahan/kwitansi/{id}', [PembayaranTambahanController::class, 'kwitansi'])->name('admin.pemasukan.mahasiswa.pembayaran-tambahan.kwitansi');
@@ -179,6 +181,7 @@ Route::prefix('helper')->group(function () {
     Route::get('/get-enum-values', [HelperController::class, 'getEnumValues'])->middleware('auth:sanctum');
     Route::get('cek-pembayaran', [HelperController::class, 'cekPembayaran']);
     Route::get('cek-pembayaran-uas', [HelperController::class, 'cekPembayaranUas']);
+    Route::get('petugas-pembayaran', [HelperController::class, 'petugasPembayaran'])->middleware('auth:sanctum');
 });
 
 Route::prefix('pengeluaran')->group(function () {

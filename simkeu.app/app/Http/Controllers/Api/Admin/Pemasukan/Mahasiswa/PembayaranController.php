@@ -20,6 +20,300 @@ use App\Models\KeuanganJenisPembayaranDetail;
 
 class PembayaranController extends Controller
 {
+    public function statistic(Request $request)
+    {
+        $jkUser = Helper::getJenisKelaminUser();
+        $jkIdStr = (string)$jkUser->id;
+        $thAkademikId = $request->th_akademik_id ?? 'all';
+        $prodiFilter = $request->prodi_id ?? 'all';
+        $jenisPembayaranFilter = $request->jenis_pembayaran_id ?? 'all';
+        $userIdFilter = $request->user_id ?? 'all';
+        $tanggalMulai = $request->tanggal_mulai ?? null;
+        $tanggalAkhir = $request->tanggal_akhir ?? null;
+
+        $data = \Illuminate\Support\Facades\Cache::remember('pembayaran_mahasiswa_widget_v5_' . md5($jkIdStr . '_' . $thAkademikId . '_' . $prodiFilter . '_' . $jenisPembayaranFilter . '_' . $userIdFilter . '_' . $tanggalMulai . '_' . $tanggalAkhir), 30, function () use ($jkUser, $thAkademikId, $prodiFilter, $jenisPembayaranFilter, $userIdFilter, $tanggalMulai, $tanggalAkhir) {
+            $startOfWeek = \Carbon\Carbon::now()->startOfWeek()->format('Y-m-d');
+            $startOfMonth = \Carbon\Carbon::now()->startOfMonth()->format('Y-m-d');
+
+            $pembayaranQuery = DB::table('keuangan_pembayaran');
+            $pembayaranQuery->where('keuangan_pembayaran.jk_id', 'LIKE', "%" . $jkUser->id . "%");
+            
+            if ($thAkademikId !== 'all') {
+                $pembayaranQuery->where('keuangan_pembayaran.th_akademik_id', $thAkademikId);
+            }
+
+            // Filter by prodi
+            if ($prodiFilter !== 'all') {
+                $pembayaranQuery->join('keuangan_tagihan', 'keuangan_tagihan.id', '=', 'keuangan_pembayaran.tagihan_id');
+                if ($prodiFilter === 'sarjana') {
+                    $pembayaranQuery->join('prodi', 'prodi.id', '=', 'keuangan_tagihan.prodi_id');
+                    $pembayaranQuery->where('prodi.jenjang', 'S1');
+                } elseif ($prodiFilter === 'pasca') {
+                    $pembayaranQuery->join('prodi', 'prodi.id', '=', 'keuangan_tagihan.prodi_id');
+                    $pembayaranQuery->where('prodi.jenjang', '!=', 'S1');
+                } else {
+                    $pembayaranQuery->where('keuangan_tagihan.prodi_id', $prodiFilter);
+                }
+            }
+
+            // Filter by jenis pembayaran
+            if ($jenisPembayaranFilter !== 'all') {
+                $pembayaranQuery->join('keuangan_jenis_pembayaran_detail', 'keuangan_jenis_pembayaran_detail.pembayaran_id', '=', 'keuangan_pembayaran.id');
+                $pembayaranQuery->where('keuangan_jenis_pembayaran_detail.jenis_pembayaran_id', $jenisPembayaranFilter);
+            }
+
+            // Filter by user_id
+            if ($userIdFilter !== 'all') {
+                $pembayaranQuery->where('keuangan_pembayaran.user_id', $userIdFilter);
+            }
+
+            // Harian: pakai tanggal_mulai jika ada, otherwise today
+            $today = $tanggalMulai ? $tanggalMulai : \Carbon\Carbon::today()->format('Y-m-d');
+
+            // Build Semua (Keseluruhan) dengan kondisi tanggal jika ada
+            $semuaCondLaki = "keuangan_pembayaran.jk_id = 8";
+            $semuaCondPerempuan = "keuangan_pembayaran.jk_id = 9";
+            $semuaBindingsSingle = [];
+
+            if ($tanggalMulai) {
+                $semuaCondLaki .= " AND DATE(keuangan_pembayaran.tanggal) >= ?";
+                $semuaCondPerempuan .= " AND DATE(keuangan_pembayaran.tanggal) >= ?";
+                $semuaBindingsSingle[] = $tanggalMulai;
+            }
+            if ($tanggalAkhir) {
+                $semuaCondLaki .= " AND DATE(keuangan_pembayaran.tanggal) <= ?";
+                $semuaCondPerempuan .= " AND DATE(keuangan_pembayaran.tanggal) <= ?";
+                $semuaBindingsSingle[] = $tanggalAkhir;
+            }
+
+            // Clone base query BEFORE it gets modified by first() or selectRaw()
+            $harianDetailQuery = clone $pembayaranQuery;
+
+            $selectRawPembayaran = "
+                -- Semua (Keseluruhan)
+                COALESCE(SUM(CASE WHEN {$semuaCondLaki} THEN keuangan_pembayaran.jumlah ELSE 0 END), 0) as semua_laki,
+                SUM(CASE WHEN {$semuaCondLaki} THEN 1 ELSE 0 END) as count_semua_laki,
+                COALESCE(SUM(CASE WHEN {$semuaCondPerempuan} THEN keuangan_pembayaran.jumlah ELSE 0 END), 0) as semua_perempuan,
+                SUM(CASE WHEN {$semuaCondPerempuan} THEN 1 ELSE 0 END) as count_semua_perempuan,
+                -- Harian
+                COALESCE(SUM(CASE WHEN DATE(keuangan_pembayaran.tanggal) = ? AND keuangan_pembayaran.jk_id = 8 THEN keuangan_pembayaran.jumlah ELSE 0 END), 0) as harian_laki,
+                SUM(CASE WHEN DATE(keuangan_pembayaran.tanggal) = ? AND keuangan_pembayaran.jk_id = 8 THEN 1 ELSE 0 END) as count_harian_laki,
+                COALESCE(SUM(CASE WHEN DATE(keuangan_pembayaran.tanggal) = ? AND keuangan_pembayaran.jk_id = 9 THEN keuangan_pembayaran.jumlah ELSE 0 END), 0) as harian_perempuan,
+                SUM(CASE WHEN DATE(keuangan_pembayaran.tanggal) = ? AND keuangan_pembayaran.jk_id = 9 THEN 1 ELSE 0 END) as count_harian_perempuan,
+                -- Mingguan
+                COALESCE(SUM(CASE WHEN DATE(keuangan_pembayaran.tanggal) >= ? AND keuangan_pembayaran.jk_id = 8 THEN keuangan_pembayaran.jumlah ELSE 0 END), 0) as mingguan_laki,
+                SUM(CASE WHEN DATE(keuangan_pembayaran.tanggal) >= ? AND keuangan_pembayaran.jk_id = 8 THEN 1 ELSE 0 END) as count_mingguan_laki,
+                COALESCE(SUM(CASE WHEN DATE(keuangan_pembayaran.tanggal) >= ? AND keuangan_pembayaran.jk_id = 9 THEN keuangan_pembayaran.jumlah ELSE 0 END), 0) as mingguan_perempuan,
+                SUM(CASE WHEN DATE(keuangan_pembayaran.tanggal) >= ? AND keuangan_pembayaran.jk_id = 9 THEN 1 ELSE 0 END) as count_mingguan_perempuan,
+                -- Bulanan
+                COALESCE(SUM(CASE WHEN DATE(keuangan_pembayaran.tanggal) >= ? AND keuangan_pembayaran.jk_id = 8 THEN keuangan_pembayaran.jumlah ELSE 0 END), 0) as bulanan_laki,
+                SUM(CASE WHEN DATE(keuangan_pembayaran.tanggal) >= ? AND keuangan_pembayaran.jk_id = 8 THEN 1 ELSE 0 END) as count_bulanan_laki,
+                COALESCE(SUM(CASE WHEN DATE(keuangan_pembayaran.tanggal) >= ? AND keuangan_pembayaran.jk_id = 9 THEN keuangan_pembayaran.jumlah ELSE 0 END), 0) as bulanan_perempuan,
+                SUM(CASE WHEN DATE(keuangan_pembayaran.tanggal) >= ? AND keuangan_pembayaran.jk_id = 9 THEN 1 ELSE 0 END) as count_bulanan_perempuan
+            ";
+            
+            // SQL order: semua_laki(value) -> count_semua_laki -> semua_perempuan(value) -> count_semua_perempuan -> harian -> mingguan -> bulanan
+            $bindingsPembayaran = array_merge(
+                $semuaBindingsSingle, // semua_laki value
+                $semuaBindingsSingle, // count_semua_laki
+                $semuaBindingsSingle, // semua_perempuan value
+                $semuaBindingsSingle, // count_semua_perempuan
+                [$today, $today, $today, $today],
+                [$startOfWeek, $startOfWeek, $startOfWeek, $startOfWeek],
+                [$startOfMonth, $startOfMonth, $startOfMonth, $startOfMonth]
+            );
+
+            $pmb = $pembayaranQuery->selectRaw($selectRawPembayaran, $bindingsPembayaran)->first();
+
+            $buildPeriod = function($laki, $countLaki, $perempuan, $countPerempuan) use ($jkUser) {
+                $result = [];
+                $keseluruhan = 0;
+                $countKeseluruhan = 0;
+
+                if ($jkUser->id == 8 || $jkUser->id === '%') {
+                    $result['Laki-laki'] = ['value' => (float)$laki, 'change' => (int)$countLaki];
+                    $keseluruhan += (float)$laki;
+                    $countKeseluruhan += (int)$countLaki;
+                }
+                if ($jkUser->id == 9 || $jkUser->id === '%') {
+                    $result['Perempuan'] = ['value' => (float)$perempuan, 'change' => (int)$countPerempuan];
+                    $keseluruhan += (float)$perempuan;
+                    $countKeseluruhan += (int)$countPerempuan;
+                }
+                $result['Keseluruhan'] = ['value' => $keseluruhan, 'change' => $countKeseluruhan];
+
+                return $result;
+            };
+            
+            if ($prodiFilter === 'all') {
+                $harianDetailQuery->join('keuangan_tagihan', 'keuangan_tagihan.id', '=', 'keuangan_pembayaran.tagihan_id');
+            }
+            if ($jenisPembayaranFilter === 'all') {
+                $harianDetailQuery->leftJoin('keuangan_jenis_pembayaran_detail', 'keuangan_jenis_pembayaran_detail.pembayaran_id', '=', 'keuangan_pembayaran.id');
+                $harianDetailQuery->leftJoin('keuangan_jenis_pembayaran', 'keuangan_jenis_pembayaran.id', '=', 'keuangan_jenis_pembayaran_detail.jenis_pembayaran_id');
+            } else {
+                $harianDetailQuery->join('keuangan_jenis_pembayaran', 'keuangan_jenis_pembayaran.id', '=', 'keuangan_jenis_pembayaran_detail.jenis_pembayaran_id');
+            }
+
+            $caseExpr = "CASE
+                WHEN keuangan_tagihan.nama LIKE '%SPP%' THEN 'SPP'
+                WHEN keuangan_tagihan.nama LIKE '%regis%' OR keuangan_tagihan.nama LIKE '%daftar%' THEN 'Registrasi'
+                WHEN keuangan_tagihan.nama LIKE '%UAS%' THEN 'UAS'
+                WHEN keuangan_tagihan.nama LIKE '%KKN%' OR keuangan_tagihan.nama LIKE '%PPL%' OR keuangan_tagihan.nama LIKE '%PKL%' THEN 'KKN / PPL / PKL'
+                ELSE keuangan_tagihan.nama
+            END";
+
+            $semuaDetailQuery = clone $harianDetailQuery;
+            $harianDetailQuery->whereDate('keuangan_pembayaran.tanggal', $today);
+
+            $buildDetail = function($query) use ($caseExpr) {
+                return $query->select(
+                    DB::raw("{$caseExpr} as category_name"),
+                    DB::raw("COALESCE(UPPER(keuangan_jenis_pembayaran.nama), 'LAINNYA') as payment_method"),
+                    DB::raw('COALESCE(SUM(CASE WHEN keuangan_pembayaran.jk_id = 8 THEN keuangan_pembayaran.jumlah ELSE 0 END), 0) as laki_laki'),
+                    DB::raw('COALESCE(SUM(CASE WHEN keuangan_pembayaran.jk_id = 9 THEN keuangan_pembayaran.jumlah ELSE 0 END), 0) as perempuan'),
+                    DB::raw('COALESCE(SUM(keuangan_pembayaran.jumlah), 0) as keseluruhan')
+                )
+                ->groupBy(DB::raw($caseExpr), DB::raw("COALESCE(UPPER(keuangan_jenis_pembayaran.nama), 'LAINNYA')"))
+                ->orderBy(DB::raw($caseExpr))
+                ->orderBy(DB::raw("COALESCE(UPPER(keuangan_jenis_pembayaran.nama), 'LAINNYA')"))
+                ->get()
+                ->map(function ($item) {
+                    return [
+                        'jp_nama' => $item->payment_method, // Jenis Pembayaran e.g. CASH
+                        'tagihan_nama' => $item->category_name, // Tagihan e.g. Registrasi
+                        'laki_laki' => $item->laki_laki,
+                        'perempuan' => $item->perempuan,
+                        'keseluruhan' => $item->keseluruhan,
+                    ];
+                });
+            };
+
+            $harianDetail = $buildDetail($harianDetailQuery);
+            $semuaDetail = $buildDetail($semuaDetailQuery);
+
+            return [
+                'Harian' => $buildPeriod($pmb->harian_laki, $pmb->count_harian_laki, $pmb->harian_perempuan, $pmb->count_harian_perempuan),
+                'Mingguan' => $buildPeriod($pmb->mingguan_laki, $pmb->count_mingguan_laki, $pmb->mingguan_perempuan, $pmb->count_mingguan_perempuan),
+                'Bulanan' => $buildPeriod($pmb->bulanan_laki, $pmb->count_bulanan_laki, $pmb->bulanan_perempuan, $pmb->count_bulanan_perempuan),
+                'Semua' => $buildPeriod($pmb->semua_laki, $pmb->count_semua_laki, $pmb->semua_perempuan, $pmb->count_semua_perempuan),
+                'Harian_Detail' => $harianDetail,
+                'Semua_Detail' => $semuaDetail,
+            ];
+        });
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Data statistik berhasil diambil',
+            'data' => $data,
+        ]);
+    }
+
+    public function statisticDetailProdi(Request $request)
+    {
+        $jkUser = Helper::getJenisKelaminUser();
+        $thAkademikId = $request->th_akademik_id ?? 'all';
+        $prodiFilter = $request->prodi_id ?? 'all';
+        $jenisPembayaranFilter = $request->jenis_pembayaran_id ?? 'all';
+        $userIdFilter = $request->user_id ?? 'all';
+        $tanggalMulai = $request->tanggal_mulai ?? null;
+        $tanggalAkhir = $request->tanggal_akhir ?? null;
+        $category = $request->category ?? null;
+
+        if (!$category) {
+            return response()->json(['status' => false, 'message' => 'Category is required', 'data' => []], 400);
+        }
+
+        $pembayaranQuery = DB::table('keuangan_pembayaran');
+        $pembayaranQuery->where('keuangan_pembayaran.jk_id', 'LIKE', "%" . $jkUser->id . "%");
+        
+        if ($thAkademikId !== 'all') {
+            $pembayaranQuery->where('keuangan_pembayaran.th_akademik_id', $thAkademikId);
+        }
+
+        // Filter by prodi
+        $pembayaranQuery->join('keuangan_tagihan', 'keuangan_tagihan.id', '=', 'keuangan_pembayaran.tagihan_id');
+        $pembayaranQuery->leftJoin('prodi', 'prodi.id', '=', 'keuangan_tagihan.prodi_id');
+
+        if ($prodiFilter !== 'all') {
+            if ($prodiFilter === 'sarjana') {
+                $pembayaranQuery->where('prodi.jenjang', 'S1');
+            } elseif ($prodiFilter === 'pasca') {
+                $pembayaranQuery->where('prodi.jenjang', '!=', 'S1');
+            } else {
+                $pembayaranQuery->where('keuangan_tagihan.prodi_id', $prodiFilter);
+            }
+        }
+
+        // Filter by jenis pembayaran
+        if ($jenisPembayaranFilter !== 'all') {
+            $pembayaranQuery->join('keuangan_jenis_pembayaran_detail', 'keuangan_jenis_pembayaran_detail.pembayaran_id', '=', 'keuangan_pembayaran.id');
+            $pembayaranQuery->where('keuangan_jenis_pembayaran_detail.jenis_pembayaran_id', $jenisPembayaranFilter);
+        }
+
+        // Filter by user_id
+        if ($userIdFilter !== 'all') {
+            $pembayaranQuery->where('keuangan_pembayaran.user_id', $userIdFilter);
+        }
+
+        // Apply Category Filter using CASE expression logic
+        if ($category === 'SPP') {
+            $pembayaranQuery->where('keuangan_tagihan.nama', 'LIKE', '%SPP%');
+        } elseif ($category === 'Registrasi') {
+            $pembayaranQuery->where(function ($q) {
+                $q->where('keuangan_tagihan.nama', 'LIKE', '%regis%')
+                  ->orWhere('keuangan_tagihan.nama', 'LIKE', '%daftar%');
+            });
+        } elseif ($category === 'UAS') {
+            $pembayaranQuery->where('keuangan_tagihan.nama', 'LIKE', '%UAS%');
+        } elseif ($category === 'KKN / PPL / PKL') {
+            $pembayaranQuery->where(function ($q) {
+                $q->where('keuangan_tagihan.nama', 'LIKE', '%KKN%')
+                  ->orWhere('keuangan_tagihan.nama', 'LIKE', '%PPL%')
+                  ->orWhere('keuangan_tagihan.nama', 'LIKE', '%PKL%');
+            });
+        } else {
+            $pembayaranQuery->where('keuangan_tagihan.nama', $category);
+        }
+
+        // Apply Date Filters based on period
+        $period = $request->period ?? 'Harian';
+        
+        if ($period === 'Harian') {
+            $today = $tanggalMulai ? $tanggalMulai : \Carbon\Carbon::today()->format('Y-m-d');
+            $pembayaranQuery->whereDate('keuangan_pembayaran.tanggal', $today);
+        } else {
+            if ($tanggalMulai) {
+                $pembayaranQuery->whereDate('keuangan_pembayaran.tanggal', '>=', $tanggalMulai);
+            }
+            if ($tanggalAkhir) {
+                $pembayaranQuery->whereDate('keuangan_pembayaran.tanggal', '<=', $tanggalAkhir);
+            }
+        }
+
+        $detail = $pembayaranQuery->select(
+            DB::raw("COALESCE(prodi.nama, 'Tanpa Prodi') as prodi_nama"),
+            DB::raw('COALESCE(SUM(CASE WHEN keuangan_pembayaran.jk_id = 8 THEN keuangan_pembayaran.jumlah ELSE 0 END), 0) as laki_laki'),
+            DB::raw('COALESCE(SUM(CASE WHEN keuangan_pembayaran.jk_id = 9 THEN keuangan_pembayaran.jumlah ELSE 0 END), 0) as perempuan'),
+            DB::raw('COALESCE(SUM(keuangan_pembayaran.jumlah), 0) as keseluruhan')
+        )
+        ->groupBy('prodi.id', 'prodi.nama')
+        ->orderByDesc('keseluruhan');
+
+        \Illuminate\Support\Facades\Log::info('SQL Query:', [
+            'sql' => $detail->toSql(),
+            'bindings' => $detail->getBindings()
+        ]);
+
+        $detail = $detail->get();
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Data statistik detail prodi berhasil diambil',
+            'data' => $detail,
+        ]);
+    }
+
     /**
      * Display a listing of the resource.
      */
@@ -29,7 +323,8 @@ class PembayaranController extends Controller
             ->join('keuangan_tagihan', 'keuangan_tagihan.id', '=', 'keuangan_pembayaran.tagihan_id')
             ->leftJoin('keuangan_nota', 'keuangan_nota.pembayaran_id', '=', 'keuangan_pembayaran.id')
             ->leftJoin('keuangan_jenis_pembayaran_detail', 'keuangan_jenis_pembayaran_detail.pembayaran_id', '=', 'keuangan_pembayaran.id')
-            ->leftJoin('keuangan_jenis_pembayaran', 'keuangan_jenis_pembayaran.id', '=', 'keuangan_jenis_pembayaran_detail.jenis_pembayaran_id');
+            ->leftJoin('keuangan_jenis_pembayaran', 'keuangan_jenis_pembayaran.id', '=', 'keuangan_jenis_pembayaran_detail.jenis_pembayaran_id')
+            ->leftJoin('users', 'users.id', '=', 'keuangan_pembayaran.user_id');
 
         if ($request->filled('search')) {
             $query->where(function ($q) use ($request) {
@@ -49,13 +344,45 @@ class PembayaranController extends Controller
             $query->where('keuangan_pembayaran.th_akademik_id', $request->th_akademik_id);
         }
 
+        // Filter by prodi
+        if ($request->filled('prodi_id')) {
+            $prodiFilter = $request->prodi_id;
+            if ($prodiFilter === 'sarjana') {
+                $query->join('prodi', 'prodi.id', '=', 'keuangan_tagihan.prodi_id');
+                $query->where('prodi.jenjang', 'S1');
+            } elseif ($prodiFilter === 'pasca') {
+                $query->join('prodi', 'prodi.id', '=', 'keuangan_tagihan.prodi_id');
+                $query->where('prodi.jenjang', '!=', 'S1');
+            } else {
+                $query->where('keuangan_tagihan.prodi_id', $prodiFilter);
+            }
+        }
+
+        // Filter by jenis pembayaran
+        if ($request->filled('jenis_pembayaran_id')) {
+            $query->where('keuangan_jenis_pembayaran_detail.jenis_pembayaran_id', $request->jenis_pembayaran_id);
+        }
+
+        // Filter by user_id
+        if ($request->filled('user_id')) {
+            $query->where('keuangan_pembayaran.user_id', $request->user_id);
+        }
+
+        // Filter by tanggal
+        if ($request->filled('tanggal_mulai')) {
+            $query->whereDate('keuangan_pembayaran.tanggal', '>=', $request->tanggal_mulai);
+        }
+        if ($request->filled('tanggal_akhir')) {
+            $query->whereDate('keuangan_pembayaran.tanggal', '<=', $request->tanggal_akhir);
+        }
+
         // Sorting
         $sortKey   = $request->input('sort_key', 'id');
         $sortOrder = $request->input('sort_order', 'desc'); // 'asc' or 'desc'
 
         $query->orderBy($sortKey, $sortOrder);
         $query
-            ->select('keuangan_pembayaran.*', 'th_akademik.kode as th_akademik_kode', 'keuangan_tagihan.nama as keuangan_tagihan_nama', 'keuangan_jenis_pembayaran.nama as keuangan_jenis_pembayaran_nama', 'keuangan_tagihan.double_degree as keuangan_tagihan_double_degree')
+            ->select('keuangan_pembayaran.*', 'th_akademik.kode as th_akademik_kode', 'keuangan_tagihan.nama as keuangan_tagihan_nama', 'keuangan_jenis_pembayaran.nama as keuangan_jenis_pembayaran_nama', 'keuangan_tagihan.double_degree as keuangan_tagihan_double_degree', 'users.name as petugas_nama')
             ->addSelect(DB::raw(
                 "COALESCE(keuangan_nota.nota, keuangan_pembayaran.nomor) AS nota"
             ));

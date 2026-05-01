@@ -11,61 +11,140 @@ use Illuminate\Support\Facades\Cache;
 use App\Http\Controllers\Controller;
 use App\Models\KeuanganSaldoPemasukan;
 use App\Models\KeuanganSaldoPengeluaran;
+use App\Services\Helper;
 
 class DashboardController extends Controller
 {
     public function widget()
     {
-        $data = Cache::remember('dashboard_widget_v4', 300, function () {
+        $jkUser = Helper::getJenisKelaminUser();
+        $jkIdStr = (string)$jkUser->id; // 8, 9, or '%'
+
+        $data = Cache::remember('dashboard_widget_v7_' . md5($jkIdStr), 30, function () use ($jkUser) {
             $today = Carbon::today()->format('Y-m-d');
             $startOfWeek = Carbon::now()->startOfWeek()->format('Y-m-d');
             $startOfMonth = Carbon::now()->startOfMonth()->format('Y-m-d');
 
-            $selectRawPemasukan = "
-                COALESCE(SUM(jumlah), 0) as total_semua, 
-                COUNT(*) as jumlah_semua,
-                COALESCE(SUM(CASE WHEN DATE(tanggal) = ? THEN jumlah ELSE 0 END), 0) as total_harian,
-                SUM(CASE WHEN DATE(tanggal) = ? THEN 1 ELSE 0 END) as jumlah_harian,
-                COALESCE(SUM(CASE WHEN DATE(tanggal) >= ? THEN jumlah ELSE 0 END), 0) as total_mingguan,
-                SUM(CASE WHEN DATE(tanggal) >= ? THEN 1 ELSE 0 END) as jumlah_mingguan,
-                COALESCE(SUM(CASE WHEN DATE(tanggal) >= ? THEN jumlah ELSE 0 END), 0) as total_bulanan,
-                SUM(CASE WHEN DATE(tanggal) >= ? THEN 1 ELSE 0 END) as jumlah_bulanan
-            ";
-            $bindings = [$today, $today, $startOfWeek, $startOfWeek, $startOfMonth, $startOfMonth];
+            // 1. Pembayaran Mahasiswa (Matrix Waktu x Gender)
+            $pembayaranQuery = DB::table('keuangan_pembayaran');
+            
+            // Filter menggunakan Helper sesuai request
+            $pembayaranQuery->where('jk_id', 'LIKE', "%" . $jkUser->id . "%");
 
+            $selectRawPembayaran = "
+                -- Semua
+                COALESCE(SUM(CASE WHEN jk_id = 8 THEN jumlah ELSE 0 END), 0) as semua_laki,
+                SUM(CASE WHEN jk_id = 8 THEN 1 ELSE 0 END) as count_semua_laki,
+                COALESCE(SUM(CASE WHEN jk_id = 9 THEN jumlah ELSE 0 END), 0) as semua_perempuan,
+                SUM(CASE WHEN jk_id = 9 THEN 1 ELSE 0 END) as count_semua_perempuan,
+                -- Harian
+                COALESCE(SUM(CASE WHEN DATE(tanggal) = ? AND jk_id = 8 THEN jumlah ELSE 0 END), 0) as harian_laki,
+                SUM(CASE WHEN DATE(tanggal) = ? AND jk_id = 8 THEN 1 ELSE 0 END) as count_harian_laki,
+                COALESCE(SUM(CASE WHEN DATE(tanggal) = ? AND jk_id = 9 THEN jumlah ELSE 0 END), 0) as harian_perempuan,
+                SUM(CASE WHEN DATE(tanggal) = ? AND jk_id = 9 THEN 1 ELSE 0 END) as count_harian_perempuan,
+                -- Mingguan
+                COALESCE(SUM(CASE WHEN DATE(tanggal) >= ? AND jk_id = 8 THEN jumlah ELSE 0 END), 0) as mingguan_laki,
+                SUM(CASE WHEN DATE(tanggal) >= ? AND jk_id = 8 THEN 1 ELSE 0 END) as count_mingguan_laki,
+                COALESCE(SUM(CASE WHEN DATE(tanggal) >= ? AND jk_id = 9 THEN jumlah ELSE 0 END), 0) as mingguan_perempuan,
+                SUM(CASE WHEN DATE(tanggal) >= ? AND jk_id = 9 THEN 1 ELSE 0 END) as count_mingguan_perempuan,
+                -- Bulanan
+                COALESCE(SUM(CASE WHEN DATE(tanggal) >= ? AND jk_id = 8 THEN jumlah ELSE 0 END), 0) as bulanan_laki,
+                SUM(CASE WHEN DATE(tanggal) >= ? AND jk_id = 8 THEN 1 ELSE 0 END) as count_bulanan_laki,
+                COALESCE(SUM(CASE WHEN DATE(tanggal) >= ? AND jk_id = 9 THEN jumlah ELSE 0 END), 0) as bulanan_perempuan,
+                SUM(CASE WHEN DATE(tanggal) >= ? AND jk_id = 9 THEN 1 ELSE 0 END) as count_bulanan_perempuan
+            ";
+            
+            $bindingsPembayaran = [
+                $today, $today, $today, $today,
+                $startOfWeek, $startOfWeek, $startOfWeek, $startOfWeek,
+                $startOfMonth, $startOfMonth, $startOfMonth, $startOfMonth
+            ];
+
+            $pmb = $pembayaranQuery->selectRaw($selectRawPembayaran, $bindingsPembayaran)->first();
+
+            // 2. Keuangan Saldo Umum (Hanya jika user '*')
+            $umum = (object)[
+                'semua' => 0, 'count_semua' => 0,
+                'harian' => 0, 'count_harian' => 0,
+                'mingguan' => 0, 'count_mingguan' => 0,
+                'bulanan' => 0, 'count_bulanan' => 0,
+            ];
+
+            if ($jkUser->id === '%') {
+                $selectRawUmum = "
+                    COALESCE(SUM(jumlah), 0) as semua,
+                    COUNT(*) as count_semua,
+                    COALESCE(SUM(CASE WHEN DATE(tanggal) = ? THEN jumlah ELSE 0 END), 0) as harian,
+                    SUM(CASE WHEN DATE(tanggal) = ? THEN 1 ELSE 0 END) as count_harian,
+                    COALESCE(SUM(CASE WHEN DATE(tanggal) >= ? THEN jumlah ELSE 0 END), 0) as mingguan,
+                    SUM(CASE WHEN DATE(tanggal) >= ? THEN 1 ELSE 0 END) as count_mingguan,
+                    COALESCE(SUM(CASE WHEN DATE(tanggal) >= ? THEN jumlah ELSE 0 END), 0) as bulanan,
+                    SUM(CASE WHEN DATE(tanggal) >= ? THEN 1 ELSE 0 END) as count_bulanan
+                ";
+                $bindingsUmum = [$today, $today, $startOfWeek, $startOfWeek, $startOfMonth, $startOfMonth];
+                $umum = KeuanganSaldoPemasukan::selectRaw($selectRawUmum, $bindingsUmum)->first();
+            }
+
+            // Helpers untuk menyusun response
+            $buildPeriod = function($laki, $countLaki, $perempuan, $countPerempuan, $umumTotal, $countUmum) use ($jkUser) {
+                $result = [];
+                $keseluruhan = 0;
+                $countKeseluruhan = 0;
+
+                // Jika user login difilter laki-laki atau semua
+                if ($jkUser->id == 8 || $jkUser->id === '%') {
+                    $result['Laki-laki'] = ['value' => (float)$laki, 'change' => (int)$countLaki];
+                    $keseluruhan += (float)$laki;
+                    $countKeseluruhan += (int)$countLaki;
+                }
+                
+                // Jika user login difilter perempuan atau semua
+                if ($jkUser->id == 9 || $jkUser->id === '%') {
+                    $result['Perempuan'] = ['value' => (float)$perempuan, 'change' => (int)$countPerempuan];
+                    $keseluruhan += (float)$perempuan;
+                    $countKeseluruhan += (int)$countPerempuan;
+                }
+
+                // Umum hanya untuk semua
+                if ($jkUser->id === '%') {
+                    $result['Umum'] = ['value' => (float)$umumTotal, 'change' => (int)$countUmum, 'hideIfZero' => true];
+                    $keseluruhan += (float)$umumTotal;
+                    $countKeseluruhan += (int)$countUmum;
+                }
+
+                $result['Keseluruhan'] = ['value' => $keseluruhan, 'change' => $countKeseluruhan];
+
+                return $result;
+            };
+
+            $pemasukanBreakdown = [
+                'Harian' => $buildPeriod($pmb->harian_laki, $pmb->count_harian_laki, $pmb->harian_perempuan, $pmb->count_harian_perempuan, $umum->harian, $umum->count_harian),
+                'Mingguan' => $buildPeriod($pmb->mingguan_laki, $pmb->count_mingguan_laki, $pmb->mingguan_perempuan, $pmb->count_mingguan_perempuan, $umum->mingguan, $umum->count_mingguan),
+                'Bulanan' => $buildPeriod($pmb->bulanan_laki, $pmb->count_bulanan_laki, $pmb->bulanan_perempuan, $pmb->count_bulanan_perempuan, $umum->bulanan, $umum->count_bulanan),
+                'Semua' => $buildPeriod($pmb->semua_laki, $pmb->count_semua_laki, $pmb->semua_perempuan, $pmb->count_semua_perempuan, $umum->semua, $umum->count_semua),
+            ];
+
+            // 3. Saldo
             $saldoData = KeuanganSaldo::selectRaw('COALESCE(SUM(saldo), 0) as total_saldo, COUNT(*) as jumlah')->first();
+
+            // 4. Pengeluaran
             $pengeluaranUmumData = KeuanganSaldoPengeluaran::selectRaw('COALESCE(SUM(jumlah), 0) as total, COUNT(*) as jumlah')->first();
             $pengeluaranDosenData = DB::table('keuangan_pengeluaran_dosen')->selectRaw('COALESCE(SUM(total), 0) as total, COUNT(*) as jumlah')->first();
+            
             $jumlahUser = User::count();
-
-            $pemasukanData = KeuanganSaldoPemasukan::selectRaw($selectRawPemasukan, $bindings)->first();
-            $pembayaranData = DB::table('keuangan_pembayaran')->selectRaw($selectRawPemasukan, $bindings)->first();
-
-            $totalPengeluaran = (float) $pengeluaranUmumData->total + (float) $pengeluaranDosenData->total;
-            $jumlahDataPengeluaran = (int) $pengeluaranUmumData->jumlah + (int) $pengeluaranDosenData->jumlah;
 
             return [
                 'saldo' => (float) $saldoData->total_saldo,
                 'jumlahSaldo' => (int) $saldoData->jumlah,
                 
-                // Semua
-                'pemasukan' => (float) $pemasukanData->total_semua + (float) $pembayaranData->total_semua,
-                'jumlahPemasukan' => (int) $pemasukanData->jumlah_semua + (int) $pembayaranData->jumlah_semua,
+                // Pemasukan default (Harian) untuk kartu
+                'pemasukanHarian' => $pemasukanBreakdown['Harian']['Keseluruhan']['value'] ?? 0,
+                'jumlahPemasukanHarian' => $pemasukanBreakdown['Harian']['Keseluruhan']['change'] ?? 0,
                 
-                // Harian
-                'pemasukanHarian' => (float) $pemasukanData->total_harian + (float) $pembayaranData->total_harian,
-                'jumlahPemasukanHarian' => (int) $pemasukanData->jumlah_harian + (int) $pembayaranData->jumlah_harian,
-                
-                // Mingguan
-                'pemasukanMingguan' => (float) $pemasukanData->total_mingguan + (float) $pembayaranData->total_mingguan,
-                'jumlahPemasukanMingguan' => (int) $pemasukanData->jumlah_mingguan + (int) $pembayaranData->jumlah_mingguan,
-                
-                // Bulanan
-                'pemasukanBulanan' => (float) $pemasukanData->total_bulanan + (float) $pembayaranData->total_bulanan,
-                'jumlahPemasukanBulanan' => (int) $pemasukanData->jumlah_bulanan + (int) $pembayaranData->jumlah_bulanan,
+                'pemasukanBreakdown' => $pemasukanBreakdown,
 
-                'pengeluaran' => $totalPengeluaran,
-                'jumlahPengeluaran' => $jumlahDataPengeluaran,
+                'pengeluaran' => (float) $pengeluaranUmumData->total + (float) $pengeluaranDosenData->total,
+                'jumlahPengeluaran' => (int) $pengeluaranUmumData->jumlah + (int) $pengeluaranDosenData->jumlah,
                 'jumlahUser' => $jumlahUser,
             ];
         });

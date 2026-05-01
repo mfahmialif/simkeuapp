@@ -227,4 +227,33 @@ class HelperController extends Controller
             ], 500);
         }
     }
+
+    public function petugasPembayaran(Request $request)
+    {
+        try {
+            $jkUser = \App\Services\Helper::getJenisKelaminUser();
+            
+            $query = \App\Models\User::whereHas('role', function ($q) {
+                $q->whereIn('name', ['kabag', 'staff']);
+            });
+
+            // If not "semua" (admin), filter by the logged-in user's gender
+            if ($jkUser->nama !== '%') {
+                $query->where('jenis_kelamin', $jkUser->nama);
+            }
+
+            // Also we can optionally filter by name if search is needed, but for dropdown we just get all
+            $users = $query->orderBy('name', 'asc')->get(['id', 'name', 'jenis_kelamin']);
+
+            return response()->json([
+                'status' => true,
+                'data' => $users
+            ]);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status'  => false,
+                'message' => $th->getMessage()
+            ], 500);
+        }
+    }
 }
