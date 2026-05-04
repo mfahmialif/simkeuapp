@@ -173,4 +173,33 @@ class TestingController extends Controller
             ]);
         }
     }
+
+    public function tesPembayaranPmb(\Illuminate\Http\Request $request)
+    {
+        try {
+            // Mengambil URL dan API Key dari .env
+            $url = rtrim(env('pmb_url'), '/') . '/simkeu/pembayaran';
+            $apiKey = env('pmb_api_key');
+
+            // Melakukan request GET menggunakan HTTP Client Laravel
+            $response = \Illuminate\Support\Facades\Http::withHeaders([
+                'apikey' => $apiKey
+            ])->get($url, [
+                'start_date' => $request->start_date,
+                'end_date' => $request->end_date,
+            ]);
+
+            return response()->json([
+                'status' => true,
+                'http_code' => $response->status(),
+                'data_dari_pmb' => $response->json()
+            ]);
+
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Gagal fetch API: ' . $th->getMessage()
+            ]);
+        }
+    }
 }

@@ -8,3 +8,4 @@ Route::get('/', function () {
 });
 
 Route::get('testing', [TestingController::class, 'index']);
+Route::get('tes-pmb', [TestingController::class, 'tesPembayaranPmb']);
