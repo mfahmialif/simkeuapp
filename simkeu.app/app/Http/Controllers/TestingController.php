@@ -14,10 +14,24 @@ class TestingController extends Controller
 {
     public function index()
     {
+        // $jpModel = \App\Models\KeuanganJenisPembayaran::find(9);
+        // if ($jpModel) {
+        //     $nama = strtolower(trim($jpModel->nama));
+        //     if (strpos($nama, 'deposit') !== false) {
+        //         $jenisPembayaranNama = 'deposit';
+        //     } elseif (strpos($nama, 'transfer') !== false) {
+        //         $jenisPembayaranNama = 'transfer';
+        //     } elseif (strpos($nama, 'cash') !== false) {
+        //         $jenisPembayaranNama = 'cash';
+        //     } elseif (strpos($nama, 'yayasan') !== false) {
+        //         $jenisPembayaranNama = 'yayasan';
+        //     }
+        // }
+        // dd($nama, $jenisPembayaranNama);
         // $nim = '202185010011';
         // $cekPelanggaran = Mahasiswa::cekPelanggaran($nim);
         // dd($cekPelanggaran);
-        
+
         // $dataTagihan = TagihanMahasiswa::tagihan($nim);
         // $hasSkripsi = false;
         // $cekNilai   = [
@@ -25,7 +39,7 @@ class TestingController extends Controller
         //     'message' => 'Tanpa cek kelengkapan',
         // ];
 
-        
+
         // if (true) {
         //     if (isset($dataTagihan['list_tagihan'])) {
         //         foreach ($dataTagihan['list_tagihan'] as $tagihan) {
@@ -194,7 +208,6 @@ class TestingController extends Controller
                 'http_code' => $response->status(),
                 'data_dari_pmb' => $response->json()
             ]);
-
         } catch (\Throwable $th) {
             return response()->json([
                 'status' => false,

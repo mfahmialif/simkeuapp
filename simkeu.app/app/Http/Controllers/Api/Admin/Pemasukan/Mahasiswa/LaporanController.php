@@ -473,7 +473,7 @@ class LaporanController extends Controller
         return $columns;
     }
 
-    private function getPemasukanBulanData($year, $month, $columns, $jp, $prefetchedPayments = null, $pmbData = [], $jenjang = 'sarjana')
+    private function getPemasukanBulanData($year, $month, $columns, $jp, $prefetchedPayments = null, $pmbData = [], $jenjang = 'sarjana', $jenisPembayaranId = null)
     {
         $daysInMonth = cal_days_in_month(CAL_GREGORIAN, $month, $year);
         $startDate = sprintf('%04d-%02d-01', $year, $month);
@@ -490,6 +490,11 @@ class LaporanController extends Controller
             } elseif ($jenjang === 'pascasarjana') {
                 $paymentsQuery->join('prodi as p', 'p.id', '=', 'kt.prodi_id')
                     ->where('p.jenjang', '!=', 'S1');
+            }
+
+            if ($jenisPembayaranId) {
+                $paymentsQuery->join('keuangan_jenis_pembayaran_detail as kjpd', 'kjpd.pembayaran_id', '=', 'keuangan_pembayaran.id')
+                    ->where('kjpd.jenis_pembayaran_id', $jenisPembayaranId);
             }
 
             $payments = $paymentsQuery->selectRaw('DATE(keuangan_pembayaran.tanggal) as tgl, kt.nama as tagihan_nama, kt.prodi_id, SUM(keuangan_pembayaran.jumlah) as total_jumlah')
@@ -605,6 +610,26 @@ class LaporanController extends Controller
             $action = $request->input('action', 'json');
             $mode = $request->input('mode', 'bulanan'); // 'bulanan' atau 'tahunan'
             $jenjang = $request->input('jenjang', 'sarjana');
+            $jenisPembayaranId = $request->input('jenis_pembayaran_id');
+            
+            $jenisPembayaranNama = null;
+            $jenisPembayaranKategori = null;
+            if ($jenisPembayaranId) {
+                $jpModel = \App\Models\KeuanganJenisPembayaran::find($jenisPembayaranId);
+                if ($jpModel) {
+                    $nama = strtolower(trim($jpModel->nama));
+                    $jenisPembayaranKategori = $jpModel->kategori;
+                    if (strpos($nama, 'deposit') !== false) {
+                        $jenisPembayaranNama = 'deposit';
+                    } elseif (strpos($nama, 'transfer') !== false) {
+                        $jenisPembayaranNama = 'transfer';
+                    } elseif (strpos($nama, 'cash') !== false) {
+                        $jenisPembayaranNama = 'cash';
+                    } elseif (strpos($nama, 'yayasan') !== false) {
+                        $jenisPembayaranNama = 'yayasan';
+                    }
+                }
+            }
             
             $columns = $this->getPemasukanTunaiColumns($jenjang);
 
@@ -638,6 +663,8 @@ class LaporanController extends Controller
                     'start_date' => $startDate,
                     'end_date' => $endDate,
                     'jenjang' => $jenjang,
+                    'jenis_kelamin' => $jenisPembayaranKategori,
+                    'jenis_pembayaran' => $jenisPembayaranNama,
                 ]);
                 
                 if ($pmbResponse->successful()) {
@@ -661,6 +688,11 @@ class LaporanController extends Controller
                 } elseif ($jenjang === 'pascasarjana') {
                     $allPaymentsQuery->join('prodi as p', 'p.id', '=', 'kt.prodi_id')
                         ->where('p.jenjang', '!=', 'S1');
+                }
+
+                if ($jenisPembayaranId) {
+                    $allPaymentsQuery->join('keuangan_jenis_pembayaran_detail as kjpd', 'kjpd.pembayaran_id', '=', 'keuangan_pembayaran.id')
+                        ->where('kjpd.jenis_pembayaran_id', $jenisPembayaranId);
                 }
 
                 $allPayments = $allPaymentsQuery->selectRaw('DATE(keuangan_pembayaran.tanggal) as tgl, kt.nama as tagihan_nama, kt.prodi_id, SUM(keuangan_pembayaran.jumlah) as total_jumlah')
@@ -689,7 +721,7 @@ class LaporanController extends Controller
                 for ($m = 1; $m <= 12; $m++) {
                     $monthPayments = $paymentsByMonth[$m] ?? [];
                     $monthPmb = $pmbByMonth[$m] ?? [];
-                    $allData[$m] = $this->getPemasukanBulanData($year, $m, $columns, $jp, $monthPayments, $monthPmb, $jenjang);
+                    $allData[$m] = $this->getPemasukanBulanData($year, $m, $columns, $jp, $monthPayments, $monthPmb, $jenjang, $jenisPembayaranId);
                 }
                 
                 $columnHeaders = [];
@@ -712,7 +744,7 @@ class LaporanController extends Controller
                     'jenis_kelamin' => $jp->kategori ?? 'Semua',
                 ]);
             } else {
-                $monthData = $this->getPemasukanBulanData($year, $month, $columns, $jp, null, $pmbDataAll, $jenjang);
+                $monthData = $this->getPemasukanBulanData($year, $month, $columns, $jp, null, $pmbDataAll, $jenjang, $jenisPembayaranId);
                 
                 $columnHeaders = [];
                 foreach ($columns as $col) {
