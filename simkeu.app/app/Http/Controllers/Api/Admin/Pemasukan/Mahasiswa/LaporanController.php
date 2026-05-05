@@ -427,7 +427,7 @@ class LaporanController extends Controller
 
         // b) Fixed categories
         $fixedCategories = [
-            ['key' => 'registrasi', 'label' => 'REGISTRASI & DAFTAR ULANG', 'type' => 'fixed', 'search' => ['%REGIST%', '%DAFTAR ULANG%']],
+            ['key' => 'registrasi', 'label' => 'REGISTRASI, DAFTAR ULANG & PENDAFTARAN', 'type' => 'fixed', 'search' => ['%REGIST%', '%DAFTAR ULANG%', '%PENDAFTARAN%']],
             ['key' => 'uas', 'label' => 'UAS', 'type' => 'fixed', 'search' => ['%UAS%']],
             ['key' => 'kkn', 'label' => 'KKN / PPL / PKL', 'type' => 'fixed', 'search' => ['%KKN%', '%PPL%', '%PKL%']],
             ['key' => 'skripsi', 'label' => 'SKRIPSI', 'type' => 'fixed', 'search' => ['%SKRIPSI%']],
@@ -452,6 +452,7 @@ class LaporanController extends Controller
             ['nama', 'NOT LIKE', '%PKL%'],
             ['nama', 'NOT LIKE', '%REGIST%'],
             ['nama', 'NOT LIKE', '%DAFTAR ULANG%'],
+            ['nama', 'NOT LIKE', '%PENDAFTARAN%'],
             ['nama', 'NOT LIKE', '%SKRIPSI%'],
             ['nama', 'NOT LIKE', '%PMB%'],
             ['nama', 'NOT LIKE', '%DOUBLE DEGREE%'],
