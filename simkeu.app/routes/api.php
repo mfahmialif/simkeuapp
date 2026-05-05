@@ -129,6 +129,7 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
                 Route::get('rekap-tahunan', [LaporanController::class, 'rekapTahunan']);
                 Route::get('jumlah-mahasiswa-bayar', [LaporanController::class, 'jumlahMahasiswaBayar']);
                 Route::get('pemasukan-tunai-harian', [LaporanController::class, 'pemasukanTunaiHarian']);
+                Route::get('pemasukan-uii-dalwa', [LaporanController::class, 'pemasukanUiiDalwa']);
             });
         });
 

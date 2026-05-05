@@ -777,35 +777,287 @@ class LaporanController extends Controller
         }
     }
 
-    /**
-     * Store a newly created resource in storage.
-     */
-    public function store(Request $request)
+    public function pemasukanUiiDalwa(Request $request)
     {
-        //
-    }
+        try {
+            $jp = Helper::getJenisKelaminUser();
+            
+            if ($request->has('jenis_kelamin') && $request->jenis_kelamin != '') {
+                $reqJk = strtolower($request->jenis_kelamin);
+                if ($reqJk == 'putra') {
+                    $jp = (object)['id' => 8, 'kategori' => 'Putra'];
+                } elseif ($reqJk == 'putri') {
+                    $jp = (object)['id' => 9, 'kategori' => 'Putri'];
+                } elseif ($reqJk == '%' && auth()->user()->role_id == 1) {
+                    $jp = (object)['id' => '%', 'kategori' => '%'];
+                }
+            }
 
-    /**
-     * Display the specified resource.
-     */
-    public function show(string $id)
-    {
-        //
-    }
+            $action = $request->input('action', 'json');
+            $mode = $request->input('mode', 'bulanan'); // 'bulanan' atau 'tahunan'
+            $jenjang = $request->input('jenjang', 'sarjana');
 
-    /**
-     * Update the specified resource in storage.
-     */
-    public function update(Request $request, string $id)
-    {
-        //
-    }
+            // Columns setup (Categories)
+            $columns = $this->getPemasukanTunaiColumns($jenjang);
+            
+            // Initialization
+            $data = [];
+            foreach ($columns as $col) {
+                $data[$col['key']] = [
+                    'label' => $col['label'],
+                    'tunai' => 0,
+                    'transfer' => 0,
+                    'yayasan' => 0,
+                    'total' => 0,
+                ];
+            }
+            $data['total_all'] = [
+                'label' => 'TOTAL',
+                'tunai' => 0,
+                'transfer' => 0,
+                'yayasan' => 0,
+                'total' => 0,
+            ];
 
-    /**
-     * Remove the specified resource from storage.
-     */
-    public function destroy(string $id)
-    {
-        //
+            $pmbUrl = rtrim(env('pmb_url'), '/') . '/simkeu/pembayaran';
+            $pmbApiKey = env('pmb_api_key');
+            $pmbDataAll = [];
+
+            if ($mode === 'tahunan') {
+                $year = (int) $request->tahun;
+                $startDate = sprintf('%04d-01-01', $year);
+                $endDate = sprintf('%04d-12-31', $year);
+                $title = "LAPORAN PEMASUKAN " . strtoupper($jenjang === 'sarjana' ? 'S1' : 'PASCASARJANA') . " UII DALWA TAHUN $year";
+            } else {
+                $parts = explode('-', $request->bulan);
+                if (count($parts) != 2) throw new \Exception("Format bulan tidak valid. Gunakan YYYY-MM.");
+                $year = (int) $parts[0];
+                $month = (int) $parts[1];
+                $daysInMonth = cal_days_in_month(CAL_GREGORIAN, $month, $year);
+                $startDate = sprintf('%04d-%02d-01', $year, $month);
+                $endDate = sprintf('%04d-%02d-%02d', $year, $month, $daysInMonth);
+                
+                $bulanNames = [
+                    1 => 'JANUARI', 2 => 'FEBRUARI', 3 => 'MARET', 4 => 'APRIL',
+                    5 => 'MEI', 6 => 'JUNI', 7 => 'JULI', 8 => 'AGUSTUS',
+                    9 => 'SEPTEMBER', 10 => 'OKTOBER', 11 => 'NOVEMBER', 12 => 'DESEMBER',
+                ];
+                $title = "LAPORAN PEMASUKAN " . strtoupper($jenjang === 'sarjana' ? 'S1' : 'PASCASARJANA') . " UII DALWA BULAN " . $bulanNames[$month] . " $year";
+            }
+
+            try {
+                $pmbResponse = \Illuminate\Support\Facades\Http::withHeaders([
+                    'apikey' => $pmbApiKey
+                ])->timeout(5)->get($pmbUrl, [
+                    'start_date' => $startDate,
+                    'end_date' => $endDate,
+                    'jenjang' => $jenjang,
+                    'jenis_kelamin' => $jp->kategori ?? '%',
+                ]);
+                
+                if ($pmbResponse->successful()) {
+                    $pmbResData = $pmbResponse->json();
+                    if (isset($pmbResData['data']) && is_array($pmbResData['data'])) {
+                        $pmbDataAll = $pmbResData['data'];
+                    }
+                }
+            } catch (\Throwable $th) {
+                // Ignore API error, proceed with empty PMB data
+            }
+
+            $bulanNames = [
+                1 => 'JANUARI', 2 => 'FEBRUARI', 3 => 'MARET', 4 => 'APRIL',
+                5 => 'MEI', 6 => 'JUNI', 7 => 'JULI', 8 => 'AGUSTUS',
+                9 => 'SEPTEMBER', 10 => 'OKTOBER', 11 => 'NOVEMBER', 12 => 'DESEMBER',
+            ];
+
+            // SIMKEU Payments
+            $paymentsQuery = KeuanganPembayaran::join('keuangan_tagihan as kt', 'kt.id', '=', 'keuangan_pembayaran.tagihan_id')
+                ->join('keuangan_jenis_pembayaran_detail as kjpd', 'kjpd.pembayaran_id', '=', 'keuangan_pembayaran.id')
+                ->join('keuangan_jenis_pembayaran as kjp', 'kjp.id', '=', 'kjpd.jenis_pembayaran_id')
+                ->whereBetween('keuangan_pembayaran.tanggal', [$startDate . ' 00:00:00', $endDate . ' 23:59:59'])
+                ->where('keuangan_pembayaran.jk_id', 'LIKE', "%$jp->id%");
+
+            if ($jenjang === 'sarjana') {
+                $paymentsQuery->join('prodi as p', 'p.id', '=', 'kt.prodi_id')
+                    ->where('p.jenjang', 'S1');
+            } elseif ($jenjang === 'pascasarjana') {
+                $paymentsQuery->join('prodi as p', 'p.id', '=', 'kt.prodi_id')
+                    ->where('p.jenjang', '!=', 'S1');
+            }
+
+            if ($mode === 'tahunan') {
+                $payments = $paymentsQuery->selectRaw('kt.nama as tagihan_nama, kt.prodi_id, kjp.nama as jenis_pembayaran_nama, MONTH(keuangan_pembayaran.tanggal) as bulan, SUM(keuangan_pembayaran.jumlah) as total_jumlah')
+                    ->groupBy('kt.nama', 'kt.prodi_id', 'kjp.nama', 'bulan')
+                    ->get();
+            } else {
+                $payments = $paymentsQuery->selectRaw('kt.nama as tagihan_nama, kt.prodi_id, kjp.nama as jenis_pembayaran_nama, SUM(keuangan_pembayaran.jumlah) as total_jumlah')
+                    ->groupBy('kt.nama', 'kt.prodi_id', 'kjp.nama')
+                    ->get();
+            }
+
+            // Mapping logic for Tunai, Transfer, Yayasan
+            $getPaymentType = function($namaRaw) {
+                $nama = strtolower($namaRaw);
+                if (strpos($nama, 'cash') !== false || strpos($nama, 'tunai') !== false) return 'tunai';
+                if (strpos($nama, 'transfer') !== false || strpos($nama, 'tf') !== false) return 'transfer';
+                if (strpos($nama, 'yayasan') !== false || strpos($nama, 'yys') !== false) return 'yayasan';
+                return 'tunai'; // fallback
+            };
+
+            // Structure for monthly data
+            $allDataMonths = [];
+            if ($mode === 'tahunan') {
+                for ($m = 1; $m <= 12; $m++) {
+                    $mTitle = "LAPORAN PEMASUKAN " . strtoupper($jenjang === 'sarjana' ? 'S1' : 'PASCASARJANA') . " UII DALWA BULAN " . $bulanNames[$m] . " $year";
+                    $mData = [];
+                    foreach ($columns as $col) {
+                        $mData[$col['key']] = [
+                            'label' => $col['label'],
+                            'tunai' => 0, 'transfer' => 0, 'yayasan' => 0, 'total' => 0,
+                        ];
+                    }
+                    $allDataMonths[$m] = [
+                        'title' => $mTitle,
+                        'data_map' => $mData,
+                        'total_all' => ['tunai' => 0, 'transfer' => 0, 'yayasan' => 0, 'total' => 0]
+                    ];
+                }
+            }
+
+            foreach ($payments as $payment) {
+                $namaRaw = $payment->tagihan_nama;
+                $namaUpper = strtoupper($namaRaw);
+                $prodi_id = $payment->prodi_id;
+                $jumlah = (float) $payment->total_jumlah;
+                $paymentType = $getPaymentType($payment->jenis_pembayaran_nama);
+                $bulanVal = $mode === 'tahunan' ? (int) $payment->bulan : null;
+
+                $assignedKey = null;
+
+                if (strpos($namaUpper, 'SPP') !== false) {
+                    $assignedKey = 'spp_prodi_' . $prodi_id;
+                } else {
+                    foreach ($columns as $c) {
+                        if ($c['type'] === 'fixed') {
+                            foreach ($c['search'] as $searchPattern) {
+                                $term = trim(str_replace('%', '', strtoupper($searchPattern)));
+                                if (strpos($namaUpper, $term) !== false) {
+                                    $assignedKey = $c['key'];
+                                    break 2;
+                                }
+                            }
+                        }
+                    }
+                    if (!$assignedKey) {
+                        $assignedKey = 'other_' . md5($namaRaw);
+                    }
+                }
+
+                // Add to year/total data
+                if (isset($data[$assignedKey])) {
+                    $data[$assignedKey][$paymentType] += $jumlah;
+                    $data[$assignedKey]['total'] += $jumlah;
+                    $data['total_all'][$paymentType] += $jumlah;
+                    $data['total_all']['total'] += $jumlah;
+                }
+
+                // Add to month data
+                if ($mode === 'tahunan' && $bulanVal && isset($allDataMonths[$bulanVal]['data_map'][$assignedKey])) {
+                    $allDataMonths[$bulanVal]['data_map'][$assignedKey][$paymentType] += $jumlah;
+                    $allDataMonths[$bulanVal]['data_map'][$assignedKey]['total'] += $jumlah;
+                    $allDataMonths[$bulanVal]['total_all'][$paymentType] += $jumlah;
+                    $allDataMonths[$bulanVal]['total_all']['total'] += $jumlah;
+                }
+            }
+
+            // PMB Data
+            foreach ($pmbDataAll as $pmb) {
+                if (!isset($pmb['tanggal_bayar']) || !isset($pmb['nominal'])) continue;
+                
+                $jumlah = (float) $pmb['nominal'];
+                $paymentType = $getPaymentType($pmb['jenis_pembayaran'] ?? 'cash');
+                $pmbDate = explode('-', $pmb['tanggal_bayar']);
+                $bulanVal = count($pmbDate) >= 2 ? (int) $pmbDate[1] : 1;
+
+                $assignedKey = 'pmb';
+
+                if (isset($data[$assignedKey])) {
+                    $data[$assignedKey][$paymentType] += $jumlah;
+                    $data[$assignedKey]['total'] += $jumlah;
+                    $data['total_all'][$paymentType] += $jumlah;
+                    $data['total_all']['total'] += $jumlah;
+                }
+
+                if ($mode === 'tahunan' && isset($allDataMonths[$bulanVal]['data_map'][$assignedKey])) {
+                    $allDataMonths[$bulanVal]['data_map'][$assignedKey][$paymentType] += $jumlah;
+                    $allDataMonths[$bulanVal]['data_map'][$assignedKey]['total'] += $jumlah;
+                    $allDataMonths[$bulanVal]['total_all'][$paymentType] += $jumlah;
+                    $allDataMonths[$bulanVal]['total_all']['total'] += $jumlah;
+                }
+            }
+
+            $tableData = [];
+            $no = 1;
+            foreach ($columns as $col) {
+                $row = $data[$col['key']];
+                $tableData[] = [
+                    'no' => $no++,
+                    'kategori' => $row['label'],
+                    'tunai' => $row['tunai'],
+                    'transfer' => $row['transfer'],
+                    'yayasan' => $row['yayasan'],
+                    'total' => $row['total'],
+                ];
+            }
+
+            $formattedAllData = [];
+            if ($mode === 'tahunan') {
+                foreach ($allDataMonths as $m => $mInfo) {
+                    // Only include months that have at least some total > 0 if desired?
+                    // Actually let's include all 12 or maybe only those with data. Let's include all 12.
+                    $mTable = [];
+                    $no = 1;
+                    foreach ($columns as $col) {
+                        $row = $mInfo['data_map'][$col['key']];
+                        $mTable[] = [
+                            'no' => $no++,
+                            'kategori' => $row['label'],
+                            'tunai' => $row['tunai'],
+                            'transfer' => $row['transfer'],
+                            'yayasan' => $row['yayasan'],
+                            'total' => $row['total'],
+                        ];
+                    }
+                    $formattedAllData[] = [
+                        'title' => $mInfo['title'],
+                        'data' => $mTable,
+                        'totals' => $mInfo['total_all'],
+                    ];
+                }
+            }
+            
+            if ($action === 'excel') {
+                // If tahuan, it exports the yearly total. (Can be modified later if user wants all months in excel).
+                return Excel::download(new \App\Exports\PemasukanUiiDalwaExport($tableData, $data['total_all'], $title), 'Pemasukan_UII_Dalwa_'.date('YmdHis').'.xlsx');
+            }
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Data Pemasukan UII Dalwa berhasil diambil',
+                'title' => $title,
+                'data' => $tableData,
+                'totals' => $data['total_all'],
+                'all_data' => $formattedAllData,
+                'jenis_kelamin' => $jp->kategori ?? 'Semua',
+            ]);
+
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status' => false,
+                'message' => $th->getMessage(),
+                'trace' => $th->getTraceAsString()
+            ]);
+        }
     }
 }
