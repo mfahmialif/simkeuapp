@@ -411,7 +411,8 @@ class LaporanController extends Controller
         if ($jenjang === 'sarjana') {
             $prodiQuery->where("jenjang", "S1");
         } elseif ($jenjang === 'pascasarjana') {
-            $prodiQuery->where("jenjang", "!=", "S1");
+            $prodiQuery->where('jenjang', '!=', 'S1')
+               ->whereNotNull('jenjang');
         }
         $prodiList = $prodiQuery->orderBy('nama', 'asc')->get();
 
@@ -419,7 +420,7 @@ class LaporanController extends Controller
         foreach ($prodiList as $p) {
             $columns[] = [
                 'key' => 'spp_prodi_' . $p->id,
-                'label' => 'SPP ' . $p->nama,
+                'label' => 'SPP ' . $p->alias,
                 'type' => 'spp',
                 'prodi_id' => $p->id,
             ];
