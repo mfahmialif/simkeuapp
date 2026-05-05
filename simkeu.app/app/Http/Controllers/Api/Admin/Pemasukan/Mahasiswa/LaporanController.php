@@ -411,8 +411,7 @@ class LaporanController extends Controller
         if ($jenjang === 'sarjana') {
             $prodiQuery->where("jenjang", "S1");
         } elseif ($jenjang === 'pascasarjana') {
-            $prodiQuery->where('jenjang', '!=', 'S1')
-               ->whereNotNull('jenjang');
+            $prodiQuery->whereIn('jenjang', ['S2', 'S3']);
         }
         $prodiList = $prodiQuery->orderBy('nama', 'asc')->get();
 
@@ -490,7 +489,7 @@ class LaporanController extends Controller
                     ->where('p.jenjang', 'S1');
             } elseif ($jenjang === 'pascasarjana') {
                 $paymentsQuery->join('prodi as p', 'p.id', '=', 'kt.prodi_id')
-                    ->where('p.jenjang', '!=', 'S1');
+                    ->whereIn('p.jenjang', ['S2', 'S3']);
             }
 
             if ($jenisPembayaranId) {
@@ -688,7 +687,7 @@ class LaporanController extends Controller
                         ->where('p.jenjang', 'S1');
                 } elseif ($jenjang === 'pascasarjana') {
                     $allPaymentsQuery->join('prodi as p', 'p.id', '=', 'kt.prodi_id')
-                        ->where('p.jenjang', '!=', 'S1');
+                        ->whereIn('p.jenjang', ['S2', 'S3']);
                 }
 
                 if ($jenisPembayaranId) {
