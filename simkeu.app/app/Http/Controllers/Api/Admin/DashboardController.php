@@ -62,6 +62,12 @@ class DashboardController extends Controller
 
             $pmb = $pembayaranQuery->selectRaw($selectRawPembayaran, $bindingsPembayaran)->first();
 
+            // 1b. Pembayaran Semester Pendek (tambahan pemasukan)
+            $spQuery = DB::table('keuangan_pembayaran_semester_pendek');
+            $spQuery->where('jk_id', 'LIKE', "%" . $jkUser->id . "%");
+
+            $sp = $spQuery->selectRaw($selectRawPembayaran, $bindingsPembayaran)->first();
+
             // 2. Keuangan Saldo Umum (Hanya jika user '*')
             $umum = (object)[
                 'semua' => 0, 'count_semua' => 0,
@@ -86,23 +92,27 @@ class DashboardController extends Controller
             }
 
             // Helpers untuk menyusun response
-            $buildPeriod = function($laki, $countLaki, $perempuan, $countPerempuan, $umumTotal, $countUmum) use ($jkUser) {
+            $buildPeriod = function($laki, $countLaki, $perempuan, $countPerempuan, $umumTotal, $countUmum, $spLaki = 0, $countSpLaki = 0, $spPerempuan = 0, $countSpPerempuan = 0) use ($jkUser) {
                 $result = [];
                 $keseluruhan = 0;
                 $countKeseluruhan = 0;
 
                 // Jika user login difilter laki-laki atau semua
                 if ($jkUser->id == 8 || $jkUser->id === '%') {
-                    $result['Laki-laki'] = ['value' => (float)$laki, 'change' => (int)$countLaki];
-                    $keseluruhan += (float)$laki;
-                    $countKeseluruhan += (int)$countLaki;
+                    $totalLaki = (float)$laki + (float)$spLaki;
+                    $totalCountLaki = (int)$countLaki + (int)$countSpLaki;
+                    $result['Laki-laki'] = ['value' => $totalLaki, 'change' => $totalCountLaki];
+                    $keseluruhan += $totalLaki;
+                    $countKeseluruhan += $totalCountLaki;
                 }
                 
                 // Jika user login difilter perempuan atau semua
                 if ($jkUser->id == 9 || $jkUser->id === '%') {
-                    $result['Perempuan'] = ['value' => (float)$perempuan, 'change' => (int)$countPerempuan];
-                    $keseluruhan += (float)$perempuan;
-                    $countKeseluruhan += (int)$countPerempuan;
+                    $totalPerempuan = (float)$perempuan + (float)$spPerempuan;
+                    $totalCountPerempuan = (int)$countPerempuan + (int)$countSpPerempuan;
+                    $result['Perempuan'] = ['value' => $totalPerempuan, 'change' => $totalCountPerempuan];
+                    $keseluruhan += $totalPerempuan;
+                    $countKeseluruhan += $totalCountPerempuan;
                 }
 
                 // Umum hanya untuk semua
@@ -118,10 +128,10 @@ class DashboardController extends Controller
             };
 
             $pemasukanBreakdown = [
-                'Harian' => $buildPeriod($pmb->harian_laki, $pmb->count_harian_laki, $pmb->harian_perempuan, $pmb->count_harian_perempuan, $umum->harian, $umum->count_harian),
-                'Mingguan' => $buildPeriod($pmb->mingguan_laki, $pmb->count_mingguan_laki, $pmb->mingguan_perempuan, $pmb->count_mingguan_perempuan, $umum->mingguan, $umum->count_mingguan),
-                'Bulanan' => $buildPeriod($pmb->bulanan_laki, $pmb->count_bulanan_laki, $pmb->bulanan_perempuan, $pmb->count_bulanan_perempuan, $umum->bulanan, $umum->count_bulanan),
-                'Semua' => $buildPeriod($pmb->semua_laki, $pmb->count_semua_laki, $pmb->semua_perempuan, $pmb->count_semua_perempuan, $umum->semua, $umum->count_semua),
+                'Harian' => $buildPeriod($pmb->harian_laki, $pmb->count_harian_laki, $pmb->harian_perempuan, $pmb->count_harian_perempuan, $umum->harian, $umum->count_harian, $sp->harian_laki, $sp->count_harian_laki, $sp->harian_perempuan, $sp->count_harian_perempuan),
+                'Mingguan' => $buildPeriod($pmb->mingguan_laki, $pmb->count_mingguan_laki, $pmb->mingguan_perempuan, $pmb->count_mingguan_perempuan, $umum->mingguan, $umum->count_mingguan, $sp->mingguan_laki, $sp->count_mingguan_laki, $sp->mingguan_perempuan, $sp->count_mingguan_perempuan),
+                'Bulanan' => $buildPeriod($pmb->bulanan_laki, $pmb->count_bulanan_laki, $pmb->bulanan_perempuan, $pmb->count_bulanan_perempuan, $umum->bulanan, $umum->count_bulanan, $sp->bulanan_laki, $sp->count_bulanan_laki, $sp->bulanan_perempuan, $sp->count_bulanan_perempuan),
+                'Semua' => $buildPeriod($pmb->semua_laki, $pmb->count_semua_laki, $pmb->semua_perempuan, $pmb->count_semua_perempuan, $umum->semua, $umum->count_semua, $sp->semua_laki, $sp->count_semua_laki, $sp->semua_perempuan, $sp->count_semua_perempuan),
             ];
 
             // 3. Saldo
@@ -363,6 +373,13 @@ class DashboardController extends Controller
                     ->selectRaw("DATE(keuangan_pembayaran.tanggal) AS tanggal, SUM(keuangan_pembayaran.jumlah) AS nominal, 'in' AS tipe")
                     ->whereBetween('keuangan_pembayaran.tanggal', [$startDate, $endDate])
                     ->groupBy(DB::raw('DATE(keuangan_pembayaran.tanggal)'))
+
+                    ->unionAll(
+                        DB::table('keuangan_pembayaran_semester_pendek')
+                            ->selectRaw("DATE(tanggal) AS tanggal, SUM(jumlah) AS nominal, 'in' AS tipe")
+                            ->whereBetween('tanggal', [$startDate, $endDate])
+                            ->groupBy(DB::raw('DATE(tanggal)'))
+                    )
 
                     ->unionAll(
                         DB::table('keuangan_saldo_pemasukan')

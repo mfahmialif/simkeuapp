@@ -34,6 +34,7 @@ use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\JenisPembayaranController
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\DispensasiTagihanController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\PembayaranTambahanController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\PemasukanPengeluaranController;
+use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\SemesterPendekController;
 use App\Http\Controllers\Api\Admin\Pengeluaran\DosenController as PengeluaranDosenController;
 
 Route::prefix('auth')->group(function () {
@@ -49,6 +50,7 @@ Route::prefix('auth')->group(function () {
 use App\Http\Controllers\Api\Admin\SyaratTagihanController;
 
 Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuangan,kabag,staff,rumahtangga,barokahdosen'])->group(function () {
+// Route::prefix('admin')->group(function () {
     Route::prefix('dashboard')->group(function () {
         Route::get('/widget', [DashboardController::class, 'widget'])->name('admin.dashboard.widget');
         Route::get('/finance-overview', [DashboardController::class, 'financeOverview'])->name('admin.dashboard.finance-overview');
@@ -120,6 +122,14 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
 
             Route::get('dispensasi-uas/auto-complete/{search}', [DispensasiUasController::class, 'autoComplete']);
             Route::apiResource('dispensasi-uas', DispensasiUasController::class);
+
+            Route::get('semester-pendek/search-krs', [SemesterPendekController::class, 'searchKrs']);
+            Route::get('semester-pendek/search-krs-data', [SemesterPendekController::class, 'searchKrsData']);
+            Route::get('semester-pendek/riwayat/{krsId}', [SemesterPendekController::class, 'getRiwayat']);
+            Route::get('semester-pendek/statistic', [SemesterPendekController::class, 'statistic']);
+            Route::get('semester-pendek/get-periode', [SemesterPendekController::class, 'getPeriode']);
+            Route::get('semester-pendek/kwitansi/{id}', [SemesterPendekController::class, 'kwitansi'])->name('admin.pemasukan.mahasiswa.semester-pendek.kwitansi');
+            Route::apiResource('semester-pendek', SemesterPendekController::class);
 
             Route::prefix('laporan')->group(function () {
                 Route::get('harian', [LaporanController::class, 'harian']);

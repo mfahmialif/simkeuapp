@@ -223,6 +223,43 @@ class Helper
         return $uniqueValue;
     }
     /**
+     * Generate nota khusus Semester Pendek (tabel keuangan_pembayaran_semester_pendek)
+     */
+    public static function generateNotaSp($tanggal, $jkId)
+    {
+        $d = date('Y-m-d', strtotime($tanggal));
+        $tanggalNota = date('dmy', strtotime($tanggal));
+
+        $transaksiSp = \App\Models\KeuanganPembayaranSemesterPendek::where('jk_id', $jkId)
+            ->whereDate('tanggal', $d)
+            ->orderBy('nomor', 'desc')
+            ->first();
+
+        $jk = 0;
+        if ($jkId == 9) {
+            $jk = "P";
+        }
+        if ($jkId == 8) {
+            $jk = "L";
+        }
+
+        $number = sprintf("%05d", 1);
+        if ($transaksiSp != null) {
+            $nomer = $transaksiSp->nomor;
+            if ($nomer) {
+                // nomor format: SP-DDMMYY-NNNNN-JK-UNIQ → angka di posisi 10..14 (setelah "SP-")
+                $stripped = str_replace('SP-', '', $nomer);
+                $len = 5;
+                $n = substr($stripped, 7, $len) + 1;
+                $number = sprintf("%05d", $n);
+            }
+        }
+
+        $uniq = Helper::randomNumber();
+        return "$tanggalNota-$number-$jk-$uniq";
+    }
+
+    /**
      * return id jenis_kelamin dari tabel ref
      */
     public static function getJenisKelaminUser()

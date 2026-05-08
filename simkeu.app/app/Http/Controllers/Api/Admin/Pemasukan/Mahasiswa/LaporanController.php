@@ -435,6 +435,7 @@ class LaporanController extends Controller
             ['key' => 'double_degree', 'label' => 'PERSYARATAN DOUBLE DEGREE', 'type' => 'fixed', 'search' => ['%DOUBLE DEGREE%']],
             ['key' => 'perpus', 'label' => 'SUMBANGAN PERPUS', 'type' => 'fixed', 'search' => ['%PERPUS%']],
             ['key' => 'kompetensi', 'label' => 'UJI KOMPETENSI', 'type' => 'fixed', 'search' => ['%KOMPETENSI%']],
+            ['key' => 'sumbangan_pendidikan', 'label' => 'SUMBANGAN PENDIDIKAN', 'type' => 'fixed', 'search' => ['%SUMBANGAN PENDIDIKAN%']],
             ['key' => 'sp', 'label' => 'SEMESTER PENDEK', 'type' => 'fixed', 'search' => ['%SEMESTER PENDEK%']],
             ['key' => 'wisuda', 'label' => 'WISUDA', 'type' => 'fixed', 'search' => ['%WISUDA%']],
         ];
@@ -458,6 +459,7 @@ class LaporanController extends Controller
             ['nama', 'NOT LIKE', '%DOUBLE DEGREE%'],
             ['nama', 'NOT LIKE', '%PERPUS%'],
             ['nama', 'NOT LIKE', '%KOMPETENSI%'],
+            ['nama', 'NOT LIKE', '%SUMBANGAN PENDIDIKAN%'],
             ['nama', 'NOT LIKE', '%SEMESTER PENDEK%'],
             ['nama', 'NOT LIKE', '%WISUDA%'],
         ])->get()->unique('nama')->pluck('nama')->toArray();
@@ -501,6 +503,19 @@ class LaporanController extends Controller
             $payments = $paymentsQuery->selectRaw('DATE(keuangan_pembayaran.tanggal) as tgl, kt.nama as tagihan_nama, kt.prodi_id, SUM(keuangan_pembayaran.jumlah) as total_jumlah')
                 ->groupBy(DB::raw('DATE(keuangan_pembayaran.tanggal)'), 'kt.nama', 'kt.prodi_id')
                 ->get();
+
+            $spPaymentsQuery = \App\Models\KeuanganPembayaranSemesterPendek::whereBetween('keuangan_pembayaran_semester_pendek.tanggal', [$startDate . ' 00:00:00', $endDate . ' 23:59:59'])
+                ->where('keuangan_pembayaran_semester_pendek.jk_id', 'LIKE', "%$jp->id%");
+
+            if ($jenisPembayaranId) {
+                $spPaymentsQuery->where('keuangan_pembayaran_semester_pendek.jenis_pembayaran_id', $jenisPembayaranId);
+            }
+
+            $spPayments = $spPaymentsQuery->selectRaw('DATE(keuangan_pembayaran_semester_pendek.tanggal) as tgl, "SEMESTER PENDEK" as tagihan_nama, NULL as prodi_id, SUM(keuangan_pembayaran_semester_pendek.jumlah) as total_jumlah')
+                ->groupBy(DB::raw('DATE(keuangan_pembayaran_semester_pendek.tanggal)'))
+                ->get();
+            
+            $payments = $payments->concat($spPayments);
         } else {
             $payments = $prefetchedPayments;
         }
@@ -700,6 +715,19 @@ class LaporanController extends Controller
                     ->groupBy(DB::raw('DATE(keuangan_pembayaran.tanggal)'), 'kt.nama', 'kt.prodi_id')
                     ->get();
 
+                $spPaymentsQuery = \App\Models\KeuanganPembayaranSemesterPendek::whereBetween('keuangan_pembayaran_semester_pendek.tanggal', [$startDateYear . ' 00:00:00', $endDateYear . ' 23:59:59'])
+                    ->where('keuangan_pembayaran_semester_pendek.jk_id', 'LIKE', "%$jp->id%");
+
+                if ($jenisPembayaranId) {
+                    $spPaymentsQuery->where('keuangan_pembayaran_semester_pendek.jenis_pembayaran_id', $jenisPembayaranId);
+                }
+
+                $spPayments = $spPaymentsQuery->selectRaw('DATE(keuangan_pembayaran_semester_pendek.tanggal) as tgl, "SEMESTER PENDEK" as tagihan_nama, NULL as prodi_id, SUM(keuangan_pembayaran_semester_pendek.jumlah) as total_jumlah')
+                    ->groupBy(DB::raw('DATE(keuangan_pembayaran_semester_pendek.tanggal)'))
+                    ->get();
+
+                $allPayments = $allPayments->concat($spPayments);
+
                 $paymentsByMonth = [];
                 foreach ($allPayments as $payment) {
                     $m = (int) date('m', strtotime($payment->tgl));
@@ -895,6 +923,22 @@ class LaporanController extends Controller
                     ->groupBy('kt.nama', 'kt.prodi_id', 'kjp.nama')
                     ->get();
             }
+
+            $spPaymentsQuery = \App\Models\KeuanganPembayaranSemesterPendek::join('keuangan_jenis_pembayaran as kjp', 'kjp.id', '=', 'keuangan_pembayaran_semester_pendek.jenis_pembayaran_id')
+                ->whereBetween('keuangan_pembayaran_semester_pendek.tanggal', [$startDate . ' 00:00:00', $endDate . ' 23:59:59'])
+                ->where('keuangan_pembayaran_semester_pendek.jk_id', 'LIKE', "%$jp->id%");
+
+            if ($mode === 'tahunan') {
+                $spPayments = $spPaymentsQuery->selectRaw('"SEMESTER PENDEK" as tagihan_nama, NULL as prodi_id, kjp.nama as jenis_pembayaran_nama, MONTH(keuangan_pembayaran_semester_pendek.tanggal) as bulan, SUM(keuangan_pembayaran_semester_pendek.jumlah) as total_jumlah')
+                    ->groupBy('kjp.nama', 'bulan')
+                    ->get();
+            } else {
+                $spPayments = $spPaymentsQuery->selectRaw('"SEMESTER PENDEK" as tagihan_nama, NULL as prodi_id, kjp.nama as jenis_pembayaran_nama, SUM(keuangan_pembayaran_semester_pendek.jumlah) as total_jumlah')
+                    ->groupBy('kjp.nama')
+                    ->get();
+            }
+
+            $payments = $payments->concat($spPayments);
 
             // Mapping logic for Tunai, Transfer, Yayasan
             $getPaymentType = function($namaRaw) {
