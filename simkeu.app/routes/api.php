@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\Admin\ProfilController;
 use App\Http\Controllers\Api\Admin\DashboardController;
 use App\Http\Controllers\Api\Admin\MahasiswaController;
 use App\Http\Controllers\Api\Admin\ThAkademikController;
+use App\Http\Controllers\Api\Admin\AktifkanMahasiswaController;
 use App\Http\Controllers\Api\Admin\PengeluaranController;
 use App\Http\Controllers\Api\Admin\FormSchaduleController;
 use App\Http\Controllers\Api\Admin\Saldo\KategoriController;
@@ -158,6 +159,11 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
     Route::apiResource('th-akademik', ThAkademikController::class);
     Route::apiResource('prodi', ProdiController::class);
     Route::apiResource('ref', RefController::class);
+
+    Route::prefix('aktifkan-mahasiswa')->middleware('role:admin')->group(function () {
+        Route::get('preview', [AktifkanMahasiswaController::class, 'preview']);
+        Route::post('activate', [AktifkanMahasiswaController::class, 'activate']);
+    });
 
     Route::get('/mahasiswa/search/{search}', [MahasiswaController::class, 'search']);
     Route::get('/mahasiswa/nim', [MahasiswaController::class, 'nim']);

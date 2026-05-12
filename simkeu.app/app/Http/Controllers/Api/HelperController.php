@@ -68,25 +68,24 @@ class HelperController extends Controller
             $nim = $request->nim;
             $th_akademik_id = $request->th_akademik_id;
 
-            $krs1 = 'krs-1';
-            $krs2 = 'krs-2';
+            $kodeFormKrs = ['KRS-1', 'KRS-2'];
 
-            $bayar = KeuanganPembayaran::where('th_akademik_id', $th_akademik_id)
-                ->where('nim', $nim)->first();
+            $bayar = KeuanganPembayaran::with('tagihan.form_schadule')
+                ->where('nim', $nim)
+                ->where('jumlah', '>', 0)
+                ->whereHas('tagihan', function ($query) use ($th_akademik_id, $kodeFormKrs) {
+                    $query->where('th_akademik_id', $th_akademik_id)
+                        ->whereHas('form_schadule', function ($formQuery) use ($kodeFormKrs) {
+                            $formQuery->whereIn('kode', $kodeFormKrs);
+                        });
+                })
+                ->first();
 
             if ($bayar) {
-                $kode_form = $bayar->tagihan->form_schadule->kode;
-                if ((strtolower($kode_form) == strtolower($krs1)) || (strtolower($kode_form) == strtolower($krs2))) {
-                    $return = [
-                        'status' => true,
-                        'message' => 'Pembayaran ' . $bayar->tagihan->nama . ' Nomor ' . $bayar->nomor . ' Tanggal ' . Carbon::parse($bayar->tanggal)->format('d-m-Y'),
-                    ];
-                } else {
-                    $return = [
-                        'status' => false,
-                        'message' => 'null',
-                    ];
-                }
+                $return = [
+                    'status' => true,
+                    'message' => 'Pembayaran ' . $bayar->tagihan->nama . ' Nomor ' . $bayar->nomor . ' Tanggal ' . Carbon::parse($bayar->tanggal)->format('d-m-Y'),
+                ];
             } else {
                 $dispensasi = KeuanganDispensasi::where('th_akademik_id', $th_akademik_id)
                     ->where('nim', $nim)->first();

@@ -95,47 +95,7 @@ class TagihanImport implements ToModel, WithHeadingRow, WithValidation, SkipsOnF
         $kelasId = 6;
         $kode = $thAkademik->id . $thAngkatan->id . $prodi->id . $kelasId . $formSchadule->id;
 
-        $existingQuery = KeuanganTagihan::where([
-            'th_akademik_id'   => $thAkademik->id,
-            'th_angkatan_id'   => $thAngkatan->id,
-            'prodi_id'         => $prodi->id,
-            'kelas_id'         => $kelasId,
-            'form_schadule_id' => $formSchadule->id,
-            'nama'             => $namaTagihan,
-        ]);
-
-        if ($doubleDegree === 1) {
-            $existingQuery->where('double_degree', 1);
-        } else {
-            $existingQuery->where(function ($query) {
-                $query->where('double_degree', 0)->orWhereNull('double_degree');
-            });
-        }
-
-        $existing = $existingQuery->first();
-
-        if ($existing && !$this->updateExisting) {
-            $this->skipCount++;
-            $this->skipReasons[] = "Data '$namaTagihan' sudah ada (duplikat)";
-            return null;
-        }
-
-        if ($existing && $this->updateExisting) {
-            $existing->fill([
-                'kode'          => $kode,
-                'jumlah'        => $jumlah,
-                'double_degree' => $doubleDegree,
-                'x_sks'         => 'Y',
-                'user_id'       => $this->userId,
-            ]);
-            $existing->save();
-            $this->updateCount++;
-            return null;
-        }
-
-        $this->successCount++;
-
-        return new KeuanganTagihan([
+        $tagihanData = [
             'th_akademik_id'   => $thAkademik->id,
             'th_angkatan_id'   => $thAngkatan->id,
             'prodi_id'         => $prodi->id,
@@ -147,7 +107,32 @@ class TagihanImport implements ToModel, WithHeadingRow, WithValidation, SkipsOnF
             'jumlah'           => $jumlah,
             'x_sks'            => 'Y',
             'user_id'          => $this->userId,
+        ];
+
+        $existingQuery = KeuanganTagihan::where([
+            'th_angkatan_id' => $thAngkatan->id,
+            'prodi_id'       => $prodi->id,
+            'nama'           => $namaTagihan,
         ]);
+
+        $existing = $existingQuery->first();
+
+        if ($existing && !$this->updateExisting) {
+            $this->skipCount++;
+            $this->skipReasons[] = "Data '$namaTagihan' untuk angkatan $tahunAngkatan dan prodi '$aliasProdiInput' sudah ada";
+            return null;
+        }
+
+        if ($existing && $this->updateExisting) {
+            $existing->fill($tagihanData);
+            $existing->save();
+            $this->updateCount++;
+            return null;
+        }
+
+        $this->successCount++;
+
+        return new KeuanganTagihan($tagihanData);
     }
 
     protected function resolveSemester(string $namaTagihan, ?string $semesterInput = null): ?int
