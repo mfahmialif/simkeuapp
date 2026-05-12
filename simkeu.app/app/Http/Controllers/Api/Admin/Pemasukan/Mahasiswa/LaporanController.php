@@ -404,6 +404,44 @@ class LaporanController extends Controller
      * Pemasukan Tunai Harian - Monthly daily cash income report
      * Returns daily payment totals grouped by tagihan categories
      */
+    private function normalizeTagihanName($name)
+    {
+        return trim(preg_replace('/[^A-Z0-9]+/', ' ', strtoupper((string) $name)));
+    }
+
+    private function compactTagihanName($name)
+    {
+        return preg_replace('/[^A-Z0-9]+/', '', strtoupper((string) $name));
+    }
+
+    private function isUasTagihanName($name)
+    {
+        $normalized = $this->normalizeTagihanName($name);
+        $compact = $this->compactTagihanName($name);
+
+        return preg_match('/\bUAS\b/', $normalized)
+            || strpos($compact, 'UASSEMESTER') !== false
+            || strpos($compact, 'UJIANAKHIRSEMESTER') !== false;
+    }
+
+    private function matchesPemasukanFixedCategory($tagihanName, $category)
+    {
+        if (($category['key'] ?? null) === 'uas') {
+            return $this->isUasTagihanName($tagihanName);
+        }
+
+        $tagihanUpper = strtoupper((string) $tagihanName);
+
+        foreach ($category['search'] as $searchPattern) {
+            $term = trim(str_replace('%', '', strtoupper($searchPattern)));
+            if (strpos($tagihanUpper, $term) !== false) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private function getPemasukanTunaiColumns($jenjang = 'sarjana')
     {
         // a) SPP per Prodi
@@ -428,7 +466,7 @@ class LaporanController extends Controller
         // b) Fixed categories
         $fixedCategories = [
             ['key' => 'registrasi', 'label' => 'REGISTRASI, DAFTAR ULANG & PENDAFTARAN', 'type' => 'fixed', 'search' => ['%REGIST%', '%DAFTAR ULANG%', '%PENDAFTARAN%']],
-            ['key' => 'uas', 'label' => 'UAS', 'type' => 'fixed', 'search' => ['%UAS%']],
+            ['key' => 'uas', 'label' => 'UAS', 'type' => 'fixed', 'search' => ['%UAS%', '%U A S%', '%U.A.S%', '%UJIAN AKHIR SEMESTER%']],
             ['key' => 'kkn', 'label' => 'KKN / PPL / PKL', 'type' => 'fixed', 'search' => ['%KKN%', '%PPL%', '%PKL%']],
             ['key' => 'skripsi', 'label' => 'SKRIPSI', 'type' => 'fixed', 'search' => ['%SKRIPSI%']],
             ['key' => 'pmb', 'label' => 'PMB', 'type' => 'fixed', 'search' => ['%PMB%']],
@@ -448,6 +486,9 @@ class LaporanController extends Controller
         $otherTagihan = KeuanganTagihan::where([
             ['nama', 'NOT LIKE', '%SPP%'],
             ['nama', 'NOT LIKE', '%UAS%'],
+            ['nama', 'NOT LIKE', '%U A S%'],
+            ['nama', 'NOT LIKE', '%U.A.S%'],
+            ['nama', 'NOT LIKE', '%UJIAN AKHIR SEMESTER%'],
             ['nama', 'NOT LIKE', '%KKN%'],
             ['nama', 'NOT LIKE', '%PPL%'],
             ['nama', 'NOT LIKE', '%PKL%'],
@@ -462,7 +503,12 @@ class LaporanController extends Controller
             ['nama', 'NOT LIKE', '%SUMBANGAN PENDIDIKAN%'],
             ['nama', 'NOT LIKE', '%SEMESTER PENDEK%'],
             ['nama', 'NOT LIKE', '%WISUDA%'],
-        ])->get()->unique('nama')->pluck('nama')->toArray();
+        ])->get()
+            ->unique('nama')
+            ->pluck('nama')
+            ->filter(fn($nama) => !$this->isUasTagihanName($nama))
+            ->values()
+            ->toArray();
 
         foreach ($otherTagihan as $nama) {
             $columns[] = [
@@ -561,14 +607,9 @@ class LaporanController extends Controller
                 $assignedKey = 'spp_prodi_' . $prodi_id;
             } else {
                 foreach ($columns as $c) {
-                    if ($c['type'] === 'fixed') {
-                        foreach ($c['search'] as $searchPattern) {
-                            $term = trim(str_replace('%', '', strtoupper($searchPattern)));
-                            if (strpos($namaUpper, $term) !== false) {
-                                $assignedKey = $c['key'];
-                                break 2;
-                            }
-                        }
+                    if ($c['type'] === 'fixed' && $this->matchesPemasukanFixedCategory($namaRaw, $c)) {
+                        $assignedKey = $c['key'];
+                        break;
                     }
                 }
                 if (!$assignedKey) {

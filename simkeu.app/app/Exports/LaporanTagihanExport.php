@@ -17,14 +17,16 @@ class LaporanTagihanExport implements FromView
     public $nama;
     public $tahun_akademik;
     public $deposit;
+    public $scope;
 
-    public function __construct($nim, $prodi, $nama, $tahun_akademik, $deposit)
+    public function __construct($nim, $prodi, $nama, $tahun_akademik, $deposit, $scope = 'semua')
     {
         $this->nim = $nim;
         $this->prodi = $prodi;
         $this->nama = $nama;
         $this->tahun_akademik = $tahun_akademik;
         $this->deposit = $deposit;
+        $this->scope = $scope;
     }
     public function view(): View
     {
@@ -35,7 +37,12 @@ class LaporanTagihanExport implements FromView
         $tahun_akademik = $this->tahun_akademik;
         $deposit = $this->deposit;
         $tagihan = TagihanMahasiswa::tagihan($nim);
-        $data = $tagihan['list_tagihan'];
+        $data = TagihanMahasiswa::filterTagihanByScope(
+            $tagihan['list_tagihan'] ?? [],
+            $this->scope,
+            $tagihan['semester'] ?? null,
+            $tagihan['angkatan'] ?? null
+        );
         $status = $data ? true : false;
 
         // mengambil nama prodi saja

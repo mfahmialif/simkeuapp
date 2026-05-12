@@ -10,21 +10,20 @@ class TagihanTemplateExport implements FromArray, WithHeadings
     public function headings(): array
     {
         return [
-            'th_akademik_kode',
-            'th_angkatan_kode',
-            'prodi_kode',
-            'form_schadule_kode',
-            'nama',
-            'jumlah',
-            'double_degree',
+            'tahun_angkatan',
+            'alias_prodi',
+            'nama_tagihan',
+            'smt',
+            'jumlah_rp_tagihan',
         ];
     }
 
     public function array(): array
     {
-        // Example row
         return [
-            ['20241', '20241', 'TI', 'REG', 'Biaya SPP', '5000000', ''],
+            ['2020', 'AS-HK', 'HERREGISTRASI SEMESTER 1', '1', '300000'],
+            ['2020', 'AS-HK', 'SPP SEMESTER 1 BULAN 1', '1', '150000'],
+            ['2020', 'AS-HK(DD)', 'UAS SEMESTER 1', '1', '300000'],
         ];
     }
 }

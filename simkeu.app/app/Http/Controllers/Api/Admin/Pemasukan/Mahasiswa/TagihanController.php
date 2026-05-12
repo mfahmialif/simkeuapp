@@ -269,7 +269,8 @@ class TagihanController extends Controller
     public function import(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'file' => 'required|mimes:xlsx,xls,csv|max:10240',
+            'file'            => 'required|mimes:xlsx,xls,csv|max:10240',
+            'update_existing' => 'nullable|boolean',
         ]);
 
         if ($validator->fails()) {
@@ -280,7 +281,7 @@ class TagihanController extends Controller
         }
 
         try {
-            $import = new TagihanImport();
+            $import = new TagihanImport($request->boolean('update_existing'));
             Excel::import($import, $request->file('file'));
 
             $failures = $import->failures();
@@ -297,6 +298,7 @@ class TagihanController extends Controller
                 'status'        => true,
                 'message'       => 'Import selesai',
                 'success_count' => $import->getSuccessCount(),
+                'update_count'  => $import->getUpdateCount(),
                 'skip_count'    => $import->getSkipCount(),
                 'skip_reasons'  => $import->getSkipReasons(),
                 'failures'      => $failureMessages,
@@ -319,4 +321,3 @@ class TagihanController extends Controller
         return Excel::download(new TagihanTemplateExport, 'template_tagihan.xlsx');
     }
 }
-

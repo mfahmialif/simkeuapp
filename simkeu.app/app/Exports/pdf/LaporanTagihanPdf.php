@@ -21,6 +21,12 @@ class LaporanTagihanPdf
         $fpdf->addPage();
 
         $tagihan = TagihanMahasiswa::tagihan($data['nim']);
+        $tagihan['list_tagihan'] = TagihanMahasiswa::filterTagihanByScope(
+            $tagihan['list_tagihan'] ?? [],
+            $data['scope'] ?? 'semua',
+            $tagihan['semester'] ?? null,
+            $tagihan['angkatan'] ?? null
+        );
 
         self::header($data, $fpdf);
         self::body($data, $fpdf, $tagihan);

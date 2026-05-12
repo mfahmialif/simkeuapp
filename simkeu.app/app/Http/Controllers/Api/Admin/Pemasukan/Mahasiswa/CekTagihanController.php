@@ -126,6 +126,7 @@ class CekTagihanController extends Controller
                 'nama' => 'required',
                 'tahun_akademik' => 'required',
                 'deposit' => 'nullable',
+                'scope' => 'nullable|in:semester_ini,semua',
             ]);
 
             return LaporanTagihanPdf::pdf($dataValidated);
@@ -152,9 +153,17 @@ class CekTagihanController extends Controller
                 'nama' => 'nullable',
                 'tahun_akademik' => 'nullable',
                 'deposit' => 'nullable',
+                'scope' => 'nullable|in:semester_ini,semua',
             ]);
 
-            return Excel::download(new LaporanTagihanExport($dataValidated['nim'], $dataValidated['prodi'], $dataValidated['nama'], $dataValidated['tahun_akademik'], $dataValidated['deposit']), 'Cek Tagihan.xlsx');
+            return Excel::download(new LaporanTagihanExport(
+                $dataValidated['nim'],
+                $dataValidated['prodi'],
+                $dataValidated['nama'],
+                $dataValidated['tahun_akademik'],
+                $dataValidated['deposit'],
+                $dataValidated['scope'] ?? 'semua'
+            ), 'Cek Tagihan.xlsx');
         } catch (\Illuminate\Validation\ValidationException $e) {
             \DB::rollBack();
             return response()->json([

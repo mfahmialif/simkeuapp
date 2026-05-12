@@ -3,8 +3,6 @@
 namespace App\Services;
 
 use App\Services\Mahasiswa;
-use App\Models\ThAkademik;
-use App\Models\SyaratTagihan;
 use App\Models\KeuanganTagihan;
 use App\Models\KeuanganPembayaran;
 use Illuminate\Support\Facades\DB;
@@ -13,6 +11,46 @@ use App\Models\KeuanganDispensasiTagihan;
 
 class TagihanMahasiswa
 {
+    private static function getSemesterMahasiswaTagihan($tagihan, $angkatanKode)
+    {
+        $kodeTahunAkademik = (string) data_get($tagihan, 'th_akademik_kode', '');
+        $tahunAngkatan = (int) substr((string) $angkatanKode, 0, 4);
+
+        if (! $tahunAngkatan || ! preg_match('/^\d{5}$/', $kodeTahunAkademik)) {
+            return null;
+        }
+
+        $tahunTagihan = (int) substr($kodeTahunAkademik, 0, 4);
+        $semesterKode = (int) substr($kodeTahunAkademik, 4, 1);
+
+        if (! in_array($semesterKode, [1, 2], true)) {
+            return null;
+        }
+
+        return (($tahunTagihan - $tahunAngkatan) * 2) + $semesterKode;
+    }
+
+    public static function filterTagihanByScope($listTagihan, $scope = 'semua', $semesterMahasiswa = null, $angkatanKode = null)
+    {
+        $listTagihan = $listTagihan ?: [];
+
+        if ($scope !== 'semester_ini') {
+            return $listTagihan;
+        }
+
+        $semesterMahasiswa = (int) $semesterMahasiswa;
+
+        if ($semesterMahasiswa <= 0) {
+            return $listTagihan;
+        }
+
+        return array_values(array_filter($listTagihan, function ($tagihan) use ($semesterMahasiswa, $angkatanKode) {
+            $semesterTagihan = self::getSemesterMahasiswaTagihan($tagihan, $angkatanKode);
+
+            return ! $semesterTagihan || $semesterTagihan <= $semesterMahasiswa;
+        }));
+    }
+
     public static function getSisaTagihan($nim, $tagihan_id)
     {
         $tagihan     = KeuanganTagihan::select('jumlah')->where('id', $tagihan_id)->first();
@@ -58,30 +96,9 @@ class TagihanMahasiswa
                 })
                 ->get();
 
-            // Hitung semester mahasiswa saat ini
-            $thAkademikAktif = ThAkademik::where('aktif', 'Y')->first();
-            $semesterMhs = null;
-            if ($thAkademikAktif) {
-                $tahunAkademik = (int) substr($thAkademikAktif->kode, 0, 4);
-                $semesterType  = (int) substr($thAkademikAktif->kode, -1); // 1 = Ganjil, 2 = Genap
-                $angkatanMhs   = (int) substr($mhs->nim, 0, 4);
-                $semesterMhs   = ($tahunAkademik - $angkatanMhs) * 2 + $semesterType;
-            }
-
-            // Ambil semua syarat tagihan sekaligus (cache per request)
-            $syaratTagihanMap = SyaratTagihan::whereNotNull('smt')->pluck('smt', 'nama');
-
             $listTagihan = [];
 
             foreach ($tagihan as $row) {
-                // Filter berdasarkan syarat semester
-                if ($semesterMhs !== null && $syaratTagihanMap->has($row->nama)) {
-                    $syaratSmt = $syaratTagihanMap->get($row->nama);
-                    if ($semesterMhs < $syaratSmt) {
-                        continue; // Skip tagihan karena semester belum memenuhi syarat
-                    }
-                }
-
                 $sisa = TagihanMahasiswa::getSisaTagihan($mhs->nim, $row->id);
 
                 // dispensasi tagihan
@@ -108,10 +125,13 @@ class TagihanMahasiswa
                     $sisaAkhir = $sisa;
                 }
                 if ($sisa > 0) {
-                    $row->dibayar        = $row->jumlah - $sisa;
-                    $row->sisa           = $sisaAkhir;
-                    $row->tahun_akademik = $row->th_akademik->nama;
-                    $row->semester       = $row->th_akademik->semester;
+                    $thAkademik = $row->th_akademik;
+
+                    $row->dibayar          = $row->jumlah - $sisa;
+                    $row->sisa             = $sisaAkhir;
+                    $row->tahun_akademik   = $thAkademik->nama;
+                    $row->semester         = $thAkademik->semester;
+                    $row->th_akademik_kode = $thAkademik->kode;
 
                     $row->status_dispensasi = $statusDispensasi;
                     $row->batas_dispensasi  = $batasDispensasi;
@@ -127,6 +147,7 @@ class TagihanMahasiswa
                 'nama_kelas'   => @$mhs->kelas->nama,
                 'list_tagihan' => $listTagihan,
                 'angkatan'     => @$mhs->th_akademik->kode,
+                'semester'     => @$mhs->semester,
             ];
         } else {
             $return = [
@@ -136,6 +157,7 @@ class TagihanMahasiswa
                 'list_tagihan' => null,
                 'smt'          => null,
                 'angkatan'     => null,
+                'semester'     => null,
             ];
         }
         // dd($listTagihan);
@@ -183,10 +205,13 @@ class TagihanMahasiswa
 
             $sisaAkhir = ($statusDispensasi) ? $sisa - $jumlahDispensasi : $sisa; // sisa total dari pembayaran dan dispensasi
             if ($sisa > 0) {
-                $tagihan->dibayar        = $tagihan->jumlah - $sisa;
-                $tagihan->sisa           = $sisaAkhir;
-                $tagihan->tahun_akademik = $tagihan->th_akademik->nama;
-                $tagihan->semester       = $tagihan->th_akademik->semester;
+                $thAkademik = $tagihan->th_akademik;
+
+                $tagihan->dibayar          = $tagihan->jumlah - $sisa;
+                $tagihan->sisa             = $sisaAkhir;
+                $tagihan->tahun_akademik   = $thAkademik->nama;
+                $tagihan->semester         = $thAkademik->semester;
+                $tagihan->th_akademik_kode = $thAkademik->kode;
 
                 $tagihan->status_dispensasi = $statusDispensasi;
                 $tagihan->batas_dispensasi  = $batasDispensasi;
@@ -212,27 +237,5 @@ class TagihanMahasiswa
             ];
         }
         return $return;
-    }
-
-    public static function getUniqueTagihan()
-    {
-        try {
-            $tagihan = \App\Models\KeuanganTagihan::select('nama')
-                ->whereNotNull('nama')
-                ->where('nama', '!=', '')
-                ->distinct()
-                ->orderBy('nama', 'asc')
-                ->pluck('nama');
-
-            return [
-                'status' => true,
-                'data' => $tagihan
-            ];
-        } catch (\Throwable $th) {
-            return [
-                'status'  => false,
-                'message' => $th->getMessage()
-            ];
-        }
     }
 }
