@@ -10,12 +10,11 @@ use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
 use Maatwebsite\Excel\Concerns\ToModel;
 use Maatwebsite\Excel\Concerns\WithHeadingRow;
-use Maatwebsite\Excel\Concerns\WithValidation;
 use Maatwebsite\Excel\Concerns\SkipsOnFailure;
 use Maatwebsite\Excel\Concerns\SkipsFailures;
 use Illuminate\Support\Facades\Auth;
 
-class TagihanImport implements ToModel, WithHeadingRow, WithValidation, SkipsOnFailure
+class TagihanImport implements ToModel, WithHeadingRow, SkipsOnFailure
 {
     use SkipsFailures;
 
@@ -40,11 +39,41 @@ class TagihanImport implements ToModel, WithHeadingRow, WithValidation, SkipsOnF
      */
     public function model(array $row)
     {
-        $tahunAngkatan = trim((string) $row['tahun_angkatan']);
-        $aliasProdiInput = trim((string) $row['alias_prodi']);
-        $namaTagihan = trim((string) $row['nama_tagihan']);
-        $semesterInput = trim((string) $row['smt']);
-        $jumlah = $this->normalizeAmount($row['jumlah_rp_tagihan']);
+        if ($this->isEmptyRow($row)) {
+            return null;
+        }
+
+        $tahunAngkatan = trim((string) $this->value($row, ['tahun', 'tahun_angkatan', 'tahunangkatan']));
+        $aliasProdiInput = trim((string) $this->value($row, ['aliasprodi', 'alias_prodi', 'alias']));
+        $namaTagihan = trim((string) $this->value($row, ['namatagihan', 'nama_tagihan', 'nama']));
+        $semesterRaw = $this->value($row, ['smt', 'semester']);
+        $semesterInput = $semesterRaw === null ? null : trim((string) $semesterRaw);
+        $jumlahRaw = $this->value($row, ['jumlahtagihan', 'jumlah_tagihan', 'jumlah_rp_tagihan', 'jumlah']);
+
+        $missingColumns = [];
+        foreach ([
+            'aliasprodi' => $aliasProdiInput,
+            'tahun' => $tahunAngkatan,
+            'namatagihan' => $namaTagihan,
+            'jumlahtagihan' => $jumlahRaw,
+        ] as $column => $value) {
+            if ($this->isBlank($value)) {
+                $missingColumns[] = $column;
+            }
+        }
+
+        if ($missingColumns) {
+            $this->skipCount++;
+            $this->skipReasons[] = 'Kolom ' . implode(', ', $missingColumns) . ' wajib diisi';
+            return null;
+        }
+
+        $jumlah = $this->normalizeAmount($jumlahRaw);
+        if ($jumlah === null) {
+            $this->skipCount++;
+            $this->skipReasons[] = "Jumlah tagihan untuk '$namaTagihan' tidak valid";
+            return null;
+        }
 
         if (!preg_match('/^\d{4}$/', $tahunAngkatan)) {
             $this->skipCount++;
@@ -72,7 +101,7 @@ class TagihanImport implements ToModel, WithHeadingRow, WithValidation, SkipsOnF
         $semester = $this->resolveSemester($namaTagihan, $semesterInput);
         if (!$semester) {
             $this->skipCount++;
-            $this->skipReasons[] = "Kolom smt untuk tagihan '$namaTagihan' harus angka semester";
+            $this->skipReasons[] = "Nama tagihan '$namaTagihan' harus memuat semester, contoh 'SPP SEMESTER 1'";
             return null;
         }
 
@@ -197,9 +226,46 @@ class TagihanImport implements ToModel, WithHeadingRow, WithValidation, SkipsOnF
         return $semester % 2 === 1 ? 'KRS-1' : 'KRS-2';
     }
 
-    protected function normalizeAmount($amount): float
+    protected function value(array $row, array $keys)
+    {
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $row) && !$this->isBlank($row[$key])) {
+                return $row[$key];
+            }
+        }
+
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $row)) {
+                return $row[$key];
+            }
+        }
+
+        return null;
+    }
+
+    protected function isBlank($value): bool
+    {
+        return $value === null || trim((string) $value) === '';
+    }
+
+    protected function isEmptyRow(array $row): bool
+    {
+        foreach ($row as $value) {
+            if (!$this->isBlank($value)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    protected function normalizeAmount($amount): ?float
     {
         $normalized = preg_replace('/[^\d.,-]/', '', (string) $amount);
+
+        if ($normalized === '' || $normalized === '-') {
+            return null;
+        }
 
         if (str_contains($normalized, '.') && str_contains($normalized, ',')) {
             $normalized = str_replace('.', '', $normalized);
@@ -213,20 +279,6 @@ class TagihanImport implements ToModel, WithHeadingRow, WithValidation, SkipsOnF
         }
 
         return (float) $normalized;
-    }
-
-    /**
-     * Validation rules for each row
-     */
-    public function rules(): array
-    {
-        return [
-            'tahun_angkatan'    => 'required',
-            'alias_prodi'       => 'required|string|max:255',
-            'nama_tagihan'      => 'required|string|max:255',
-            'smt'               => 'required|integer|min:1',
-            'jumlah_rp_tagihan' => 'required',
-        ];
     }
 
     /**
