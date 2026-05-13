@@ -300,6 +300,8 @@ class TagihanController extends Controller
                 'success_count' => $import->getSuccessCount(),
                 'update_count'  => $import->getUpdateCount(),
                 'skip_count'    => $import->getSkipCount(),
+                'sheet_count'   => $import->getSheetCount(),
+                'sheet_names'   => $import->getSheetNames(),
                 'skip_reasons'  => $import->getSkipReasons(),
                 'failures'      => $failureMessages,
             ]);

@@ -12,11 +12,15 @@ use Maatwebsite\Excel\Concerns\ToModel;
 use Maatwebsite\Excel\Concerns\WithHeadingRow;
 use Maatwebsite\Excel\Concerns\SkipsOnFailure;
 use Maatwebsite\Excel\Concerns\SkipsFailures;
+use Maatwebsite\Excel\Concerns\WithEvents;
+use Maatwebsite\Excel\Concerns\RegistersEventListeners;
+use Maatwebsite\Excel\Concerns\RemembersRowNumber;
+use Maatwebsite\Excel\Events\BeforeSheet;
 use Illuminate\Support\Facades\Auth;
 
-class TagihanImport implements ToModel, WithHeadingRow, SkipsOnFailure
+class TagihanImport implements ToModel, WithHeadingRow, SkipsOnFailure, WithEvents
 {
-    use SkipsFailures;
+    use SkipsFailures, RegistersEventListeners, RemembersRowNumber;
 
     protected $userId;
     protected $successCount = 0;
@@ -25,11 +29,20 @@ class TagihanImport implements ToModel, WithHeadingRow, SkipsOnFailure
     protected $skipReasons = [];
     protected $updateExisting = false;
     protected $currentSemester = null;
+    protected $currentSheetName = null;
+    protected $sheetNames = [];
 
     public function __construct(bool $updateExisting = false)
     {
         $this->userId = Auth::id();
         $this->updateExisting = $updateExisting;
+    }
+
+    public function beforeSheet(BeforeSheet $event): void
+    {
+        $this->currentSheetName = $event->getSheet()->getDelegate()->getTitle();
+        $this->sheetNames[] = $this->currentSheetName;
+        $this->currentSemester = null;
     }
 
     /**
@@ -55,6 +68,7 @@ class TagihanImport implements ToModel, WithHeadingRow, SkipsOnFailure
             'aliasprodi' => $aliasProdiInput,
             'tahun' => $tahunAngkatan,
             'namatagihan' => $namaTagihan,
+            'smt' => $semesterInput,
             'jumlahtagihan' => $jumlahRaw,
         ] as $column => $value) {
             if ($this->isBlank($value)) {
@@ -63,62 +77,46 @@ class TagihanImport implements ToModel, WithHeadingRow, SkipsOnFailure
         }
 
         if ($missingColumns) {
-            $this->skipCount++;
-            $this->skipReasons[] = 'Kolom ' . implode(', ', $missingColumns) . ' wajib diisi';
-            return null;
+            return $this->skipRow('Kolom ' . implode(', ', $missingColumns) . ' wajib diisi');
         }
 
         $jumlah = $this->normalizeAmount($jumlahRaw);
         if ($jumlah === null) {
-            $this->skipCount++;
-            $this->skipReasons[] = "Jumlah tagihan untuk '$namaTagihan' tidak valid";
-            return null;
+            return $this->skipRow("Jumlah tagihan untuk '$namaTagihan' tidak valid");
         }
 
         if (!preg_match('/^\d{4}$/', $tahunAngkatan)) {
-            $this->skipCount++;
-            $this->skipReasons[] = "Tahun angkatan '$tahunAngkatan' harus 4 digit, contoh 2020";
-            return null;
+            return $this->skipRow("Tahun angkatan '$tahunAngkatan' harus 4 digit, contoh 2020");
         }
 
         $thAngkatanKode = $tahunAngkatan . '1';
         $thAngkatan = $this->findOrCreateThAkademik($thAngkatanKode);
         if (!$thAngkatan) {
-            $this->skipCount++;
-            $this->skipReasons[] = "Tahun angkatan '$tahunAngkatan' gagal dibuat sebagai kode '$thAngkatanKode'";
-            return null;
+            return $this->skipRow("Tahun angkatan '$tahunAngkatan' gagal dibuat sebagai kode '$thAngkatanKode'");
         }
 
         $doubleDegree = Str::contains(Str::lower($aliasProdiInput), '(dd)') ? 1 : 0;
         $aliasProdi = trim(preg_replace('/\s*\(dd\)\s*/i', '', $aliasProdiInput));
         $prodi = Prodi::whereRaw('LOWER(alias) = ?', [Str::lower($aliasProdi)])->first();
         if (!$prodi) {
-            $this->skipCount++;
-            $this->skipReasons[] = "Alias prodi '$aliasProdi' tidak ditemukan";
-            return null;
+            return $this->skipRow("Alias prodi '$aliasProdi' tidak ditemukan");
         }
 
         $semester = $this->resolveSemester($namaTagihan, $semesterInput);
         if (!$semester) {
-            $this->skipCount++;
-            $this->skipReasons[] = "Nama tagihan '$namaTagihan' harus memuat semester, contoh 'SPP SEMESTER 1'";
-            return null;
+            return $this->skipRow("Kolom smt untuk tagihan '$namaTagihan' harus angka semester");
         }
 
         $thAkademikKode = $this->resolveThAkademikKode((int) $tahunAngkatan, $semester);
         $thAkademik = $this->findOrCreateThAkademik($thAkademikKode);
         if (!$thAkademik) {
-            $this->skipCount++;
-            $this->skipReasons[] = "Tahun akademik '$thAkademikKode' untuk '$namaTagihan' gagal dibuat";
-            return null;
+            return $this->skipRow("Tahun akademik '$thAkademikKode' untuk '$namaTagihan' gagal dibuat");
         }
 
         $formSchaduleKode = $this->resolveFormSchaduleKode($namaTagihan, $semester);
         $formSchadule = FormSchadule::where('kode', $formSchaduleKode)->first();
         if (!$formSchadule) {
-            $this->skipCount++;
-            $this->skipReasons[] = "Form schadule kode '$formSchaduleKode' untuk '$namaTagihan' tidak ditemukan";
-            return null;
+            return $this->skipRow("Form schadule kode '$formSchaduleKode' untuk '$namaTagihan' tidak ditemukan");
         }
 
         $kelasId = 6;
@@ -147,9 +145,7 @@ class TagihanImport implements ToModel, WithHeadingRow, SkipsOnFailure
         $existing = $existingQuery->first();
 
         if ($existing && !$this->updateExisting) {
-            $this->skipCount++;
-            $this->skipReasons[] = "Data '$namaTagihan' untuk angkatan $tahunAngkatan dan prodi '$aliasProdiInput' sudah ada";
-            return null;
+            return $this->skipRow("Data '$namaTagihan' untuk angkatan $tahunAngkatan dan prodi '$aliasProdiInput' sudah ada");
         }
 
         if ($existing && $this->updateExisting) {
@@ -166,9 +162,13 @@ class TagihanImport implements ToModel, WithHeadingRow, SkipsOnFailure
 
     protected function resolveSemester(string $namaTagihan, ?string $semesterInput = null): ?int
     {
-        if ($semesterInput !== null && preg_match('/^\d+$/', $semesterInput)) {
-            $this->currentSemester = (int) $semesterInput;
-            return $this->currentSemester;
+        if ($semesterInput !== null && trim($semesterInput) !== '') {
+            if (preg_match('/^\d+$/', $semesterInput)) {
+                $this->currentSemester = (int) $semesterInput;
+                return $this->currentSemester;
+            }
+
+            return null;
         }
 
         if (preg_match('/\bsemester\s+(\d+)\b/i', $namaTagihan, $matches)) {
@@ -224,6 +224,26 @@ class TagihanImport implements ToModel, WithHeadingRow, SkipsOnFailure
         }
 
         return $semester % 2 === 1 ? 'KRS-1' : 'KRS-2';
+    }
+
+    protected function skipRow(string $reason)
+    {
+        $this->skipCount++;
+
+        $context = [];
+        if ($this->currentSheetName) {
+            $context[] = "sheet '$this->currentSheetName'";
+        }
+
+        if ($this->getRowNumber()) {
+            $context[] = 'baris ' . $this->getRowNumber();
+        }
+
+        $this->skipReasons[] = $context
+            ? ucfirst(implode(', ', $context)) . ': ' . $reason
+            : $reason;
+
+        return null;
     }
 
     protected function value(array $row, array $keys)
@@ -292,6 +312,16 @@ class TagihanImport implements ToModel, WithHeadingRow, SkipsOnFailure
     public function getUpdateCount(): int
     {
         return $this->updateCount;
+    }
+
+    public function getSheetCount(): int
+    {
+        return count(array_unique($this->sheetNames));
+    }
+
+    public function getSheetNames(): array
+    {
+        return array_values(array_unique($this->sheetNames));
     }
 
     /**
