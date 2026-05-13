@@ -75,6 +75,9 @@
                         : '';
                     $status = $t->sisa > 0 ? 'BELUM LUNAS' : 'LUNAS';
                     $keterangan = $status . $dibayar . $dispensasi;
+                    if (!empty($t->tidak_bisa_dibayar)) {
+                        $keterangan .= ' - ' . $t->keterangan_pembayaran;
+                    }
                     $subTotal = $t->sisa;
 
                 @endphp

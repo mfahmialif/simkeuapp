@@ -61,6 +61,15 @@ class CekTagihanController extends Controller
                 }
             }
         }
+
+        if (isset($data['list_tagihan'])) {
+            $data['list_tagihan'] = TagihanMahasiswa::markPaymentEligibility(
+                $data['list_tagihan'],
+                $validate['nim'],
+                $nilai
+            );
+        }
+
         return response()->json([
             'status' => true,
             'data' => $data,
@@ -127,6 +136,7 @@ class CekTagihanController extends Controller
                 'tahun_akademik' => 'required',
                 'deposit' => 'nullable',
                 'scope' => 'nullable|in:semester_ini,semua',
+                'cek_nilai' => 'nullable|boolean',
             ]);
 
             return LaporanTagihanPdf::pdf($dataValidated);
@@ -154,6 +164,7 @@ class CekTagihanController extends Controller
                 'tahun_akademik' => 'nullable',
                 'deposit' => 'nullable',
                 'scope' => 'nullable|in:semester_ini,semua',
+                'cek_nilai' => 'nullable|boolean',
             ]);
 
             return Excel::download(new LaporanTagihanExport(
@@ -162,7 +173,8 @@ class CekTagihanController extends Controller
                 $dataValidated['nama'],
                 $dataValidated['tahun_akademik'],
                 $dataValidated['deposit'],
-                $dataValidated['scope'] ?? 'semua'
+                $dataValidated['scope'] ?? 'semua',
+                $dataValidated['cek_nilai'] ?? null
             ), 'Cek Tagihan.xlsx');
         } catch (\Illuminate\Validation\ValidationException $e) {
             \DB::rollBack();

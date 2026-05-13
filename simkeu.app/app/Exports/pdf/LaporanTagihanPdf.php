@@ -27,6 +27,11 @@ class LaporanTagihanPdf
             $tagihan['semester'] ?? null,
             $tagihan['angkatan'] ?? null
         );
+        $tagihan['list_tagihan'] = TagihanMahasiswa::markPaymentEligibility(
+            $tagihan['list_tagihan'],
+            $data['nim'],
+            $data['cek_nilai'] ?? null
+        );
 
         self::header($data, $fpdf);
         self::body($data, $fpdf, $tagihan);
@@ -114,6 +119,9 @@ class LaporanTagihanPdf
                 $dispensasi = $t->status_dispensasi && $t->jenis_dispensasi != "Beasiswa" ? " (dispensasi ($t->jenis_dispensasi) Rp. $t->jumlah_dispensasi)" : '';
                 $status = $t->sisa > 0 ? 'BELUM LUNAS' : 'LUNAS';
                 $keterangan = $status . $dibayar . $dispensasi;
+                if (! empty($t->tidak_bisa_dibayar)) {
+                    $keterangan .= ' - ' . $t->keterangan_pembayaran;
+                }
                 $subTotal = $t->sisa;
 
                 $offset = 0;

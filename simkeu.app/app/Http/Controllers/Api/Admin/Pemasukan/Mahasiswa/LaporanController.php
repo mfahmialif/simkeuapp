@@ -424,10 +424,24 @@ class LaporanController extends Controller
             || strpos($compact, 'UJIANAKHIRSEMESTER') !== false;
     }
 
+    private function isUtsTagihanName($name)
+    {
+        $normalized = $this->normalizeTagihanName($name);
+        $compact = $this->compactTagihanName($name);
+
+        return preg_match('/\bUTS\b/', $normalized)
+            || strpos($compact, 'UTSSEMESTER') !== false
+            || strpos($compact, 'UJIANTENGAHSEMESTER') !== false;
+    }
+
     private function matchesPemasukanFixedCategory($tagihanName, $category)
     {
         if (($category['key'] ?? null) === 'uas') {
             return $this->isUasTagihanName($tagihanName);
+        }
+
+        if (($category['key'] ?? null) === 'uts') {
+            return $this->isUtsTagihanName($tagihanName);
         }
 
         $tagihanUpper = strtoupper((string) $tagihanName);
@@ -467,6 +481,7 @@ class LaporanController extends Controller
         $fixedCategories = [
             ['key' => 'registrasi', 'label' => 'REGISTRASI, DAFTAR ULANG & PENDAFTARAN', 'type' => 'fixed', 'search' => ['%REGIST%', '%DAFTAR ULANG%', '%PENDAFTARAN%']],
             ['key' => 'uas', 'label' => 'UAS', 'type' => 'fixed', 'search' => ['%UAS%', '%U A S%', '%U.A.S%', '%UJIAN AKHIR SEMESTER%']],
+            ['key' => 'uts', 'label' => 'UTS', 'type' => 'fixed', 'search' => ['%UTS%', '%U T S%', '%U.T.S%', '%UJIAN TENGAH SEMESTER%']],
             ['key' => 'kkn', 'label' => 'KKN / PPL / PKL', 'type' => 'fixed', 'search' => ['%KKN%', '%PPL%', '%PKL%']],
             ['key' => 'skripsi', 'label' => 'SKRIPSI', 'type' => 'fixed', 'search' => ['%SKRIPSI%']],
             ['key' => 'pmb', 'label' => 'PMB', 'type' => 'fixed', 'search' => ['%PMB%']],
@@ -489,6 +504,10 @@ class LaporanController extends Controller
             ['nama', 'NOT LIKE', '%U A S%'],
             ['nama', 'NOT LIKE', '%U.A.S%'],
             ['nama', 'NOT LIKE', '%UJIAN AKHIR SEMESTER%'],
+            ['nama', 'NOT LIKE', '%UTS%'],
+            ['nama', 'NOT LIKE', '%U T S%'],
+            ['nama', 'NOT LIKE', '%U.T.S%'],
+            ['nama', 'NOT LIKE', '%UJIAN TENGAH SEMESTER%'],
             ['nama', 'NOT LIKE', '%KKN%'],
             ['nama', 'NOT LIKE', '%PPL%'],
             ['nama', 'NOT LIKE', '%PKL%'],
@@ -506,7 +525,7 @@ class LaporanController extends Controller
         ])->get()
             ->unique('nama')
             ->pluck('nama')
-            ->filter(fn($nama) => !$this->isUasTagihanName($nama))
+            ->filter(fn($nama) => !$this->isUasTagihanName($nama) && !$this->isUtsTagihanName($nama))
             ->values()
             ->toArray();
 
@@ -522,7 +541,7 @@ class LaporanController extends Controller
         return $columns;
     }
 
-    private function getPemasukanBulanData($year, $month, $columns, $jp, $prefetchedPayments = null, $pmbData = [], $jenjang = 'sarjana', $jenisPembayaranId = null)
+    private function getPemasukanBulanData($year, $month, $columns, $jp, $prefetchedPayments = null, $pmbData = [], $jenjang = 'sarjana', $jenisPembayaranId = null, $userId = null)
     {
         $daysInMonth = cal_days_in_month(CAL_GREGORIAN, $month, $year);
         $startDate = sprintf('%04d-%02d-01', $year, $month);
@@ -546,6 +565,10 @@ class LaporanController extends Controller
                     ->where('kjpd.jenis_pembayaran_id', $jenisPembayaranId);
             }
 
+            if ($userId) {
+                $paymentsQuery->where('keuangan_pembayaran.user_id', $userId);
+            }
+
             $payments = $paymentsQuery->selectRaw('DATE(keuangan_pembayaran.tanggal) as tgl, kt.nama as tagihan_nama, kt.prodi_id, SUM(keuangan_pembayaran.jumlah) as total_jumlah')
                 ->groupBy(DB::raw('DATE(keuangan_pembayaran.tanggal)'), 'kt.nama', 'kt.prodi_id')
                 ->get();
@@ -555,6 +578,10 @@ class LaporanController extends Controller
 
             if ($jenisPembayaranId) {
                 $spPaymentsQuery->where('keuangan_pembayaran_semester_pendek.jenis_pembayaran_id', $jenisPembayaranId);
+            }
+
+            if ($userId) {
+                $spPaymentsQuery->where('keuangan_pembayaran_semester_pendek.user_id', $userId);
             }
 
             $spPayments = $spPaymentsQuery->selectRaw('DATE(keuangan_pembayaran_semester_pendek.tanggal) as tgl, "SEMESTER PENDEK" as tagihan_nama, NULL as prodi_id, SUM(keuangan_pembayaran_semester_pendek.jumlah) as total_jumlah')
@@ -668,6 +695,7 @@ class LaporanController extends Controller
             $mode = $request->input('mode', 'bulanan'); // 'bulanan' atau 'tahunan'
             $jenjang = $request->input('jenjang', 'sarjana');
             $jenisPembayaranId = $request->input('jenis_pembayaran_id');
+            $userId = $request->input('user_id');
             
             $jenisPembayaranNama = null;
             $jenisPembayaranKategori = null;
@@ -713,25 +741,27 @@ class LaporanController extends Controller
                 $endDate = sprintf('%04d-%02d-%02d', $year, $month, $daysInMonth);
             }
 
-            try {
-                $pmbResponse = \Illuminate\Support\Facades\Http::withHeaders([
-                    'apikey' => $pmbApiKey
-                ])->get($pmbUrl, [
-                    'start_date' => $startDate,
-                    'end_date' => $endDate,
-                    'jenjang' => $jenjang,
-                    'jenis_kelamin' => $jenisPembayaranKategori,
-                    'jenis_pembayaran' => $jenisPembayaranNama,
-                ]);
-                
-                if ($pmbResponse->successful()) {
-                    $pmbResData = $pmbResponse->json();
-                    if (isset($pmbResData['data']) && is_array($pmbResData['data'])) {
-                        $pmbDataAll = $pmbResData['data'];
+            if (!$userId) {
+                try {
+                    $pmbResponse = \Illuminate\Support\Facades\Http::withHeaders([
+                        'apikey' => $pmbApiKey
+                    ])->get($pmbUrl, [
+                        'start_date' => $startDate,
+                        'end_date' => $endDate,
+                        'jenjang' => $jenjang,
+                        'jenis_kelamin' => $jenisPembayaranKategori,
+                        'jenis_pembayaran' => $jenisPembayaranNama,
+                    ]);
+                    
+                    if ($pmbResponse->successful()) {
+                        $pmbResData = $pmbResponse->json();
+                        if (isset($pmbResData['data']) && is_array($pmbResData['data'])) {
+                            $pmbDataAll = $pmbResData['data'];
+                        }
                     }
+                } catch (\Throwable $th) {
+                    // Ignore API error, proceed with empty PMB data
                 }
-            } catch (\Throwable $th) {
-                // Ignore API error, proceed with empty PMB data
             }
 
             if ($mode === 'tahunan') {
@@ -752,6 +782,10 @@ class LaporanController extends Controller
                         ->where('kjpd.jenis_pembayaran_id', $jenisPembayaranId);
                 }
 
+                if ($userId) {
+                    $allPaymentsQuery->where('keuangan_pembayaran.user_id', $userId);
+                }
+
                 $allPayments = $allPaymentsQuery->selectRaw('DATE(keuangan_pembayaran.tanggal) as tgl, kt.nama as tagihan_nama, kt.prodi_id, SUM(keuangan_pembayaran.jumlah) as total_jumlah')
                     ->groupBy(DB::raw('DATE(keuangan_pembayaran.tanggal)'), 'kt.nama', 'kt.prodi_id')
                     ->get();
@@ -761,6 +795,10 @@ class LaporanController extends Controller
 
                 if ($jenisPembayaranId) {
                     $spPaymentsQuery->where('keuangan_pembayaran_semester_pendek.jenis_pembayaran_id', $jenisPembayaranId);
+                }
+
+                if ($userId) {
+                    $spPaymentsQuery->where('keuangan_pembayaran_semester_pendek.user_id', $userId);
                 }
 
                 $spPayments = $spPaymentsQuery->selectRaw('DATE(keuangan_pembayaran_semester_pendek.tanggal) as tgl, "SEMESTER PENDEK" as tagihan_nama, NULL as prodi_id, SUM(keuangan_pembayaran_semester_pendek.jumlah) as total_jumlah')
@@ -791,7 +829,7 @@ class LaporanController extends Controller
                 for ($m = 1; $m <= 12; $m++) {
                     $monthPayments = $paymentsByMonth[$m] ?? [];
                     $monthPmb = $pmbByMonth[$m] ?? [];
-                    $allData[$m] = $this->getPemasukanBulanData($year, $m, $columns, $jp, $monthPayments, $monthPmb, $jenjang, $jenisPembayaranId);
+                    $allData[$m] = $this->getPemasukanBulanData($year, $m, $columns, $jp, $monthPayments, $monthPmb, $jenjang, $jenisPembayaranId, $userId);
                 }
                 
                 $columnHeaders = [];
@@ -814,7 +852,7 @@ class LaporanController extends Controller
                     'jenis_kelamin' => $jp->kategori ?? 'Semua',
                 ]);
             } else {
-                $monthData = $this->getPemasukanBulanData($year, $month, $columns, $jp, null, $pmbDataAll, $jenjang, $jenisPembayaranId);
+                $monthData = $this->getPemasukanBulanData($year, $month, $columns, $jp, null, $pmbDataAll, $jenjang, $jenisPembayaranId, $userId);
                 
                 $columnHeaders = [];
                 foreach ($columns as $col) {
@@ -865,6 +903,7 @@ class LaporanController extends Controller
             $action = $request->input('action', 'json');
             $mode = $request->input('mode', 'bulanan'); // 'bulanan' atau 'tahunan'
             $jenjang = $request->input('jenjang', 'sarjana');
+            $userId = $request->input('user_id');
 
             // Columns setup (Categories)
             $columns = $this->getPemasukanTunaiColumns($jenjang);
@@ -914,24 +953,26 @@ class LaporanController extends Controller
                 $title = "LAPORAN PEMASUKAN " . strtoupper($jenjang === 'sarjana' ? 'S1' : 'PASCASARJANA') . " UII DALWA BULAN " . $bulanNames[$month] . " $year";
             }
 
-            try {
-                $pmbResponse = \Illuminate\Support\Facades\Http::withHeaders([
-                    'apikey' => $pmbApiKey
-                ])->timeout(5)->get($pmbUrl, [
-                    'start_date' => $startDate,
-                    'end_date' => $endDate,
-                    'jenjang' => $jenjang,
-                    'jenis_kelamin' => $jp->kategori ?? '%',
-                ]);
-                
-                if ($pmbResponse->successful()) {
-                    $pmbResData = $pmbResponse->json();
-                    if (isset($pmbResData['data']) && is_array($pmbResData['data'])) {
-                        $pmbDataAll = $pmbResData['data'];
+            if (!$userId) {
+                try {
+                    $pmbResponse = \Illuminate\Support\Facades\Http::withHeaders([
+                        'apikey' => $pmbApiKey
+                    ])->timeout(5)->get($pmbUrl, [
+                        'start_date' => $startDate,
+                        'end_date' => $endDate,
+                        'jenjang' => $jenjang,
+                        'jenis_kelamin' => $jp->kategori ?? '%',
+                    ]);
+                    
+                    if ($pmbResponse->successful()) {
+                        $pmbResData = $pmbResponse->json();
+                        if (isset($pmbResData['data']) && is_array($pmbResData['data'])) {
+                            $pmbDataAll = $pmbResData['data'];
+                        }
                     }
+                } catch (\Throwable $th) {
+                    // Ignore API error, proceed with empty PMB data
                 }
-            } catch (\Throwable $th) {
-                // Ignore API error, proceed with empty PMB data
             }
 
             $bulanNames = [
@@ -955,6 +996,10 @@ class LaporanController extends Controller
                     ->where('p.jenjang', '!=', 'S1');
             }
 
+            if ($userId) {
+                $paymentsQuery->where('keuangan_pembayaran.user_id', $userId);
+            }
+
             if ($mode === 'tahunan') {
                 $payments = $paymentsQuery->selectRaw('kt.nama as tagihan_nama, kt.prodi_id, kjp.nama as jenis_pembayaran_nama, MONTH(keuangan_pembayaran.tanggal) as bulan, SUM(keuangan_pembayaran.jumlah) as total_jumlah')
                     ->groupBy('kt.nama', 'kt.prodi_id', 'kjp.nama', 'bulan')
@@ -968,6 +1013,10 @@ class LaporanController extends Controller
             $spPaymentsQuery = \App\Models\KeuanganPembayaranSemesterPendek::join('keuangan_jenis_pembayaran as kjp', 'kjp.id', '=', 'keuangan_pembayaran_semester_pendek.jenis_pembayaran_id')
                 ->whereBetween('keuangan_pembayaran_semester_pendek.tanggal', [$startDate . ' 00:00:00', $endDate . ' 23:59:59'])
                 ->where('keuangan_pembayaran_semester_pendek.jk_id', 'LIKE', "%$jp->id%");
+
+            if ($userId) {
+                $spPaymentsQuery->where('keuangan_pembayaran_semester_pendek.user_id', $userId);
+            }
 
             if ($mode === 'tahunan') {
                 $spPayments = $spPaymentsQuery->selectRaw('"SEMESTER PENDEK" as tagihan_nama, NULL as prodi_id, kjp.nama as jenis_pembayaran_nama, MONTH(keuangan_pembayaran_semester_pendek.tanggal) as bulan, SUM(keuangan_pembayaran_semester_pendek.jumlah) as total_jumlah')
@@ -1024,14 +1073,9 @@ class LaporanController extends Controller
                     $assignedKey = 'spp_prodi_' . $prodi_id;
                 } else {
                     foreach ($columns as $c) {
-                        if ($c['type'] === 'fixed') {
-                            foreach ($c['search'] as $searchPattern) {
-                                $term = trim(str_replace('%', '', strtoupper($searchPattern)));
-                                if (strpos($namaUpper, $term) !== false) {
-                                    $assignedKey = $c['key'];
-                                    break 2;
-                                }
-                            }
+                        if ($c['type'] === 'fixed' && $this->matchesPemasukanFixedCategory($namaRaw, $c)) {
+                            $assignedKey = $c['key'];
+                            break;
                         }
                     }
                     if (!$assignedKey) {

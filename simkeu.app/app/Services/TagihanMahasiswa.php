@@ -30,6 +30,76 @@ class TagihanMahasiswa
         return (($tahunTagihan - $tahunAngkatan) * 2) + $semesterKode;
     }
 
+    public static function isSkripsiTagihan($tagihan)
+    {
+        return stripos((string) data_get($tagihan, 'nama', ''), 'skripsi') !== false;
+    }
+
+    public static function hasSkripsiTagihan($listTagihan)
+    {
+        foreach ($listTagihan ?: [] as $tagihan) {
+            if (self::isSkripsiTagihan($tagihan)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static function normalizeCekNilai($cekNilai)
+    {
+        if ($cekNilai === null) {
+            return null;
+        }
+
+        if (is_bool($cekNilai)) {
+            return $cekNilai;
+        }
+
+        $normalized = filter_var($cekNilai, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+
+        return $normalized ?? (bool) $cekNilai;
+    }
+
+    public static function resolveCekNilai($nim, $listTagihan, $cekNilai = null)
+    {
+        $normalized = self::normalizeCekNilai($cekNilai);
+
+        if ($normalized !== null) {
+            return $normalized;
+        }
+
+        if (! self::hasSkripsiTagihan($listTagihan)) {
+            return true;
+        }
+
+        $cekNilai = Mahasiswa::cekNilai($nim);
+
+        return (bool) data_get($cekNilai, 'status', false);
+    }
+
+    public static function markPaymentEligibility($listTagihan, $nim, $cekNilai = null)
+    {
+        $listTagihan = $listTagihan ?: [];
+        $nilai = self::resolveCekNilai($nim, $listTagihan, $cekNilai);
+
+        foreach ($listTagihan as &$tagihan) {
+            $tidakBisaDibayar = ! $nilai && self::isSkripsiTagihan($tagihan);
+            $keterangan = $tidakBisaDibayar ? 'SKRIPSI TIDAK BISA DIBAYAR' : null;
+
+            if (is_array($tagihan)) {
+                $tagihan['tidak_bisa_dibayar'] = $tidakBisaDibayar;
+                $tagihan['keterangan_pembayaran'] = $keterangan;
+            } else {
+                $tagihan->tidak_bisa_dibayar = $tidakBisaDibayar;
+                $tagihan->keterangan_pembayaran = $keterangan;
+            }
+        }
+        unset($tagihan);
+
+        return $listTagihan;
+    }
+
     public static function filterTagihanByScope($listTagihan, $scope = 'semua', $semesterMahasiswa = null, $angkatanKode = null)
     {
         $listTagihan = $listTagihan ?: [];

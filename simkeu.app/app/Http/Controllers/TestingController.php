@@ -14,6 +14,19 @@ class TestingController extends Controller
 {
     public function index()
     {
+        $pmbUrl = rtrim(env("pmb_url"), "/") . "/simkeu/pembayaran";
+        $pmbApiKey = env("pmb_api_key");
+        $pmbDataAll = [];
+        $pmbResponse = \Illuminate\Support\Facades\Http::withHeaders([
+            "apikey" => $pmbApiKey,
+        ])->get($pmbUrl, [
+            "start_date" => @$startDate,
+            "end_date" => @$endDate,
+            "jenjang" => @$jenjang,
+            "jenis_kelamin" => @$jenisPembayaranKategori,
+            "jenis_pembayaran" => @$jenisPembayaranNama,
+        ]);
+        dd($pmbResponse->json());
         // $jpModel = \App\Models\KeuanganJenisPembayaran::find(9);
         // if ($jpModel) {
         //     $nama = strtolower(trim($jpModel->nama));
@@ -39,7 +52,6 @@ class TestingController extends Controller
         //     'message' => 'Tanpa cek kelengkapan',
         // ];
 
-
         // if (true) {
         //     if (isset($dataTagihan['list_tagihan'])) {
         //         foreach ($dataTagihan['list_tagihan'] as $tagihan) {
@@ -55,8 +67,7 @@ class TestingController extends Controller
         //     }
         // }
 
-
-        return redirect('/');
+        return redirect("/");
         // return self::fixPembayaran();
         // return Mahasiswa::all(null, 30, '202585330013', 'mst_mhs.nim', 'asc');
         // $m = Mahasiswa::nim('202385200080');
@@ -73,7 +84,6 @@ class TestingController extends Controller
         // $getMahasiswaBySemester = Mahasiswa::getMahasiswaBySemester(24, 6, 8, 1)->data;
         // $mahasiswa = collect($getMahasiswaBySemester->mahasiswa)->pluck('nim')->values();
         // dd($mahasiswa);
-
 
         // $pembayaranTanpaJenisPembayaran = KeuanganPembayaran::leftJoin('keuangan_jenis_pembayaran_detail', 'keuangan_pembayaran.id', '=', 'keuangan_jenis_pembayaran_detail.pembayaran_id')
         //     // ->whereNull('keuangan_jenis_pembayaran_detail.id')
@@ -135,55 +145,68 @@ class TestingController extends Controller
         //     // 'pengeluaran' => $pengeluaran,
         //     // 'pending'     => $pending,
         // ];
-
     }
 
     public static function syncJkId()
     {
         $jkId = [8, 9];
         foreach ($jkId as $item) {
-            $nim = collect(Mahasiswa::all(null, null, null, null, null, [
-                ['mst_mhs.jk_id', '=', $item]
-            ]))
-                ->pluck('nim')        // pastikan jadi list NIM saja
-                ->filter()            // buang null/kosong
+            $nim = collect(
+                Mahasiswa::all(null, null, null, null, null, [
+                    ["mst_mhs.jk_id", "=", $item],
+                ]),
+            )
+                ->pluck("nim") // pastikan jadi list NIM saja
+                ->filter() // buang null/kosong
                 ->unique()
                 ->values();
 
             foreach ($nim->chunk(1000) as $chunk) {
-                KeuanganPembayaran::whereIn('nim', $chunk->all())
-                    ->update(['jk_id' => $item]);
+                KeuanganPembayaran::whereIn("nim", $chunk->all())->update([
+                    "jk_id" => $item,
+                ]);
             }
         }
-        return response()->json(['ok' => true, 'message' => 'Sinkron jk_id selesai (fast join).']);
+        return response()->json([
+            "ok" => true,
+            "message" => "Sinkron jk_id selesai (fast join).",
+        ]);
     }
 
     public static function fixPembayaran()
     {
         try {
             //code...
-            $pembayaran = KeuanganPembayaran::join('keuangan_tagihan', 'keuangan_tagihan.id', '=', 'keuangan_pembayaran.tagihan_id')
-                ->where('keuangan_pembayaran.tanggal', '>=', '2025-10-29')
+            $pembayaran = KeuanganPembayaran::join(
+                "keuangan_tagihan",
+                "keuangan_tagihan.id",
+                "=",
+                "keuangan_pembayaran.tagihan_id",
+            )
+                ->where("keuangan_pembayaran.tanggal", ">=", "2025-10-29")
                 ->where(function ($q) {
-                    $q->where('keuangan_tagihan.nama', 'LIKE', '%daftar ulang%')
-                        ->orWhere('keuangan_tagihan.nama', 'LIKE', '%regist%');
+                    $q->where(
+                        "keuangan_tagihan.nama",
+                        "LIKE",
+                        "%daftar ulang%",
+                    )->orWhere("keuangan_tagihan.nama", "LIKE", "%regist%");
                 })
-                ->select('keuangan_pembayaran.nim')
+                ->select("keuangan_pembayaran.nim")
                 ->distinct()
-                ->pluck('nim');
+                ->pluck("nim");
 
             foreach ($pembayaran as $key => $nim) {
                 Mahasiswa::updateStatusMahasiswa($nim, 18);
             }
             return response()->json([
-                'status' => true,
-                'nim' => $nim
+                "status" => true,
+                "nim" => $nim,
             ]);
         } catch (\Throwable $th) {
             //throw $th;
             return response()->json([
-                'status' => false,
-                'message' => $th->getMessage()
+                "status" => false,
+                "message" => $th->getMessage(),
             ]);
         }
     }
@@ -192,26 +215,26 @@ class TestingController extends Controller
     {
         try {
             // Mengambil URL dan API Key dari .env
-            $url = rtrim(env('pmb_url'), '/') . '/simkeu/pembayaran';
-            $apiKey = env('pmb_api_key');
+            $url = rtrim(env("pmb_url"), "/") . "/simkeu/pembayaran";
+            $apiKey = env("pmb_api_key");
 
             // Melakukan request GET menggunakan HTTP Client Laravel
             $response = \Illuminate\Support\Facades\Http::withHeaders([
-                'apikey' => $apiKey
+                "apikey" => $apiKey,
             ])->get($url, [
-                'start_date' => $request->start_date,
-                'end_date' => $request->end_date,
+                "start_date" => $request->start_date,
+                "end_date" => $request->end_date,
             ]);
 
             return response()->json([
-                'status' => true,
-                'http_code' => $response->status(),
-                'data_dari_pmb' => $response->json()
+                "status" => true,
+                "http_code" => $response->status(),
+                "data_dari_pmb" => $response->json(),
             ]);
         } catch (\Throwable $th) {
             return response()->json([
-                'status' => false,
-                'message' => 'Gagal fetch API: ' . $th->getMessage()
+                "status" => false,
+                "message" => "Gagal fetch API: " . $th->getMessage(),
             ]);
         }
     }
