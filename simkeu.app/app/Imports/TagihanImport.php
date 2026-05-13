@@ -28,14 +28,16 @@ class TagihanImport implements ToModel, WithHeadingRow, SkipsOnFailure, WithEven
     protected $skipCount = 0;
     protected $skipReasons = [];
     protected $updateExisting = false;
+    protected $appendAmountZeros = false;
     protected $currentSemester = null;
     protected $currentSheetName = null;
     protected $sheetNames = [];
 
-    public function __construct(bool $updateExisting = false)
+    public function __construct(bool $updateExisting = false, bool $appendAmountZeros = false)
     {
         $this->userId = Auth::id();
         $this->updateExisting = $updateExisting;
+        $this->appendAmountZeros = $appendAmountZeros;
     }
 
     public function beforeSheet(BeforeSheet $event): void
@@ -83,6 +85,9 @@ class TagihanImport implements ToModel, WithHeadingRow, SkipsOnFailure, WithEven
         $jumlah = $this->normalizeAmount($jumlahRaw);
         if ($jumlah === null) {
             return $this->skipRow("Jumlah tagihan untuk '$namaTagihan' tidak valid");
+        }
+        if ($this->appendAmountZeros) {
+            $jumlah *= 1000;
         }
 
         if (!preg_match('/^\d{4}$/', $tahunAngkatan)) {
@@ -140,7 +145,15 @@ class TagihanImport implements ToModel, WithHeadingRow, SkipsOnFailure, WithEven
             'th_angkatan_id' => $thAngkatan->id,
             'prodi_id'       => $prodi->id,
             'nama'           => $namaTagihan,
-        ]);
+        ])->where(function ($query) use ($doubleDegree) {
+            if ($doubleDegree === 1) {
+                $query->where('double_degree', 1);
+                return;
+            }
+
+            $query->where('double_degree', 0)
+                ->orWhereNull('double_degree');
+        });
 
         $existing = $existingQuery->first();
 

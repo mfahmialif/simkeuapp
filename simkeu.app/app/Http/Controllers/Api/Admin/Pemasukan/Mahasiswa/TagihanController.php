@@ -269,8 +269,9 @@ class TagihanController extends Controller
     public function import(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'file'            => 'required|mimes:xlsx,xls,csv|max:10240',
-            'update_existing' => 'nullable|boolean',
+            'file'                => 'required|mimes:xlsx,xls,csv|max:10240',
+            'update_existing'     => 'nullable|boolean',
+            'append_amount_zeros' => 'nullable|boolean',
         ]);
 
         if ($validator->fails()) {
@@ -281,7 +282,10 @@ class TagihanController extends Controller
         }
 
         try {
-            $import = new TagihanImport($request->boolean('update_existing'));
+            $import = new TagihanImport(
+                $request->boolean('update_existing'),
+                $request->boolean('append_amount_zeros')
+            );
             Excel::import($import, $request->file('file'));
 
             $failures = $import->failures();
