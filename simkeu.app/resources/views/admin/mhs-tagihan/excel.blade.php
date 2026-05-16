@@ -61,53 +61,81 @@
     </thead>
     <tbody>
         @php
-            $total = 0;
+            $grandTotal = 0;
+            $groups = $groups ?? [
+                [
+                    'title' => 'TAGIHAN',
+                    'items' => $data ?? [],
+                ],
+            ];
         @endphp
-        @if ($status)
+        @foreach ($groups as $group)
             @php
-                $i = 1;
+                $groupTotal = 0;
+                $items = $group['items'] ?? [];
             @endphp
-            @foreach ($data as $t)
+            <tr>
+                <td colspan="5" style="font-weight:bold;height:25px;border-bottom:2px solid #000">
+                    {{ $group['title'] }}
+                </td>
+            </tr>
+            @if ($items)
                 @php
-                    $dibayar = $t->dibayar > 0 ? " (dibayar Rp. $t->dibayar)" : '';
-                    $dispensasi = $t->status_dispensasi && $t->jenis_dispensasi != "Beasiswa"
-                        ? " (dispensasi ($t->jenis_dispensasi) Rp. $t->jumlah_dispensasi)"
-                        : '';
-                    $status = $t->sisa > 0 ? 'BELUM LUNAS' : 'LUNAS';
-                    $keterangan = $status . $dibayar . $dispensasi;
-                    if (!empty($t->tidak_bisa_dibayar)) {
-                        $keterangan .= ' - ' . $t->keterangan_pembayaran;
-                    }
-                    $subTotal = $t->sisa;
-
+                    $i = 1;
                 @endphp
+                @foreach ($items as $t)
+                    @php
+                        $dibayar = $t->dibayar > 0 ? " (dibayar Rp. $t->dibayar)" : '';
+                        $dispensasi = $t->status_dispensasi && $t->jenis_dispensasi != "Beasiswa"
+                            ? " (dispensasi ($t->jenis_dispensasi) Rp. $t->jumlah_dispensasi)"
+                            : '';
+                        $status = $t->sisa > 0 ? 'BELUM LUNAS' : 'LUNAS';
+                        $keterangan = $status . $dibayar . $dispensasi;
+                        if (!empty($t->tidak_bisa_dibayar)) {
+                            $keterangan .= ' - ' . $t->keterangan_pembayaran;
+                        }
+                        $subTotal = $t->sisa;
+                    @endphp
+                    <tr>
+                        <td style="vertical-align: middle;height:40px;text-align:center;border-bottom:2px solid #000">
+                            {{ $i++ }}</td>
+                        <td
+                            style="vertical-align: middle;height:40px;width:300px;text-align:center;border-bottom:2px solid #000">
+                            {{ $t->nama }}</td>
+                        <td
+                            style="vertical-align: middle;height:40px;width:300px;text-align:center;border-bottom:2px solid #000">
+                            {{ $keterangan }}</td>
+                        <td colspan="2"
+                            style="vertical-align: middle;height:40px;text-align:right;border-bottom:2px solid #000">
+                            {{ $subTotal }}</td>
+                    </tr>
+                    @php
+                        $groupTotal += $subTotal;
+                    @endphp
+                @endforeach
+            @else
                 <tr>
-                    <td style="vertical-align: middle;height:40px;text-align:center;border-bottom:2px solid #000">
-                        {{ $i++ }}</td>
-                    <td
-                        style="vertical-align: middle;height:40px;width:300px;text-align:center;border-bottom:2px solid #000">
-                        {{ $t->nama }}</td>
-                    <td
-                        style="vertical-align: middle;height:40px;width:300px;text-align:center;border-bottom:2px solid #000">
-                        {{ $keterangan }}</td>
-                    <td colspan="2"
-                        style="vertical-align: middle;height:40px;text-align:right;border-bottom:2px solid #000">
-                        {{ $subTotal }}</td>
+                    <td colspan="5" style="vertical-align: middle;height:40px;text-align:center;border-bottom:2px solid #000">
+                        Tidak ada tagihan.</td>
                 </tr>
-                @php
-
-                    $total += $subTotal;
-
-                @endphp
-            @endforeach
-        @endif
-        {{-- Hitung Total Keseluruhan --}}
+            @endif
+            @php
+                $grandTotal += $groupTotal;
+            @endphp
+            <tr>
+                <td colspan="3"
+                    style="font-weight:bold;vertical-align: middle;height:20px;text-align:right;border-bottom:2px solid #000">
+                    Total {{ ucwords(strtolower($group['title'])) }}</td>
+                <td colspan="2" style="vertical-align: middle;height:20px;text-align:right;border-bottom:2px solid #000">
+                    Rp. {{ number_format($groupTotal, '0', ',', '.') }}</td>
+            </tr>
+        @endforeach
         <tr>
             <td colspan="3"
                 style="font-weight:bold;vertical-align: middle;height:20px;text-align:right;border-bottom:2px solid #000">
                 Total Keseluruhan</td>
             <td colspan="2" style="vertical-align: middle;height:20px;text-align:right;border-bottom:2px solid #000">
-                Rp. {{ number_format($total, '0', ',', '.') }}</td>
+                Rp. {{ number_format($grandTotal, '0', ',', '.') }}</td>
         </tr>
     </tbody>
 </table>

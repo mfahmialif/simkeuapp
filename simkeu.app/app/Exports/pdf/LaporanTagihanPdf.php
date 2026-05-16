@@ -21,16 +21,16 @@ class LaporanTagihanPdf
         $fpdf->addPage();
 
         $tagihan = TagihanMahasiswa::tagihan($data['nim']);
-        $tagihan['list_tagihan'] = TagihanMahasiswa::filterTagihanByScope(
+        $tagihan['list_tagihan'] = TagihanMahasiswa::markPaymentEligibility(
             $tagihan['list_tagihan'] ?? [],
+            $data['nim'],
+            $data['cek_nilai'] ?? null
+        );
+        $tagihan['tagihan_groups'] = TagihanMahasiswa::getTagihanGroupsForScope(
+            $tagihan['list_tagihan'],
             $data['scope'] ?? 'semua',
             $tagihan['semester'] ?? null,
             $tagihan['angkatan'] ?? null
-        );
-        $tagihan['list_tagihan'] = TagihanMahasiswa::markPaymentEligibility(
-            $tagihan['list_tagihan'],
-            $data['nim'],
-            $data['cek_nilai'] ?? null
         );
 
         self::header($data, $fpdf);
@@ -101,73 +101,86 @@ class LaporanTagihanPdf
 
     public static function body($data, $fpdf, $tagihan)
     {
-        // Table
-        $fpdf->SetFont('Arial', '', 9.5);
-        $fpdf->Cell(0, 7, "", 0, 1, 'L');
-        $fpdf->Cell(10, 7, "No.", 1, 0, 'C');
-        $fpdf->Cell(50, 7, "Jenis Pembayaran", 1, 0, 'C');
-        $fpdf->Cell(90, 7, "Keterangan", 1, 0, 'C');
-        $fpdf->Cell(40, 7, "Sub Total(Rp)", 1, 1, 'C');
-
-        $data = $tagihan['list_tagihan'];
-
         $total = 0;
-        if ($data) {
-            $i = 1;
-            foreach ($data as $key => $t) {
-                $dibayar = $t->dibayar > 0 ? " (dibayar Rp. $t->dibayar)" : '';
-                $dispensasi = $t->status_dispensasi && $t->jenis_dispensasi != "Beasiswa" ? " (dispensasi ($t->jenis_dispensasi) Rp. $t->jumlah_dispensasi)" : '';
-                $status = $t->sisa > 0 ? 'BELUM LUNAS' : 'LUNAS';
-                $keterangan = $status . $dibayar . $dispensasi;
-                if (! empty($t->tidak_bisa_dibayar)) {
-                    $keterangan .= ' - ' . $t->keterangan_pembayaran;
+        $groups = $tagihan['tagihan_groups'] ?? [[
+            'title' => 'TAGIHAN',
+            'items' => $tagihan['list_tagihan'] ?? [],
+        ]];
+
+        foreach ($groups as $group) {
+            $groupTotal = 0;
+            $items = $group['items'] ?? [];
+
+            $fpdf->SetFont('Arial', 'B', 9.5);
+            $fpdf->Cell(0, 7, "", 0, 1, 'L');
+            $fpdf->Cell(190, 7, $group['title'], 0, 1, 'L');
+
+            $fpdf->SetFont('Arial', '', 9.5);
+            $fpdf->Cell(10, 7, "No.", 1, 0, 'C');
+            $fpdf->Cell(50, 7, "Jenis Pembayaran", 1, 0, 'C');
+            $fpdf->Cell(90, 7, "Keterangan", 1, 0, 'C');
+            $fpdf->Cell(40, 7, "Sub Total(Rp)", 1, 1, 'C');
+
+            if ($items) {
+                $i = 1;
+                foreach ($items as $t) {
+                    $dibayar = $t->dibayar > 0 ? " (dibayar Rp. $t->dibayar)" : '';
+                    $dispensasi = $t->status_dispensasi && $t->jenis_dispensasi != "Beasiswa" ? " (dispensasi ($t->jenis_dispensasi) Rp. $t->jumlah_dispensasi)" : '';
+                    $status = $t->sisa > 0 ? 'BELUM LUNAS' : 'LUNAS';
+                    $keterangan = $status . $dibayar . $dispensasi;
+                    if (! empty($t->tidak_bisa_dibayar)) {
+                        $keterangan .= ' - ' . $t->keterangan_pembayaran;
+                    }
+                    $subTotal = $t->sisa;
+
+                    $posY = $fpdf->getY();
+                    $posX = $fpdf->getX();
+
+                    $offset = [
+                        'no' => floor(strlen($i) / 3),
+                        'jenisPembayaran' => floor(strlen($t->nama) / 24),
+                        'keterangan' => floor(strlen($keterangan) / 42),
+                        'subTotal' => floor(strlen($subTotal) / 18),
+                    ];
+                    $max = max($offset);
+                    $offset = [
+                        'no' => str_repeat("\n", $max - $offset['no'] + 1),
+                        'jenisPembayaran' => str_repeat("\n", $max - $offset['jenisPembayaran'] + 1),
+                        'keterangan' => str_repeat("\n", $max - $offset['keterangan'] + 1),
+                        'subTotal' => str_repeat("\n", $max - $offset['subTotal'] + 1),
+                    ];
+
+                    $fpdf->setXY($posX, $posY);
+                    $fpdf->MultiCell(10, 7, $i . $offset['no'], 1, 'C', 0);
+                    $posX += 10;
+                    $fpdf->setXY($posX, $posY);
+                    $fpdf->MultiCell(50, 7, $t->nama . $offset['jenisPembayaran'], 1, 'L', 0);
+                    $posX += 50;
+                    $fpdf->setXY($posX, $posY);
+                    $fpdf->MultiCell(90, 7, $keterangan . $offset['keterangan'], 1, 'L', 0);
+                    $posX += 90;
+                    $fpdf->setXY($posX, $posY);
+                    $fpdf->MultiCell(40, 7, $subTotal . $offset['subTotal'], 1, 'R', 0);
+
+                    $i++;
+                    $groupTotal += $subTotal;
+
+                    if ($posY > 230) {
+                        $fpdf->AddPage();
+                    }
                 }
-                $subTotal = $t->sisa;
-
-                $offset = 0;
-                $posY = $fpdf->getY();
-                $posX = $fpdf->getX();
-
-                // set how much line space and get higher (max) line space
-                $offset = [
-                    'no' => floor(strlen($i) / 3),
-                    'jenisPembayaran' => floor(strlen($t->nama) / 24),
-                    'keterangan' => floor(strlen($keterangan) / 42),
-                    'subTotal' => floor(strlen($subTotal) / 18),
-                ];
-                $max = max($offset);
-                // add line space (\n) depend on $max - offset
-                $offset = [
-                    'no' => str_repeat("\n", $max - $offset['no'] + 1),
-                    'jenisPembayaran' => str_repeat("\n", $max - $offset['jenisPembayaran'] + 1),
-                    'keterangan' => str_repeat("\n", $max - $offset['keterangan'] + 1),
-                    'subTotal' => str_repeat("\n", $max - $offset['subTotal'] + 1),
-                ];
-
-                $fpdf->setXY($posX, $posY);
-                $fpdf->MultiCell(10, 7, $i . $offset['no'], 1, 'C', 0);
-                $posX += 10;
-                $fpdf->setXY($posX, $posY);
-                $fpdf->MultiCell(50, 7, $t->nama . $offset['jenisPembayaran'], 1, 'L', 0);
-                $posX += 50;
-                $fpdf->setXY($posX, $posY);
-                $fpdf->MultiCell(90, 7, $keterangan . $offset['keterangan'], 1, 'L', 0);
-                $posX += 90;
-                $fpdf->setXY($posX, $posY);
-                $fpdf->MultiCell(40, 7, $subTotal . $offset['subTotal'], 1, 'R', 0);
-
-                $i++;
-
-                $total += $subTotal;
-
-                if ($posY > 230) {
-                    $fpdf->AddPage();
-                }
+            } else {
+                $fpdf->Cell(190, 7, "Tidak ada tagihan.", 1, 1, 'C');
             }
+
+            $total += $groupTotal;
+            $fpdf->SetFont('Arial', '', 9.5);
+            $fpdf->Cell(150, 7, "Total " . ucwords(strtolower($group['title'])) . " :", 1, 0, 'R');
+            $fpdf->Cell(40, 7, "Rp. " . number_format($groupTotal, 0, ',', '.'), 1, 1, 'R');
         }
-        // Total
+
         $fpdf->SetFont('Arial', '', 9.5);
-        $fpdf->Cell(150, 7, "Total :", 1, 0, 'R');
+        $fpdf->Cell(150, 7, "Total Keseluruhan :", 1, 0, 'R');
         $fpdf->Cell(40, 7, "Rp. " . number_format($total, 0, ',', '.'), 1, 1, 'R');
         $terbilang = Helper::terbilang($total);
         if ($terbilang == "") {

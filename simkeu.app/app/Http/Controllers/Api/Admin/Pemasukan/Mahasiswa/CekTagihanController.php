@@ -68,6 +68,14 @@ class CekTagihanController extends Controller
                 $validate['nim'],
                 $nilai
             );
+
+            $tagihanGroups = TagihanMahasiswa::splitTagihanBySemester(
+                $data['list_tagihan'],
+                $data['semester'] ?? null,
+                $data['angkatan'] ?? null
+            );
+            $data['list_tagihan_semester_ini'] = $tagihanGroups['semester_ini'];
+            $data['list_tagihan_semester_depan'] = $tagihanGroups['semester_depan'];
         }
 
         return response()->json([
@@ -135,7 +143,7 @@ class CekTagihanController extends Controller
                 'nama' => 'required',
                 'tahun_akademik' => 'required',
                 'deposit' => 'nullable',
-                'scope' => 'nullable|in:semester_ini,semua',
+                'scope' => 'nullable|in:semester_ini,semester_depan,semua',
                 'cek_nilai' => 'nullable|boolean',
             ]);
 
@@ -163,7 +171,7 @@ class CekTagihanController extends Controller
                 'nama' => 'nullable',
                 'tahun_akademik' => 'nullable',
                 'deposit' => 'nullable',
-                'scope' => 'nullable|in:semester_ini,semua',
+                'scope' => 'nullable|in:semester_ini,semester_depan,semua',
                 'cek_nilai' => 'nullable|boolean',
             ]);
 

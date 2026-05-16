@@ -11,9 +11,13 @@ use App\Models\KeuanganDispensasiTagihan;
 
 class TagihanMahasiswa
 {
-    private static function getSemesterMahasiswaTagihan($tagihan, $angkatanKode)
+    public static function getSemesterTagihan($tagihan, $angkatanKode)
     {
-        $kodeTahunAkademik = (string) data_get($tagihan, 'th_akademik_kode', '');
+        $kodeTahunAkademik = (string) (
+            data_get($tagihan, 'th_akademik_kode')
+            ?: data_get($tagihan, 'th_akademik.kode')
+            ?: ''
+        );
         $tahunAngkatan = (int) substr((string) $angkatanKode, 0, 4);
 
         if (! $tahunAngkatan || ! preg_match('/^\d{5}$/', $kodeTahunAkademik)) {
@@ -28,6 +32,67 @@ class TagihanMahasiswa
         }
 
         return (($tahunTagihan - $tahunAngkatan) * 2) + $semesterKode;
+    }
+
+    public static function splitTagihanBySemester($listTagihan, $semesterMahasiswa = null, $angkatanKode = null)
+    {
+        $semesterMahasiswa = (int) $semesterMahasiswa;
+        $groups = [
+            'semester_ini' => [],
+            'semester_depan' => [],
+        ];
+
+        foreach ($listTagihan ?: [] as $tagihan) {
+            $semesterTagihan = self::getSemesterTagihan($tagihan, $angkatanKode);
+
+            if (is_array($tagihan)) {
+                $tagihan['semester_tagihan'] = $semesterTagihan;
+            } else {
+                $tagihan->semester_tagihan = $semesterTagihan;
+            }
+
+            if ($semesterMahasiswa > 0 && $semesterTagihan && $semesterTagihan > $semesterMahasiswa) {
+                $groups['semester_depan'][] = $tagihan;
+            } else {
+                $groups['semester_ini'][] = $tagihan;
+            }
+        }
+
+        return $groups;
+    }
+
+    public static function sumTagihan($listTagihan)
+    {
+        return array_reduce($listTagihan ?: [], function ($total, $tagihan) {
+            return $total + (float) data_get($tagihan, 'sisa', 0);
+        }, 0);
+    }
+
+    public static function getTagihanGroupsForScope($listTagihan, $scope = 'semua', $semesterMahasiswa = null, $angkatanKode = null)
+    {
+        $groups = self::splitTagihanBySemester($listTagihan, $semesterMahasiswa, $angkatanKode);
+        $semesterMahasiswa = (int) $semesterMahasiswa;
+        $labels = [
+            'semester_ini' => $semesterMahasiswa > 0
+                ? "TAGIHAN SEMESTER INI (S/D SEMESTER {$semesterMahasiswa})"
+                : 'TAGIHAN SEMESTER INI',
+            'semester_depan' => $semesterMahasiswa > 0
+                ? "TAGIHAN SEMESTER DEPAN (> SEMESTER {$semesterMahasiswa})"
+                : 'TAGIHAN SEMESTER DEPAN',
+        ];
+
+        $keys = in_array($scope, ['semester_ini', 'semester_depan'], true)
+            ? [$scope]
+            : ['semester_ini', 'semester_depan'];
+
+        return array_map(function ($key) use ($groups, $labels) {
+            return [
+                'key' => $key,
+                'title' => $labels[$key],
+                'items' => $groups[$key],
+                'total' => self::sumTagihan($groups[$key]),
+            ];
+        }, $keys);
     }
 
     public static function isSkripsiTagihan($tagihan)
@@ -104,21 +169,13 @@ class TagihanMahasiswa
     {
         $listTagihan = $listTagihan ?: [];
 
-        if ($scope !== 'semester_ini') {
+        if (! in_array($scope, ['semester_ini', 'semester_depan'], true)) {
             return $listTagihan;
         }
 
-        $semesterMahasiswa = (int) $semesterMahasiswa;
+        $groups = self::splitTagihanBySemester($listTagihan, $semesterMahasiswa, $angkatanKode);
 
-        if ($semesterMahasiswa <= 0) {
-            return $listTagihan;
-        }
-
-        return array_values(array_filter($listTagihan, function ($tagihan) use ($semesterMahasiswa, $angkatanKode) {
-            $semesterTagihan = self::getSemesterMahasiswaTagihan($tagihan, $angkatanKode);
-
-            return ! $semesterTagihan || $semesterTagihan <= $semesterMahasiswa;
-        }));
+        return $groups[$scope];
     }
 
     public static function getSisaTagihan($nim, $tagihan_id)
@@ -202,6 +259,7 @@ class TagihanMahasiswa
                     $row->tahun_akademik   = $thAkademik->nama;
                     $row->semester         = $thAkademik->semester;
                     $row->th_akademik_kode = $thAkademik->kode;
+                    $row->semester_tagihan = self::getSemesterTagihan($row, $mhs->th_akademik->kode);
 
                     $row->status_dispensasi = $statusDispensasi;
                     $row->batas_dispensasi  = $batasDispensasi;
@@ -211,11 +269,14 @@ class TagihanMahasiswa
                     $listTagihan[] = $row;
                 }
             }
+            $tagihanGroups = self::splitTagihanBySemester($listTagihan, @$mhs->semester, @$mhs->th_akademik->kode);
             $return = [
                 'nama_mhs'     => $mhs->nama,
                 'nama_prodi'   => $mhs->prodi_double_degree_id ? $mhs->prodi_double_degree->nama . ' - Double Degree' : $mhs->prodi->nama,
                 'nama_kelas'   => @$mhs->kelas->nama,
                 'list_tagihan' => $listTagihan,
+                'list_tagihan_semester_ini' => $tagihanGroups['semester_ini'],
+                'list_tagihan_semester_depan' => $tagihanGroups['semester_depan'],
                 'angkatan'     => @$mhs->th_akademik->kode,
                 'semester'     => @$mhs->semester,
             ];

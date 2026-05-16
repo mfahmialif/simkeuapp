@@ -39,16 +39,16 @@ class LaporanTagihanExport implements FromView
         $tahun_akademik = $this->tahun_akademik;
         $deposit = $this->deposit;
         $tagihan = TagihanMahasiswa::tagihan($nim);
-        $data = TagihanMahasiswa::filterTagihanByScope(
-            $tagihan['list_tagihan'] ?? [],
+        $data = TagihanMahasiswa::markPaymentEligibility($tagihan['list_tagihan'] ?? [], $nim, $this->cekNilai);
+        $groups = TagihanMahasiswa::getTagihanGroupsForScope(
+            $data,
             $this->scope,
             $tagihan['semester'] ?? null,
             $tagihan['angkatan'] ?? null
         );
-        $data = TagihanMahasiswa::markPaymentEligibility($data, $nim, $this->cekNilai);
         $status = $data ? true : false;
 
         // mengambil nama prodi saja
-        return view('admin.mhs-tagihan.excel', compact('data', 'tanggal', 'nim', 'prodi', 'nama', 'tahun_akademik', 'status', 'deposit'));
+        return view('admin.mhs-tagihan.excel', compact('data', 'groups', 'tanggal', 'nim', 'prodi', 'nama', 'tahun_akademik', 'status', 'deposit'));
     }
 }
