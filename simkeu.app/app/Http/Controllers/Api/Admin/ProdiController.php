@@ -37,7 +37,27 @@ class ProdiController extends Controller
         $query->orderBy($sortKey, $sortOrder);
 
         // PAGINATION
-        $data = $query->paginate((int) $request->get('limit', 10));
+        $limit = (int) $request->get('limit', 10);
+        if ($limit === 0) {
+            $items = $query->get();
+            $data  = [
+                'current_page' => 1,
+                'data'         => $items,
+                'first_page_url' => null,
+                'from'         => $items->isEmpty() ? null : 1,
+                'last_page'    => 1,
+                'last_page_url' => null,
+                'links'        => [],
+                'next_page_url' => null,
+                'path'         => $request->url(),
+                'per_page'     => $items->count(),
+                'prev_page_url' => null,
+                'to'           => $items->count(),
+                'total'        => $items->count(),
+            ];
+        } else {
+            $data = $query->paginate($limit);
+        }
 
         return response()->json([
             'status'  => true,

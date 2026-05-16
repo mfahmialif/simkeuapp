@@ -14,6 +14,9 @@ use App\Models\KeuanganJenisPembayaran;
 
 class SemesterPendekController extends Controller
 {
+    private const JENIS_PEMBAYARAN_SAMAHAH_DHOMIN = 'samahah_dhomin';
+    private const LABEL_SAMAHAH_DHOMIN = 'Samahah/Dhomin';
+
     public function index(Request $request)
     {
         $limit = $request->limit ?? 10;
@@ -216,6 +219,18 @@ class SemesterPendekController extends Controller
             DB::beginTransaction();
 
             $tanggal = Carbon::now()->format('Y-m-d H:i:s');
+            $jenisPembayaranId = $this->resolveJenisPembayaranId($request);
+            $jumlahPembayaran = (float) $request->jumlah;
+            $targetPembayaranKrs = null;
+
+            if ($this->isSamahahDhomin($request)) {
+                [$jumlahPembayaran, $targetPembayaranKrs] = $this->resolveJumlahLunasKrs(
+                    $request->krs_id,
+                    null,
+                    $jumlahPembayaran
+                );
+            }
+
             // Generate nota dari tabel semester pendek
             $nomor = Helper::generateNotaSp($tanggal, $request->jk_id);
             $nomor = 'SP-' . $nomor;
@@ -223,23 +238,23 @@ class SemesterPendekController extends Controller
             $pembayaranId = null;
 
             // Insert pembayaran biasa (jika jumlah > 0)
-            if ($request->jumlah > 0) {
+            if ($jumlahPembayaran > 0) {
                 $pembayaran = KeuanganPembayaranSemesterPendek::create([
                     'nomor' => $nomor,
                     'tanggal' => $tanggal,
                     'th_akademik_id' => $request->th_akademik_id,
                     'periode_id' => $request->periode_id,
                     'krs_id' => $request->krs_id,
-                    'jumlah' => $request->jumlah,
+                    'jumlah' => $jumlahPembayaran,
                     'jk_id' => $request->jk_id,
                     'user_id' => \Auth::user()->id ?? 1,
-                    'jenis_pembayaran_id' => $request->jenis_pembayaran_id,
+                    'jenis_pembayaran_id' => $jenisPembayaranId,
                 ]);
                 $pembayaranId = $pembayaran->id;
             }
 
             // Insert deposit record (jika deposit > 0)
-            $depositAmount = $request->input('deposit', 0);
+            $depositAmount = $this->isSamahahDhomin($request) ? 0 : $request->input('deposit', 0);
             if ($depositAmount > 0) {
                 // Auto-detect jenis pembayaran deposit
                 $jk = Helper::getJenisKelaminUser();
@@ -286,7 +301,7 @@ class SemesterPendekController extends Controller
             $totalSudahBayar = KeuanganPembayaranSemesterPendek::where('krs_id', $request->krs_id)->sum('jumlah');
 
             // Update ke SIAKAD
-            SemesterPendek::updatePembayaranKrs($request->krs_id, $totalSudahBayar);
+            SemesterPendek::updatePembayaranKrs($request->krs_id, $targetPembayaranKrs ?? $totalSudahBayar);
 
             DB::commit();
 
@@ -328,7 +343,7 @@ class SemesterPendekController extends Controller
     public function update(Request $request, $id)
     {
         $request->validate([
-            'jumlah' => 'required|numeric|min:1',
+            'jumlah' => 'required|numeric|min:0',
             'jenis_pembayaran_id' => 'required'
         ]);
 
@@ -336,10 +351,21 @@ class SemesterPendekController extends Controller
             DB::beginTransaction();
 
             $pembayaran = KeuanganPembayaranSemesterPendek::findOrFail($id);
+            $jenisPembayaranId = $this->resolveJenisPembayaranId($request);
+            $jumlahPembayaran = (float) $request->jumlah;
+            $targetPembayaranKrs = null;
+
+            if ($this->isSamahahDhomin($request)) {
+                [$jumlahPembayaran, $targetPembayaranKrs] = $this->resolveJumlahLunasKrs(
+                    $pembayaran->krs_id,
+                    $pembayaran->id,
+                    $jumlahPembayaran
+                );
+            }
             
             $updateData = [
-                'jumlah' => $request->jumlah,
-                'jenis_pembayaran_id' => $request->jenis_pembayaran_id,
+                'jumlah' => $jumlahPembayaran,
+                'jenis_pembayaran_id' => $jenisPembayaranId,
             ];
 
             // Update tanggal if provided
@@ -353,7 +379,7 @@ class SemesterPendekController extends Controller
             $totalSudahBayar = KeuanganPembayaranSemesterPendek::where('krs_id', $pembayaran->krs_id)->sum('jumlah');
 
             // Update ke SIAKAD
-            SemesterPendek::updatePembayaranKrs($pembayaran->krs_id, $totalSudahBayar);
+            SemesterPendek::updatePembayaranKrs($pembayaran->krs_id, $targetPembayaranKrs ?? $totalSudahBayar);
 
             DB::commit();
 
@@ -405,5 +431,46 @@ class SemesterPendekController extends Controller
     {
         $pembayaran = KeuanganPembayaranSemesterPendek::with(['user', 'jenisPembayaran'])->findOrFail($id);
         return KwitansiSemesterPendekPdf::pdf($pembayaran);
+    }
+
+    private function isSamahahDhomin(Request $request): bool
+    {
+        return $request->input('jenis_pembayaran_static') === self::JENIS_PEMBAYARAN_SAMAHAH_DHOMIN
+            || $request->input('jenis_pembayaran_id') === self::JENIS_PEMBAYARAN_SAMAHAH_DHOMIN;
+    }
+
+    private function resolveJenisPembayaranId(Request $request): int|string
+    {
+        if (! $this->isSamahahDhomin($request)) {
+            return $request->jenis_pembayaran_id;
+        }
+
+        $kategori = Helper::getJenisKelaminUser()->kategori;
+        $jenisPembayaran = KeuanganJenisPembayaran::firstOrCreate(
+            [
+                'nama' => self::LABEL_SAMAHAH_DHOMIN,
+                'kategori' => $kategori,
+            ],
+            [
+                'keterangan' => 'Jenis pembayaran statis Semester Pendek',
+            ]
+        );
+
+        return $jenisPembayaran->id;
+    }
+
+    private function resolveJumlahLunasKrs($krsId, $excludePembayaranId = null, $fallbackJumlah = 0): array
+    {
+        $krsData = SemesterPendek::krsDetail($krsId);
+        $target = (float) ($krsData->total_pembayaran ?? 0);
+        if ($target <= 0) {
+            $target = (float) $fallbackJumlah;
+        }
+
+        $sudahBayar = KeuanganPembayaranSemesterPendek::where('krs_id', $krsId)
+            ->when($excludePembayaranId, fn ($query) => $query->where('id', '!=', $excludePembayaranId))
+            ->sum('jumlah');
+
+        return [max(0, $target - $sudahBayar), $target];
     }
 }
