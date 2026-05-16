@@ -28,7 +28,7 @@ class LaporanTagihanPdf
         );
         $tagihan['tagihan_groups'] = TagihanMahasiswa::getTagihanGroupsForScope(
             $tagihan['list_tagihan'],
-            $data['scope'] ?? 'semua',
+            'semester_ini',
             $tagihan['semester'] ?? null,
             $tagihan['angkatan'] ?? null
         );

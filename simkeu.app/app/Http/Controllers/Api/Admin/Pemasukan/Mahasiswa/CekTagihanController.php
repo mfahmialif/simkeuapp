@@ -147,6 +147,8 @@ class CekTagihanController extends Controller
                 'cek_nilai' => 'nullable|boolean',
             ]);
 
+            $dataValidated['scope'] = 'semester_ini';
+
             return LaporanTagihanPdf::pdf($dataValidated);
         } catch (\Illuminate\Validation\ValidationException $e) {
             return response()->json([
@@ -181,7 +183,7 @@ class CekTagihanController extends Controller
                 $dataValidated['nama'],
                 $dataValidated['tahun_akademik'],
                 $dataValidated['deposit'],
-                $dataValidated['scope'] ?? 'semua',
+                'semester_ini',
                 $dataValidated['cek_nilai'] ?? null
             ), 'Cek Tagihan.xlsx');
         } catch (\Illuminate\Validation\ValidationException $e) {

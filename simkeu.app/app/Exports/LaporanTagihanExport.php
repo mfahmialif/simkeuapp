@@ -42,7 +42,7 @@ class LaporanTagihanExport implements FromView
         $data = TagihanMahasiswa::markPaymentEligibility($tagihan['list_tagihan'] ?? [], $nim, $this->cekNilai);
         $groups = TagihanMahasiswa::getTagihanGroupsForScope(
             $data,
-            $this->scope,
+            'semester_ini',
             $tagihan['semester'] ?? null,
             $tagihan['angkatan'] ?? null
         );
