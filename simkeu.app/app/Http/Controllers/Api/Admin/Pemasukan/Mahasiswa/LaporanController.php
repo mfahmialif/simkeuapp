@@ -16,6 +16,8 @@ use Maatwebsite\Excel\Facades\Excel;
 use App\Exports\pdf\LaporanHarianPdf;
 use App\Exports\pdf\LaporanBulananPdf;
 use App\Exports\pdf\LaporanTahunanPdf;
+use App\Exports\pdf\LaporanHarianDetailPdf;
+use App\Exports\LaporanHarianDetailExport;
 use App\Exports\PembayaranHarianExport;
 use App\Exports\PembayaranBulananExport;
 use App\Exports\PembayaranTahunanExport;
@@ -23,6 +25,7 @@ use App\Exports\LaporanJumlahMahasiswaExport;
 use App\Exports\PembayaranTotalanHarianExport;
 use App\Models\KeuanganTagihan;
 use App\Services\Helper;
+use App\Services\SemesterPendek;
 use App\Exports\PemasukanTunaiHarianBulananExport;
 use App\Exports\PemasukanTunaiHarianTahunanExport;
 
@@ -775,6 +778,40 @@ class LaporanController extends Controller
         return $columns;
     }
 
+    private function filterSemesterPendekPaymentsByJenjang($payments, $jenjang)
+    {
+        $payments = collect($payments);
+        $krsIds = $payments
+            ->pluck("krs_id")
+            ->filter()
+            ->unique()
+            ->values();
+
+        if ($krsIds->isEmpty()) {
+            return collect();
+        }
+
+        try {
+            $krsMap = collect(SemesterPendek::searchKrs($krsIds->all()))
+                ->keyBy(fn($item) => data_get($item, "id"))
+                ->all();
+        } catch (\Throwable $th) {
+            return collect();
+        }
+
+        return $payments
+            ->filter(function ($payment) use ($krsMap, $jenjang) {
+                $krs = $krsMap[$payment->krs_id] ?? null;
+
+                return $this->laporanHarianSemesterPendekMatchesJenjang(
+                    $jenjang,
+                    $krs,
+                    null,
+                );
+            })
+            ->values();
+    }
+
     private function getPemasukanBulanData(
         $year,
         $month,
@@ -784,7 +821,7 @@ class LaporanController extends Controller
         $pmbData = [],
         $jenjang = "sarjana",
         $jenisPembayaranId = null,
-        $userId = null,
+        $userId = null
     ) {
         $daysInMonth = cal_days_in_month(CAL_GREGORIAN, $month, $year);
         $startDate = sprintf("%04d-%02d-01", $year, $month);
@@ -864,14 +901,20 @@ class LaporanController extends Controller
 
             $spPayments = $spPaymentsQuery
                 ->selectRaw(
-                    'DATE(keuangan_pembayaran_semester_pendek.tanggal) as tgl, "SEMESTER PENDEK" as tagihan_nama, NULL as prodi_id, SUM(keuangan_pembayaran_semester_pendek.jumlah) as total_jumlah',
+                    'DATE(keuangan_pembayaran_semester_pendek.tanggal) as tgl, keuangan_pembayaran_semester_pendek.krs_id, "SEMESTER PENDEK" as tagihan_nama, NULL as prodi_id, SUM(keuangan_pembayaran_semester_pendek.jumlah) as total_jumlah',
                 )
                 ->groupBy(
                     DB::raw(
                         "DATE(keuangan_pembayaran_semester_pendek.tanggal)",
                     ),
+                    "keuangan_pembayaran_semester_pendek.krs_id",
                 )
                 ->get();
+
+            $spPayments = $this->filterSemesterPendekPaymentsByJenjang(
+                $spPayments,
+                $jenjang,
+            );
 
             $payments = $payments->concat($spPayments);
         } else {
@@ -1161,14 +1204,20 @@ class LaporanController extends Controller
 
                 $spPayments = $spPaymentsQuery
                     ->selectRaw(
-                        'DATE(keuangan_pembayaran_semester_pendek.tanggal) as tgl, "SEMESTER PENDEK" as tagihan_nama, NULL as prodi_id, SUM(keuangan_pembayaran_semester_pendek.jumlah) as total_jumlah',
+                        'DATE(keuangan_pembayaran_semester_pendek.tanggal) as tgl, keuangan_pembayaran_semester_pendek.krs_id, "SEMESTER PENDEK" as tagihan_nama, NULL as prodi_id, SUM(keuangan_pembayaran_semester_pendek.jumlah) as total_jumlah',
                     )
                     ->groupBy(
                         DB::raw(
                             "DATE(keuangan_pembayaran_semester_pendek.tanggal)",
                         ),
+                        "keuangan_pembayaran_semester_pendek.krs_id",
                     )
                     ->get();
+
+                $spPayments = $this->filterSemesterPendekPaymentsByJenjang(
+                    $spPayments,
+                    $jenjang,
+                );
 
                 $allPayments = $allPayments->concat($spPayments);
 
@@ -1278,6 +1327,665 @@ class LaporanController extends Controller
                     "jenis_kelamin" => $jp->kategori ?? "Semua",
                 ]);
             }
+        } catch (\Throwable $th) {
+            return response()->json([
+                "status" => false,
+                "message" => $th->getMessage(),
+            ]);
+        }
+    }
+
+    private function getLaporanHarianPaymentFilterMeta($jenisPembayaranId)
+    {
+        $jenisPembayaranNama = null;
+        $jenisPembayaranKategori = null;
+        $jenisPembayaranLabel = "Semua";
+
+        if ($jenisPembayaranId) {
+            $jpModel = \App\Models\KeuanganJenisPembayaran::find(
+                $jenisPembayaranId,
+            );
+
+            if ($jpModel) {
+                $nama = strtolower(trim($jpModel->nama));
+                $jenisPembayaranKategori = $jpModel->kategori;
+                $jenisPembayaranLabel = $jpModel->nama;
+
+                if (strpos($nama, "deposit") !== false) {
+                    $jenisPembayaranNama = "deposit";
+                } elseif (strpos($nama, "transfer") !== false) {
+                    $jenisPembayaranNama = "transfer";
+                } elseif (strpos($nama, "cash") !== false) {
+                    $jenisPembayaranNama = "cash";
+                } elseif (strpos($nama, "yayasan") !== false) {
+                    $jenisPembayaranNama = "yayasan";
+                }
+            }
+        }
+
+        return [
+            "nama" => $jenisPembayaranNama,
+            "kategori" => $jenisPembayaranKategori,
+            "label" => $jenisPembayaranLabel,
+        ];
+    }
+
+    private function normalizeLaporanHarianJenisKelamin($value)
+    {
+        $normalized = strtoupper(trim((string) ($value ?? "")));
+
+        if (in_array($normalized, ["L", "LAKI-LAKI", "LAKI LAKI", "PUTRA", "PRIA"])) {
+            return "L";
+        }
+
+        if (in_array($normalized, ["P", "PEREMPUAN", "PUTRI", "WANITA"])) {
+            return "P";
+        }
+
+        return $normalized ?: "-";
+    }
+
+    private function normalizeLaporanHarianProdi($value)
+    {
+        $prodi = trim((string) ($value ?? ""));
+        $prodi = preg_replace("/^S[0-9]\s*-\s*/i", "", $prodi);
+
+        return $prodi !== "" ? $prodi : "-";
+    }
+
+    private function laporanHarianMatchesJenjang($jenjang, ...$values)
+    {
+        $signals = collect($values)
+            ->flatten()
+            ->filter(fn($value) => trim((string) $value) !== "")
+            ->map(fn($value) => strtoupper(trim((string) $value)))
+            ->values();
+
+        if ($signals->isEmpty()) {
+            return false;
+        }
+
+        $isSarjana = $signals->contains(
+            fn($value) => $value === "S1" ||
+                $value === "S-1" ||
+                $value === "S.1" ||
+                strpos($value, "S1-") === 0 ||
+                strpos($value, "S1 ") === 0 ||
+                strpos($value, "SARJANA") !== false,
+        );
+
+        $isPascasarjana = $signals->contains(
+            fn($value) => $value === "S2" ||
+                $value === "S3" ||
+                $value === "S-2" ||
+                $value === "S-3" ||
+                $value === "S.2" ||
+                $value === "S.3" ||
+                strpos($value, "S2-") === 0 ||
+                strpos($value, "S3-") === 0 ||
+                strpos($value, "S2 ") === 0 ||
+                strpos($value, "S3 ") === 0 ||
+                strpos($value, "PASCA") !== false ||
+                strpos($value, "MAGISTER") !== false ||
+                strpos($value, "DOKTOR") !== false,
+        );
+
+        if ($jenjang === "pascasarjana") {
+            return $isPascasarjana;
+        }
+
+        return $isSarjana && !$isPascasarjana;
+    }
+
+    private function laporanHarianSemesterPendekMatchesJenjang($jenjang, $krs, $mhs)
+    {
+        $prodiJenjang = strtoupper(
+            trim(
+                (string) data_get(
+                    $krs,
+                    "prodi_jenjang",
+                    data_get(
+                        $krs,
+                        "prodi.jenjang",
+                        data_get($krs, "mahasiswa.prodi.jenjang", data_get($mhs, "prodi.jenjang", "")),
+                    ),
+                ),
+            ),
+        );
+
+        if ($prodiJenjang !== "") {
+            $prodiJenjang = str_replace([".", "-", " "], "", $prodiJenjang);
+
+            if ($jenjang === "pascasarjana") {
+                return in_array($prodiJenjang, ["S2", "S3"]);
+            }
+
+            return $prodiJenjang === "S1";
+        }
+
+        return $this->laporanHarianMatchesJenjang(
+            $jenjang,
+            data_get($krs, "prodi_nama"),
+            data_get($krs, "prodi_alias"),
+            data_get($krs, "prodi.nama"),
+            data_get($krs, "mahasiswa.prodi.nama"),
+            data_get($mhs, "prodi.nama"),
+            data_get($mhs, "prodi.alias"),
+        );
+    }
+
+    private function getLaporanHarianMahasiswaMap($rows)
+    {
+        $nimList = collect($rows)
+            ->pluck("nim")
+            ->filter()
+            ->unique()
+            ->values();
+
+        if ($nimList->isEmpty()) {
+            return [];
+        }
+
+        try {
+            $mahasiswa = Mahasiswa::nim($nimList->toJson(), true);
+            return collect($mahasiswa ?: [])
+                ->keyBy(fn($m) => data_get($m, "nim"))
+                ->all();
+        } catch (\Throwable $th) {
+            return [];
+        }
+    }
+
+    private function normalizeLaporanHarianRows($payments, $mahasiswaMap)
+    {
+        return $payments
+            ->map(function ($item) use ($mahasiswaMap) {
+                $mhs = $mahasiswaMap[$item->nim] ?? null;
+
+                return [
+                    "tanggal_input" => $item->created_at
+                        ? date("Y-m-d", strtotime($item->created_at))
+                        : null,
+                    "tanggal_transaksi" => $item->tanggal
+                        ? date("Y-m-d", strtotime($item->tanggal))
+                        : null,
+                    "kwitansi" => $item->nota ?: $item->nomor,
+                    "nim" => $item->nim,
+                    "nama" => data_get($mhs, "nama", "-"),
+                    "jenis_kelamin" => $this->normalizeLaporanHarianJenisKelamin(
+                        data_get(
+                            $mhs,
+                            "jk.kode",
+                            data_get($mhs, "jenis_kelamin", ""),
+                        ),
+                    ),
+                    "prodi" => $this->normalizeLaporanHarianProdi(
+                        data_get(
+                            $mhs,
+                            "prodi.nama",
+                            data_get($mhs, "prodi.alias", $item->prodi_nama ?: $item->prodi_alias),
+                        ),
+                    ),
+                    "pembayaran" => $item->tagihan_nama,
+                    "nominal" => (float) $item->jumlah,
+                    "metode" => $item->jenis_pembayaran_nama ?: "-",
+                    "petugas" => $item->petugas_nama ?: "-",
+                    "source" => "SIMKEU",
+                ];
+            })
+            ->values()
+            ->toArray();
+    }
+
+    private function normalizeLaporanHarianSemesterPendekRows($payments, $jenjang)
+    {
+        $krsMap = [];
+        $krsIds = $payments
+            ->pluck("krs_id")
+            ->filter()
+            ->unique()
+            ->values();
+
+        if ($krsIds->isNotEmpty()) {
+            try {
+                $krsMap = collect(SemesterPendek::searchKrs($krsIds->all()))
+                    ->keyBy(fn($item) => data_get($item, "id"))
+                    ->all();
+            } catch (\Throwable $th) {
+                $krsMap = [];
+            }
+        }
+
+        $nimList = collect($krsMap)
+            ->map(
+                fn($krs) => data_get(
+                    $krs,
+                    "nim",
+                    data_get($krs, "mahasiswa.nim", data_get($krs, "mhs_nim")),
+                ),
+            )
+            ->filter()
+            ->unique()
+            ->values();
+        $mahasiswaMap = [];
+
+        if ($nimList->isNotEmpty()) {
+            try {
+                $mahasiswaMap = collect(Mahasiswa::nim($nimList->toJson(), true) ?: [])
+                    ->keyBy(fn($m) => data_get($m, "nim"))
+                    ->all();
+            } catch (\Throwable $th) {
+                $mahasiswaMap = [];
+            }
+        }
+
+        return $payments
+            ->map(function ($item) use ($krsMap, $mahasiswaMap, $jenjang) {
+                $krs = $krsMap[$item->krs_id] ?? null;
+                $nim = data_get(
+                    $krs,
+                    "nim",
+                    data_get($krs, "mahasiswa.nim", data_get($krs, "mhs_nim", $item->krs_id)),
+                );
+                $mhs = $mahasiswaMap[$nim] ?? null;
+                $matchesJenjang = $this->laporanHarianSemesterPendekMatchesJenjang(
+                    $jenjang,
+                    $krs,
+                    $mhs,
+                );
+
+                if (!$matchesJenjang) {
+                    return null;
+                }
+
+                return [
+                    "tanggal_input" => $item->created_at
+                        ? date("Y-m-d", strtotime($item->created_at))
+                        : null,
+                    "tanggal_transaksi" => $item->tanggal
+                        ? date("Y-m-d", strtotime($item->tanggal))
+                        : null,
+                    "kwitansi" => $item->nomor,
+                    "nim" => $nim,
+                    "nama" => data_get(
+                        $krs,
+                        "mhs_nama",
+                        data_get(
+                            $krs,
+                            "mahasiswa.nama",
+                            data_get($krs, "nama", data_get($mhs, "nama", "-")),
+                        ),
+                    ),
+                    "jenis_kelamin" => $this->normalizeLaporanHarianJenisKelamin(
+                        data_get(
+                            $krs,
+                            "jk_nama",
+                            data_get(
+                                $krs,
+                                "mahasiswa.jk.kode",
+                                data_get(
+                                    $krs,
+                                    "jk.kode",
+                                    data_get(
+                                        $mhs,
+                                        "jk.kode",
+                                        data_get($mhs, "jenis_kelamin", ""),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                    "prodi" => $this->normalizeLaporanHarianProdi(
+                        data_get(
+                            $krs,
+                            "prodi_nama",
+                            data_get(
+                                $krs,
+                                "mahasiswa.prodi.nama",
+                                data_get(
+                                    $krs,
+                                    "prodi.nama",
+                                    data_get(
+                                        $mhs,
+                                        "prodi.nama",
+                                        data_get(
+                                            $krs,
+                                            "prodi_alias",
+                                            data_get(
+                                                $krs,
+                                                "mahasiswa.prodi.alias",
+                                                data_get($krs, "prodi.alias", data_get($mhs, "prodi.alias", "-")),
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                    "pembayaran" => "SEMESTER PENDEK",
+                    "nominal" => (float) $item->jumlah,
+                    "metode" => $item->jenis_pembayaran_nama ?: "-",
+                    "petugas" => $item->petugas_nama ?: "-",
+                    "source" => "SIMKEU",
+                ];
+            })
+            ->filter()
+            ->values()
+            ->toArray();
+    }
+
+    private function normalizeLaporanHarianPmbRows($pmbData)
+    {
+        return collect($pmbData)
+            ->map(function ($item) {
+                $jenisPembayaran = data_get($item, "jenis_pembayaran", "-");
+                $jenisPembayaranUpper = strtoupper((string) $jenisPembayaran);
+                $jenisKelamin = data_get($item, "jk", data_get($item, "jenis_kelamin", ""));
+
+                if (!$jenisKelamin) {
+                    if (strpos($jenisPembayaranUpper, "PUTRI") !== false) {
+                        $jenisKelamin = "P";
+                    } elseif (strpos($jenisPembayaranUpper, "PUTRA") !== false) {
+                        $jenisKelamin = "L";
+                    }
+                }
+
+                return [
+                    "tanggal_input" => data_get(
+                        $item,
+                        "created_at",
+                        data_get($item, "tanggal_bayar"),
+                    )
+                        ? date(
+                            "Y-m-d",
+                            strtotime(
+                                data_get(
+                                    $item,
+                                    "created_at",
+                                    data_get($item, "tanggal_bayar"),
+                                ),
+                            ),
+                        )
+                        : null,
+                    "tanggal_transaksi" => data_get($item, "tanggal_bayar")
+                        ? date("Y-m-d", strtotime(data_get($item, "tanggal_bayar")))
+                        : null,
+                    "kwitansi" => data_get(
+                        $item,
+                        "kwitansi",
+                        data_get(
+                            $item,
+                            "nota",
+                            data_get(
+                                $item,
+                                "nomor",
+                                data_get($item, "id") ? "PMB-" . data_get($item, "id") : "-",
+                            ),
+                        ),
+                    ),
+                    "nim" => data_get(
+                        $item,
+                        "no_daftar",
+                        data_get(
+                            $item,
+                            "nodaftar",
+                            data_get(
+                                $item,
+                                "nomor_pendaftaran",
+                                data_get($item, "nim", data_get($item, "siswa_id", "-")),
+                            ),
+                        ),
+                    ),
+                    "nama" => data_get(
+                        $item,
+                        "nama",
+                        data_get($item, "nama_lengkap", data_get($item, "nama_siswa", "-")),
+                    ),
+                    "jenis_kelamin" => $this->normalizeLaporanHarianJenisKelamin($jenisKelamin),
+                    "prodi" => $this->normalizeLaporanHarianProdi(
+                        data_get(
+                            $item,
+                            "prodi_nama",
+                            data_get(
+                                $item,
+                                "prodi",
+                                data_get($item, "program_studi", data_get($item, "prodi_alias", "-")),
+                            ),
+                        ),
+                    ),
+                    "pembayaran" => data_get(
+                        $item,
+                        "pembayaran",
+                        data_get($item, "tagihan", data_get($item, "mhsdari", "PMB") ?: "PMB"),
+                    ),
+                    "nominal" => (float) data_get($item, "nominal", 0),
+                    "metode" => $jenisPembayaran,
+                    "petugas" => data_get($item, "petugas", "PMB"),
+                    "source" => "PMB",
+                ];
+            })
+            ->values()
+            ->toArray();
+    }
+
+    private function getLaporanHarianDetailData(Request $request)
+    {
+        $tanggal = $request->input("tanggal", date("Y-m-d"));
+        $jenjang = $request->input("jenjang", "sarjana");
+        $jenisPembayaranId = $request->input("jenis_pembayaran_id");
+        $userId = $request->input("user_id");
+        $jp = Helper::getJenisKelaminUser();
+        $paymentMeta = $this->getLaporanHarianPaymentFilterMeta(
+            $jenisPembayaranId,
+        );
+
+        $paymentsQuery = KeuanganPembayaran::join(
+            "keuangan_tagihan as kt",
+            "kt.id",
+            "=",
+            "keuangan_pembayaran.tagihan_id",
+        )
+            ->leftJoin(
+                "keuangan_nota as kn",
+                "kn.pembayaran_id",
+                "=",
+                "keuangan_pembayaran.id",
+            )
+            ->leftJoin(
+                "keuangan_jenis_pembayaran_detail as kjpd",
+                "kjpd.pembayaran_id",
+                "=",
+                "keuangan_pembayaran.id",
+            )
+            ->leftJoin(
+                "keuangan_jenis_pembayaran as kjp",
+                "kjp.id",
+                "=",
+                "kjpd.jenis_pembayaran_id",
+            )
+            ->leftJoin("users as u", "u.id", "=", "keuangan_pembayaran.user_id")
+            ->leftJoin("prodi as p", "p.id", "=", "kt.prodi_id")
+            ->whereDate("keuangan_pembayaran.tanggal", $tanggal)
+            ->where("keuangan_pembayaran.jk_id", "LIKE", "%$jp->id%");
+
+        if ($jenjang === "sarjana") {
+            $paymentsQuery->where("p.jenjang", "S1");
+        } elseif ($jenjang === "pascasarjana") {
+            $paymentsQuery->whereIn("p.jenjang", ["S2", "S3"]);
+        }
+
+        if ($jenisPembayaranId) {
+            $paymentsQuery->where(
+                "kjpd.jenis_pembayaran_id",
+                $jenisPembayaranId,
+            );
+        }
+
+        if ($userId) {
+            $paymentsQuery->where("keuangan_pembayaran.user_id", $userId);
+        }
+
+        $payments = $paymentsQuery
+            ->select(
+                "keuangan_pembayaran.id",
+                "keuangan_pembayaran.nomor",
+                "keuangan_pembayaran.tanggal",
+                "keuangan_pembayaran.created_at",
+                "keuangan_pembayaran.nim",
+                "keuangan_pembayaran.jumlah",
+                "kt.nama as tagihan_nama",
+                "p.nama as prodi_nama",
+                "p.alias as prodi_alias",
+                "kjp.nama as jenis_pembayaran_nama",
+                "u.name as petugas_nama",
+            )
+            ->addSelect(DB::raw("COALESCE(kn.nota, keuangan_pembayaran.nomor) AS nota"))
+            ->orderBy("keuangan_pembayaran.created_at")
+            ->orderBy("keuangan_pembayaran.id")
+            ->get();
+
+        $rows = $this->normalizeLaporanHarianRows(
+            $payments,
+            $this->getLaporanHarianMahasiswaMap($payments),
+        );
+
+        $spPaymentsQuery = \App\Models\KeuanganPembayaranSemesterPendek::leftJoin(
+            "keuangan_jenis_pembayaran as kjp",
+            "kjp.id",
+            "=",
+            "keuangan_pembayaran_semester_pendek.jenis_pembayaran_id",
+        )
+            ->leftJoin(
+                "users as u",
+                "u.id",
+                "=",
+                "keuangan_pembayaran_semester_pendek.user_id",
+            )
+            ->whereDate("keuangan_pembayaran_semester_pendek.tanggal", $tanggal)
+            ->where(
+                "keuangan_pembayaran_semester_pendek.jk_id",
+                "LIKE",
+                "%$jp->id%",
+            );
+
+        if ($jenisPembayaranId) {
+            $spPaymentsQuery->where(
+                "keuangan_pembayaran_semester_pendek.jenis_pembayaran_id",
+                $jenisPembayaranId,
+            );
+        }
+
+        if ($userId) {
+            $spPaymentsQuery->where(
+                "keuangan_pembayaran_semester_pendek.user_id",
+                $userId,
+            );
+        }
+
+        $spPayments = $spPaymentsQuery
+            ->select(
+                "keuangan_pembayaran_semester_pendek.id",
+                "keuangan_pembayaran_semester_pendek.nomor",
+                "keuangan_pembayaran_semester_pendek.tanggal",
+                "keuangan_pembayaran_semester_pendek.created_at",
+                "keuangan_pembayaran_semester_pendek.krs_id",
+                "keuangan_pembayaran_semester_pendek.jumlah",
+                "kjp.nama as jenis_pembayaran_nama",
+                "u.name as petugas_nama",
+            )
+            ->orderBy("keuangan_pembayaran_semester_pendek.created_at")
+            ->orderBy("keuangan_pembayaran_semester_pendek.id")
+            ->get();
+
+        $rows = array_merge(
+            $rows,
+            $this->normalizeLaporanHarianSemesterPendekRows($spPayments, $jenjang),
+        );
+
+        if (!$userId) {
+            try {
+                $pmbResponse = \Illuminate\Support\Facades\Http::withHeaders([
+                    "apikey" => env("PMB_API_KEY"),
+                ])->get(rtrim(env("PMB_URL"), "/") . "/simkeu/pembayaran", [
+                    "start_date" => $tanggal,
+                    "end_date" => $tanggal,
+                    "jenjang" => $jenjang,
+                    "jenis_kelamin" => $paymentMeta["kategori"],
+                    "jenis_pembayaran" => $paymentMeta["nama"],
+                ]);
+
+                if ($pmbResponse->successful()) {
+                    $pmbResData = $pmbResponse->json();
+                    $rows = array_merge(
+                        $rows,
+                        $this->normalizeLaporanHarianPmbRows(
+                            $pmbResData["data"] ?? [],
+                        ),
+                    );
+                }
+            } catch (\Throwable $th) {
+                // PMB is optional; keep SIMKEU report available if it fails.
+            }
+        }
+
+        usort($rows, function ($a, $b) {
+            return strcmp(
+                ($a["tanggal_input"] ?? "") . ($a["kwitansi"] ?? ""),
+                ($b["tanggal_input"] ?? "") . ($b["kwitansi"] ?? ""),
+            );
+        });
+
+        $no = 1;
+        foreach ($rows as &$row) {
+            $row["no"] = $no++;
+        }
+        unset($row);
+
+        $total = collect($rows)->sum("nominal");
+
+        return [
+            "title" => "LAPORAN HARIAN",
+            "tanggal" => $tanggal,
+            "kategori" =>
+                ($jp->kategori ?? "Semua") .
+                " ( Jenjang : " .
+                ($jenjang === "sarjana" ? "Sarjana" : "Pascasarjana") .
+                ", Jenis Pembayaran : " .
+                $paymentMeta["label"] .
+                " )",
+            "jenis_kelamin" => $jp->kategori ?? "Semua",
+            "rows" => $rows,
+            "total" => $total,
+        ];
+    }
+
+    public function laporanHarianDetail(Request $request)
+    {
+        try {
+            $data = $this->getLaporanHarianDetailData($request);
+            $action = $request->input("action", "json");
+
+            if ($action === "excel") {
+                return Excel::download(
+                    new LaporanHarianDetailExport($data),
+                    "Laporan_Harian_" . $data["tanggal"] . ".xlsx",
+                );
+            }
+
+            if ($action === "pdf") {
+                return LaporanHarianDetailPdf::pdf($data);
+            }
+
+            return response()->json([
+                "status" => true,
+                "message" => "Data laporan harian berhasil diambil",
+                "data" => $data["rows"],
+                "total" => $data["total"],
+                "title" => $data["title"],
+                "tanggal" => $data["tanggal"],
+                "kategori" => $data["kategori"],
+                "jenis_kelamin" => $data["jenis_kelamin"],
+            ]);
         } catch (\Throwable $th) {
             return response()->json([
                 "status" => false,
@@ -1509,18 +2217,30 @@ class LaporanController extends Controller
             if ($mode === "tahunan") {
                 $spPayments = $spPaymentsQuery
                     ->selectRaw(
-                        '"SEMESTER PENDEK" as tagihan_nama, NULL as prodi_id, kjp.nama as jenis_pembayaran_nama, MONTH(keuangan_pembayaran_semester_pendek.tanggal) as bulan, SUM(keuangan_pembayaran_semester_pendek.jumlah) as total_jumlah',
+                        '"SEMESTER PENDEK" as tagihan_nama, keuangan_pembayaran_semester_pendek.krs_id, NULL as prodi_id, kjp.nama as jenis_pembayaran_nama, MONTH(keuangan_pembayaran_semester_pendek.tanggal) as bulan, SUM(keuangan_pembayaran_semester_pendek.jumlah) as total_jumlah',
                     )
-                    ->groupBy("kjp.nama", "bulan")
+                    ->groupBy(
+                        "keuangan_pembayaran_semester_pendek.krs_id",
+                        "kjp.nama",
+                        "bulan",
+                    )
                     ->get();
             } else {
                 $spPayments = $spPaymentsQuery
                     ->selectRaw(
-                        '"SEMESTER PENDEK" as tagihan_nama, NULL as prodi_id, kjp.nama as jenis_pembayaran_nama, SUM(keuangan_pembayaran_semester_pendek.jumlah) as total_jumlah',
+                        '"SEMESTER PENDEK" as tagihan_nama, keuangan_pembayaran_semester_pendek.krs_id, NULL as prodi_id, kjp.nama as jenis_pembayaran_nama, SUM(keuangan_pembayaran_semester_pendek.jumlah) as total_jumlah',
                     )
-                    ->groupBy("kjp.nama")
+                    ->groupBy(
+                        "keuangan_pembayaran_semester_pendek.krs_id",
+                        "kjp.nama",
+                    )
                     ->get();
             }
+
+            $spPayments = $this->filterSemesterPendekPaymentsByJenjang(
+                $spPayments,
+                $jenjang,
+            );
 
             $payments = $payments->concat($spPayments);
 
