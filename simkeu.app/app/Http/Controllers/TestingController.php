@@ -7,6 +7,7 @@ use App\Services\Jadwal;
 use App\Services\Mahasiswa;
 use App\Models\KeuanganSetoran;
 use App\Models\KeuanganPembayaran;
+use App\Services\SemesterPendek;
 use App\Services\TagihanMahasiswa;
 use Illuminate\Support\Facades\DB;
 
@@ -14,19 +15,26 @@ class TestingController extends Controller
 {
     public function index()
     {
-        $pmbUrl = rtrim(env("pmb_url"), "/") . "/simkeu/pembayaran";
-        $pmbApiKey = env("pmb_api_key");
-        $pmbDataAll = [];
-        $pmbResponse = \Illuminate\Support\Facades\Http::withHeaders([
-            "apikey" => $pmbApiKey,
-        ])->get($pmbUrl, [
-            "start_date" => @$startDate,
-            "end_date" => @$endDate,
-            "jenjang" => @$jenjang,
-            "jenis_kelamin" => @$jenisPembayaranKategori,
-            "jenis_pembayaran" => @$jenisPembayaranNama,
-        ]);
-        dd($pmbResponse->json());
+        $search = "202285020123";
+        $tes = SemesterPendek::krs($search);
+        dd($tes);
+        // $mahasiswa = Mahasiswa::all(null, null, "ahmad", null, null, [
+        //     ['mst_prodi.alias', '=', 'PBA']
+        // ]);
+        // dd($mahasiswa);
+        // $pmbUrl = rtrim(env("pmb_url"), "/") . "/simkeu/pembayaran";
+        // $pmbApiKey = env("pmb_api_key");
+        // $pmbDataAll = [];
+        // $pmbResponse = \Illuminate\Support\Facades\Http::withHeaders([
+        //     "apikey" => $pmbApiKey,
+        // ])->get($pmbUrl, [
+        //     "start_date" => @$startDate,
+        //     "end_date" => @$endDate,
+        //     "jenjang" => @$jenjang,
+        //     "jenis_kelamin" => @$jenisPembayaranKategori,
+        //     "jenis_pembayaran" => @$jenisPembayaranNama,
+        // ]);
+        // dd($pmbResponse->json());
         // $jpModel = \App\Models\KeuanganJenisPembayaran::find(9);
         // if ($jpModel) {
         //     $nama = strtolower(trim($jpModel->nama));

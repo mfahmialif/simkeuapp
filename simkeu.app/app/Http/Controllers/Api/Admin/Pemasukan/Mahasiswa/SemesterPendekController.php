@@ -23,10 +23,6 @@ class SemesterPendekController extends Controller
             ->with(['thAkademik', 'user', 'jenisPembayaran'])
             ->orderBy($request->sort_key ?? 'id', $request->sort_order ?? 'desc');
 
-        if ($search) {
-            $query->where('nomor', 'like', "%$search%");
-        }
-
         if ($request->filled('periode_id')) {
             $query->where('periode_id', $request->periode_id);
         }
@@ -45,6 +41,19 @@ class SemesterPendekController extends Controller
 
         if ($request->filled('tanggal_akhir')) {
             $query->whereDate('tanggal', '<=', $request->tanggal_akhir);
+        }
+
+        if (filled($search)) {
+            $search = trim($search);
+            $krsIds = $this->extractKrsIds(SemesterPendek::krs($search));
+
+            $query->where(function ($q) use ($search, $krsIds) {
+                $q->where('nomor', 'like', "%{$search}%");
+
+                if (!empty($krsIds)) {
+                    $q->orWhereIn('krs_id', $krsIds);
+                }
+            });
         }
 
         $data = $query->paginate($limit);
@@ -468,5 +477,40 @@ class SemesterPendekController extends Controller
         }
 
         return $target;
+    }
+
+    private function extractKrsIds($krsData): array
+    {
+        return collect($this->normalizeKrsItems($krsData))
+            ->pluck('id')
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    private function normalizeKrsItems($krsData): array
+    {
+        if (empty($krsData)) {
+            return [];
+        }
+
+        $items = is_array($krsData)
+            ? ($krsData['data'] ?? $krsData)
+            : ($krsData->data ?? $krsData);
+
+        if ($items instanceof \Illuminate\Support\Collection) {
+            return $items->all();
+        }
+
+        if (is_array($items)) {
+            return $items;
+        }
+
+        if ($items instanceof \Traversable) {
+            return iterator_to_array($items);
+        }
+
+        return [$items];
     }
 }
