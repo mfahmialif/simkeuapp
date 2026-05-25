@@ -3,7 +3,11 @@
 namespace App\Http\Controllers\Api;
 
 use Carbon\Carbon;
+use App\Models\Ref;
+use App\Models\Prodi;
 use App\Models\ThAkademik;
+use App\Models\FormSchadule;
+use App\Models\KeuanganTagihan;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use App\Models\KeuanganDispensasi;
@@ -54,6 +58,155 @@ class HelperController extends Controller
         }
 
         return response()->json($enum);
+    }
+
+    public function createTagihanPerorangan(Request $request): JsonResponse
+    {
+        if ($apiKeyResponse = $this->validateSimkeuv2ApiKey($request)) {
+            return $apiKeyResponse;
+        }
+
+        try {
+            if ($request->filled('form_schedule_kode') && ! $request->filled('form_schadule_kode')) {
+                $request->merge(['form_schadule_kode' => $request->input('form_schedule_kode')]);
+            }
+
+            $validated = $request->validate([
+                'nim'                 => 'required|string|max:255',
+                'th_akademik_kode'    => 'required|string|max:255',
+                'th_angkatan_kode'    => 'required|string|max:255',
+                'prodi_alias'         => 'required|string|max:255',
+                'double_degree'       => 'nullable|integer',
+                'form_schadule_kode'  => 'required|string|max:255',
+                'nama'                => 'required|string|max:255',
+                'jumlah'              => 'required|numeric|min:0',
+            ]);
+
+            $refs = [
+                'th_akademik_kode' => ThAkademik::where('kode', trim($validated['th_akademik_kode']))->first(),
+                'th_angkatan_kode' => ThAkademik::where('kode', trim($validated['th_angkatan_kode']))->first(),
+                'prodi_alias' => Prodi::where('alias', trim($validated['prodi_alias']))->first(),
+                'kelas_id' => Ref::where('table', 'Kelas')->find(6),
+                'form_schadule_kode' => FormSchadule::where('kode', trim($validated['form_schadule_kode']))->first(),
+            ];
+
+            $refLabels = [
+                'th_akademik_kode' => 'tahun akademik',
+                'th_angkatan_kode' => 'tahun angkatan',
+                'prodi_alias' => 'prodi',
+                'kelas_id' => 'kelas',
+                'form_schadule_kode' => 'form schadule',
+            ];
+
+            $missingRefs = collect($refs)
+                ->filter(fn($ref) => ! $ref)
+                ->map(fn($_, $field) => [
+                    $field === 'kelas_id'
+                        ? 'Kelas default ID 6 tidak ditemukan.'
+                        : "Kode {$validated[$field]} untuk {$refLabels[$field]} tidak ditemukan.",
+                ])
+                ->toArray();
+
+            if (! empty($missingRefs)) {
+                return response()->json([
+                    'status'  => false,
+                    'message' => 'Kode referensi tidak ditemukan.',
+                    'errors'  => $missingRefs,
+                ], 422);
+            }
+
+            $nim = strtoupper(trim($validated['nim']));
+            $doubleDegree = $validated['double_degree'] ?? null;
+
+            $duplicateQuery = KeuanganTagihan::where('nim', $nim)
+                ->where('th_akademik_id', $refs['th_akademik_kode']->id)
+                ->where('th_angkatan_id', $refs['th_angkatan_kode']->id)
+                ->where('prodi_id', $refs['prodi_alias']->id)
+                ->where('kelas_id', $refs['kelas_id']->id)
+                ->where('form_schadule_id', $refs['form_schadule_kode']->id)
+                ->where('nama', $validated['nama']);
+
+            if ($doubleDegree === null) {
+                $duplicateQuery->whereNull('double_degree');
+            } else {
+                $duplicateQuery->where('double_degree', $doubleDegree);
+            }
+
+            $duplicate = $duplicateQuery->first();
+
+            if ($duplicate) {
+                return response()->json([
+                    'status'  => false,
+                    'message' => 'Tagihan Perorangan sudah ada, silahkan edit.',
+                    'data'    => $duplicate,
+                ], 409);
+            }
+
+            $kode = $refs['th_akademik_kode']->id
+                . $refs['th_angkatan_kode']->id
+                . $refs['prodi_alias']->id
+                . $refs['kelas_id']->id
+                . $refs['form_schadule_kode']->id;
+
+            $data = KeuanganTagihan::create([
+                'nim'              => $nim,
+                'th_akademik_id'   => $refs['th_akademik_kode']->id,
+                'th_angkatan_id'   => $refs['th_angkatan_kode']->id,
+                'prodi_id'         => $refs['prodi_alias']->id,
+                'double_degree'    => $doubleDegree,
+                'kelas_id'         => $refs['kelas_id']->id,
+                'form_schadule_id' => $refs['form_schadule_kode']->id,
+                'kode'             => $kode,
+                'nama'             => $validated['nama'],
+                'jumlah'           => $validated['jumlah'],
+                'x_sks'            => 'Y',
+                'user_id'          => null,
+            ]);
+
+            return response()->json([
+                'status'  => true,
+                'message' => 'Tagihan Perorangan created successfully.',
+                'data'    => $data->load('th_akademik', 'th_angkatan', 'prodi', 'form_schadule', 'kelas'),
+            ], 201);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'Validasi gagal.',
+                'errors'  => $e->errors(),
+            ], 422);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status'  => false,
+                'message' => $th->getMessage(),
+                'code'    => 500,
+            ], 500);
+        }
+    }
+
+    private function validateSimkeuv2ApiKey(Request $request): ?JsonResponse
+    {
+        $configuredKey = config('simkeu.simkeuv2_api_key');
+
+        if (blank($configuredKey)) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'SIMKEUV2_API_KEY belum dikonfigurasi.',
+            ], 500);
+        }
+
+        $providedKey = $request->header('apikey')
+            ?? $request->header('x-api-key')
+            ?? $request->header('x-simkeuv2-api-key')
+            ?? $request->header('simkeuv2-api-key');
+
+        if (! $providedKey || ! hash_equals((string) $configuredKey, (string) $providedKey)) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'API key tidak valid.',
+            ], 401);
+        }
+
+        return null;
     }
 
 
