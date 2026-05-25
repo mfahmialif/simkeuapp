@@ -24,6 +24,7 @@ use App\Http\Controllers\Api\Admin\Pemasukan\Pemasukan\TambahController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\LaporanController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\SetoranController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\TagihanController;
+use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\TagihanPeroranganController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\CekTagihanController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\DispensasiController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\PembayaranController;
@@ -74,6 +75,7 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
             Route::apiResource('jenis-pembayaran', JenisPembayaranController::class);
             Route::post('tagihan/import', [TagihanController::class, 'import']);
             Route::get('tagihan/template', [TagihanController::class, 'downloadTemplate']);
+            Route::apiResource('tagihan-perorangan', TagihanPeroranganController::class);
             Route::apiResource('tagihan', TagihanController::class);
 
             Route::get('cek-tagihan/pdf', [CekTagihanController::class, 'pdf']);

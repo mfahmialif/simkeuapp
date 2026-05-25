@@ -1,34 +1,27 @@
 <?php
+
 namespace App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa;
 
 use App\Http\Controllers\Controller;
-use App\Exports\TagihanTemplateExport;
-use App\Imports\TagihanImport;
 use App\Models\KeuanganTagihan;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
-use Maatwebsite\Excel\Facades\Excel;
 
-class TagihanController extends Controller
+class TagihanPeroranganController extends Controller
 {
-    /**
-     * Display a listing of the resource.
-     *
-     * @return \Illuminate\Http\Response
-     */
     public function index(Request $request)
     {
-        $user = $request->user();
-
         $query = KeuanganTagihan::join('th_akademik as tha', 'tha.id', 'th_akademik_id')
             ->join('th_akademik as tha2', 'tha2.id', 'th_angkatan_id')
             ->join('prodi as prodi', 'prodi.id', 'prodi_id')
             ->join('ref as ref_kelas', 'ref_kelas.id', 'kelas_id')
-            ->join('form_schadule as form', 'form.id', 'form_schadule_id');
+            ->join('form_schadule as form', 'form.id', 'form_schadule_id')
+            ->whereNotNull('keuangan_tagihan.nim');
 
         if ($request->filled('search')) {
             $query->where(function ($q) use ($request) {
-                $q->where('tha.kode', 'LIKE', "%$request->search%")
+                $q->where('keuangan_tagihan.nim', 'LIKE', "%$request->search%")
+                    ->orWhere('tha.kode', 'LIKE', "%$request->search%")
                     ->orWhere('tha2.kode', 'LIKE', "%$request->search%")
                     ->orWhere('prodi.nama', 'LIKE', "%$request->search%")
                     ->orWhere('ref_kelas.nama', 'LIKE', "%$request->search%")
@@ -38,8 +31,6 @@ class TagihanController extends Controller
                     ->orWhere('keuangan_tagihan.jumlah', 'LIKE', "%$request->search%");
             });
         }
-
-        $query->whereNull('keuangan_tagihan.nim');
 
         if ($request->th_akademik_id != "") {
             $query->where('keuangan_tagihan.th_akademik_id', $request->th_akademik_id);
@@ -68,31 +59,34 @@ class TagihanController extends Controller
             $query->where('keuangan_tagihan.kelas_id', $request->kelas_id);
         }
 
-        // Sorting
-        $sortKey   = $request->input('sort_key', 'id');
-        $sortOrder = $request->input('sort_order', 'desc'); // 'asc' or 'desc'
+        $sortKey = $request->input('sort_key', 'id');
+        $sortOrder = $request->input('sort_order', 'desc');
+        if ($sortKey === 'id') {
+            $sortKey = 'keuangan_tagihan.id';
+        }
 
         $query->orderBy($sortKey, $sortOrder);
-        $query->select('keuangan_tagihan.*', 'tha.kode as th_akademik_kode', 'tha2.kode as th_angkatan_kode', 'prodi.nama as prodi_nama', 'form.nama as form_nama');
+        $query->select(
+            'keuangan_tagihan.*',
+            'tha.kode as th_akademik_kode',
+            'tha2.kode as th_angkatan_kode',
+            'prodi.nama as prodi_nama',
+            'form.nama as form_nama'
+        );
 
         $data = $query->paginate($request->get('limit', 10));
 
         return response()->json([
             'status'  => true,
             'data'    => $data,
-            'message' => 'Tagihan retrieved successfully',
+            'message' => 'Tagihan Perorangan retrieved successfully',
         ]);
     }
 
-    /**
-     * Store a newly created resource in storage.
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @return \Illuminate\Http\Response
-     */
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
+            'nim'              => 'required|string|max:255',
             'th_akademik_id'   => 'required|exists:th_akademik,id',
             'th_angkatan_id'   => 'required|exists:th_akademik,id',
             'prodi_id'         => 'required|exists:prodi,id',
@@ -107,10 +101,13 @@ class TagihanController extends Controller
             return response()->json([
                 'status'  => false,
                 'message' => $validator->errors(),
-            ]);
+            ], 422);
         }
 
+        $nim = strtoupper($request->nim);
+
         $check = KeuanganTagihan::where([
+            'nim'              => $nim,
             'th_akademik_id'   => $request->th_akademik_id,
             'th_angkatan_id'   => $request->th_angkatan_id,
             'prodi_id'         => $request->prodi_id,
@@ -123,60 +120,46 @@ class TagihanController extends Controller
         if ($check) {
             return response()->json([
                 'status'  => false,
-                'message' => 'Jenis Keuangan sudah ada, silahkan edit',
+                'message' => 'Tagihan Perorangan sudah ada, silahkan edit',
             ]);
         }
 
         $kode = $request->th_akademik_id . $request->th_angkatan_id . $request->prodi_id . $request->kelas_id . $request->form_schadule_id;
 
         $data = new KeuanganTagihan();
-        $data->fill($request->except(['_token', '_method', 'nim']));
-
+        $data->fill($request->except(['_token', '_method']));
         $data->kode    = $kode;
+        $data->nim     = $nim;
         $data->jumlah  = $request->jumlah;
         $data->x_sks   = 'Y';
         $data->user_id = auth()->id();
-
         $data->save();
 
         return response()->json([
             'status'  => true,
             'data'    => $data,
-            'message' => 'Jenis Keuangan created successfully',
+            'message' => 'Tagihan Perorangan created successfully',
         ], 201);
     }
 
-    /**
-     * Display the specified resource.
-     *
-     * @param  int  $id
-     * @return \Illuminate\Http\Response
-     */
     public function show($id)
     {
-        $data = KeuanganTagihan::whereNull('nim')->find($id);
+        $data = KeuanganTagihan::whereNotNull('nim')->find($id);
 
         if (! $data) {
             return response()->json([
                 'status'  => false,
-                'message' => 'Tagihan Not Found',
+                'message' => 'Tagihan Perorangan Not Found',
             ], 404);
         }
 
         return response()->json($data->load('th_akademik', 'th_angkatan', 'prodi', 'form_schadule', 'kelas'), 200);
     }
 
-    /**
-     * Update the specified resource in storage.
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @param  int  $id
-     * @return \Illuminate\Http\Response
-     */
     public function update(Request $request, $id)
     {
-        // Validasi data yang dikirimkan
         $validator = Validator::make($request->all(), [
+            'nim'              => 'required|string|max:255',
             'th_akademik_id'   => 'required|exists:th_akademik,id',
             'th_angkatan_id'   => 'required|exists:th_akademik,id',
             'prodi_id'         => 'required|exists:prodi,id',
@@ -194,16 +177,19 @@ class TagihanController extends Controller
             ], 422);
         }
 
-        $data = KeuanganTagihan::whereNull('nim')->find($id);
+        $data = KeuanganTagihan::whereNotNull('nim')->find($id);
         if (! $data) {
             return response()->json([
                 'status'  => false,
-                'message' => 'Tagihan Not Found',
+                'message' => 'Tagihan Perorangan Not Found',
             ], 404);
         }
 
+        $nim = strtoupper($request->nim);
+
         $check = KeuanganTagihan::where('id', '!=', $id)
             ->where([
+                'nim'              => $nim,
                 'th_akademik_id'   => $request->th_akademik_id,
                 'th_angkatan_id'   => $request->th_angkatan_id,
                 'prodi_id'         => $request->prodi_id,
@@ -216,116 +202,43 @@ class TagihanController extends Controller
         if ($check) {
             return response()->json([
                 'status'  => false,
-                'message' => 'Jenis Keuangan sudah ada, silahkan edit',
+                'message' => 'Tagihan Perorangan sudah ada, silahkan edit',
             ]);
         }
 
         $kode = $request->th_akademik_id . $request->th_angkatan_id . $request->prodi_id . $request->kelas_id . $request->form_schadule_id;
 
-        $data->fill($request->except(['_token', '_method', 'id', 'nim']));
+        $data->fill($request->except(['_token', '_method', 'id']));
         $data->kode    = $kode;
+        $data->nim     = $nim;
         $data->jumlah  = $request->jumlah;
         $data->x_sks   = 'Y';
         $data->user_id = auth()->id();
-
         $data->save();
 
-        // Kembalikan response sukses dengan data data yang telah diperbarui
         return response()->json([
             'status'  => true,
             'data'    => $data,
-            'message' => 'Tagihan updated successfully',
+            'message' => 'Tagihan Perorangan updated successfully',
         ]);
     }
 
-    /**
-     * Remove the specified resource from storage.
-     *
-     * @param  int  $id
-     * @return \Illuminate\Http\Response
-     */
     public function destroy($id)
     {
-        $data = KeuanganTagihan::whereNull('nim')->find($id);
+        $data = KeuanganTagihan::whereNotNull('nim')->find($id);
 
         if (! $data) {
             return response()->json([
                 'status'  => false,
-                'message' => 'Tagihan Not Found',
+                'message' => 'Tagihan Perorangan Not Found',
             ], 404);
         }
 
         $data->delete();
+
         return response()->json([
             'status'  => true,
-            'message' => 'Tagihan deleted successfully',
+            'message' => 'Tagihan Perorangan deleted successfully',
         ]);
-    }
-
-    /**
-     * Import tagihan from Excel file.
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @return \Illuminate\Http\Response
-     */
-    public function import(Request $request)
-    {
-        $validator = Validator::make($request->all(), [
-            'file'                => 'required|mimes:xlsx,xls,csv|max:10240',
-            'update_existing'     => 'nullable|boolean',
-            'append_amount_zeros' => 'nullable|boolean',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json([
-                'status'  => false,
-                'message' => $validator->errors(),
-            ], 422);
-        }
-
-        try {
-            $import = new TagihanImport(
-                $request->boolean('update_existing'),
-                $request->boolean('append_amount_zeros')
-            );
-            Excel::import($import, $request->file('file'));
-
-            $failures = $import->failures();
-            $failureMessages = [];
-            foreach ($failures as $failure) {
-                $failureMessages[] = [
-                    'row'     => $failure->row(),
-                    'errors'  => $failure->errors(),
-                    'values'  => $failure->values(),
-                ];
-            }
-
-            return response()->json([
-                'status'        => true,
-                'message'       => 'Import selesai',
-                'success_count' => $import->getSuccessCount(),
-                'update_count'  => $import->getUpdateCount(),
-                'skip_count'    => $import->getSkipCount(),
-                'sheet_count'   => $import->getSheetCount(),
-                'sheet_names'   => $import->getSheetNames(),
-                'skip_reasons'  => $import->getSkipReasons(),
-                'failures'      => $failureMessages,
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'status'  => false,
-                'message' => 'Gagal import: ' . $e->getMessage(),
-            ], 500);
-        }
-    }
-
-    /**
-     * Download Excel template for import.
-     *
-     * @return \Illuminate\Http\Response
-     */
-    public function downloadTemplate()
-    {
-        return Excel::download(new TagihanTemplateExport, 'template_tagihan.xlsx');
     }
 }

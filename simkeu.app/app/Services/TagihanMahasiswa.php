@@ -199,89 +199,9 @@ class TagihanMahasiswa
     {
         $nim = strtoupper($nim);
         $mhs = Mahasiswa::nim($nim);
-        $angkatan = (int) substr($mhs->th_akademik->kode, 0, 4);
-        if ($mhs->prodi_double_degree_id) {
-            if ($angkatan <= 2023) {
-                $mhs->th_akademik_id = 21;
-            }
-        }
-        if ($mhs) {
-            $tagihan = KeuanganTagihan::where('th_angkatan_id', $mhs->th_akademik_id)
-                ->where('kelas_id', $mhs->kelas_id)
-                ->when($mhs->prodi_double_degree_id == null, function ($query) use ($mhs) {
-                    $query->where('prodi_id', $mhs->prodi_id);
-                    $query->where(function ($query) {
-                        $query->where('double_degree', '=', 0);
-                        $query->orWhereNull('double_degree');
-                    });
-                })
-                ->when($mhs->prodi_double_degree_id, function ($query) use ($mhs) {
-                    $query->where(function ($query) {
-                        $query->where('double_degree', '=', 1);
-                    });
-                    $query->where('prodi_id', $mhs->prodi_double_degree_id);
-                })
-                ->get();
 
-            $listTagihan = [];
-
-            foreach ($tagihan as $row) {
-                $sisa = TagihanMahasiswa::getSisaTagihan($mhs->nim, $row->id);
-
-                // dispensasi tagihan
-                $dispensasiTagihan = KeuanganDispensasiTagihan::where([
-                    ['jenis_tagihan_id', $row->id],
-                    ['nim', $nim],
-                ])->first();
-                $batasDispensasi  = ($dispensasiTagihan) ? $dispensasiTagihan->batas : null;
-                $statusDispensasi = false;
-                if ($dispensasiTagihan) {
-                    $tanggalSekarang   = date('Y-m-d');
-                    $tanggalDispensasi = date('Y-m-d', strtotime($dispensasiTagihan->batas));
-                    if ($tanggalSekarang <= $tanggalDispensasi) {
-                        $statusDispensasi = true;
-                    }
-                    // if($dispensasiTagihan->jenis == 'Non Beasiswa'){
-                    //     $statusDispensasi = false;
-                    // }
-                }
-                $jumlahDispensasi = ($dispensasiTagihan) ? $dispensasiTagihan->jumlah : 0;
-
-                $sisaAkhir = ($statusDispensasi) ? $sisa - $jumlahDispensasi : $sisa; // sisa total dari pembayaran dan dispensasi
-                if (@$dispensasiTagihan->jenis == 'Non Beasiswa') {
-                    $sisaAkhir = $sisa;
-                }
-                if ($sisa > 0) {
-                    $thAkademik = $row->th_akademik;
-
-                    $row->dibayar          = $row->jumlah - $sisa;
-                    $row->sisa             = $sisaAkhir;
-                    $row->tahun_akademik   = $thAkademik->nama;
-                    $row->semester         = $thAkademik->semester;
-                    $row->th_akademik_kode = $thAkademik->kode;
-                    $row->semester_tagihan = self::getSemesterTagihan($row, $mhs->th_akademik->kode);
-
-                    $row->status_dispensasi = $statusDispensasi;
-                    $row->batas_dispensasi  = $batasDispensasi;
-                    $row->jumlah_dispensasi = $jumlahDispensasi;
-                    $row->jenis_dispensasi  = @$dispensasiTagihan->jenis;
-
-                    $listTagihan[] = $row;
-                }
-            }
-            $tagihanGroups = self::splitTagihanBySemester($listTagihan, @$mhs->semester, @$mhs->th_akademik->kode);
-            $return = [
-                'nama_mhs'     => $mhs->nama,
-                'nama_prodi'   => $mhs->prodi_double_degree_id ? $mhs->prodi_double_degree->nama . ' - Double Degree' : $mhs->prodi->nama,
-                'nama_kelas'   => @$mhs->kelas->nama,
-                'list_tagihan' => $listTagihan,
-                'list_tagihan_semester_ini' => $tagihanGroups['semester_ini'],
-                'list_tagihan_semester_depan' => $tagihanGroups['semester_depan'],
-                'angkatan'     => @$mhs->th_akademik->kode,
-                'semester'     => @$mhs->semester,
-            ];
-        } else {
-            $return = [
+        if (! $mhs) {
+            return [
                 'nama_mhs'     => null,
                 'nama_prodi'   => null,
                 'nama_kelas'   => null,
@@ -291,6 +211,93 @@ class TagihanMahasiswa
                 'semester'     => null,
             ];
         }
+
+        $angkatan = (int) substr($mhs->th_akademik->kode, 0, 4);
+        if ($mhs->prodi_double_degree_id) {
+            if ($angkatan <= 2023) {
+                $mhs->th_akademik_id = 21;
+            }
+        }
+
+        $tagihan = KeuanganTagihan::where(function ($query) use ($mhs, $nim) {
+            $query->where(function ($query) use ($mhs) {
+                $query->whereNull('nim')
+                    ->where('th_angkatan_id', $mhs->th_akademik_id)
+                    ->where('kelas_id', $mhs->kelas_id)
+                    ->when($mhs->prodi_double_degree_id == null, function ($query) use ($mhs) {
+                        $query->where('prodi_id', $mhs->prodi_id);
+                        $query->where(function ($query) {
+                            $query->where('double_degree', '=', 0);
+                            $query->orWhereNull('double_degree');
+                        });
+                    })
+                    ->when($mhs->prodi_double_degree_id, function ($query) use ($mhs) {
+                        $query->where(function ($query) {
+                            $query->where('double_degree', '=', 1);
+                        });
+                        $query->where('prodi_id', $mhs->prodi_double_degree_id);
+                    });
+            })->orWhere('nim', $nim);
+            })
+            ->get();
+
+        $listTagihan = [];
+
+        foreach ($tagihan as $row) {
+            $sisa = TagihanMahasiswa::getSisaTagihan($mhs->nim, $row->id);
+
+            // dispensasi tagihan
+            $dispensasiTagihan = KeuanganDispensasiTagihan::where([
+                ['jenis_tagihan_id', $row->id],
+                ['nim', $nim],
+            ])->first();
+            $batasDispensasi  = ($dispensasiTagihan) ? $dispensasiTagihan->batas : null;
+            $statusDispensasi = false;
+            if ($dispensasiTagihan) {
+                $tanggalSekarang   = date('Y-m-d');
+                $tanggalDispensasi = date('Y-m-d', strtotime($dispensasiTagihan->batas));
+                if ($tanggalSekarang <= $tanggalDispensasi) {
+                    $statusDispensasi = true;
+                }
+                // if($dispensasiTagihan->jenis == 'Non Beasiswa'){
+                //     $statusDispensasi = false;
+                // }
+            }
+            $jumlahDispensasi = ($dispensasiTagihan) ? $dispensasiTagihan->jumlah : 0;
+
+            $sisaAkhir = ($statusDispensasi) ? $sisa - $jumlahDispensasi : $sisa; // sisa total dari pembayaran dan dispensasi
+            if (@$dispensasiTagihan->jenis == 'Non Beasiswa') {
+                $sisaAkhir = $sisa;
+            }
+            if ($sisa > 0) {
+                $thAkademik = $row->th_akademik;
+
+                $row->dibayar          = $row->jumlah - $sisa;
+                $row->sisa             = $sisaAkhir;
+                $row->tahun_akademik   = $thAkademik->nama;
+                $row->semester         = $thAkademik->semester;
+                $row->th_akademik_kode = $thAkademik->kode;
+                $row->semester_tagihan = self::getSemesterTagihan($row, $mhs->th_akademik->kode);
+
+                $row->status_dispensasi = $statusDispensasi;
+                $row->batas_dispensasi  = $batasDispensasi;
+                $row->jumlah_dispensasi = $jumlahDispensasi;
+                $row->jenis_dispensasi  = @$dispensasiTagihan->jenis;
+
+                $listTagihan[] = $row;
+            }
+        }
+        $tagihanGroups = self::splitTagihanBySemester($listTagihan, @$mhs->semester, @$mhs->th_akademik->kode);
+        $return = [
+            'nama_mhs'     => $mhs->nama,
+            'nama_prodi'   => $mhs->prodi_double_degree_id ? $mhs->prodi_double_degree->nama . ' - Double Degree' : $mhs->prodi->nama,
+            'nama_kelas'   => @$mhs->kelas->nama,
+            'list_tagihan' => $listTagihan,
+            'list_tagihan_semester_ini' => $tagihanGroups['semester_ini'],
+            'list_tagihan_semester_depan' => $tagihanGroups['semester_depan'],
+            'angkatan'     => @$mhs->th_akademik->kode,
+            'semester'     => @$mhs->semester,
+        ];
         // dd($listTagihan);
 
         return $return;
@@ -304,6 +311,7 @@ class TagihanMahasiswa
             $tagihan = KeuanganTagihan::where('th_angkatan_id', $mhs->th_akademik_id)
                 ->where('prodi_id', $mhs->prodi_id)
                 ->where('kelas_id', $mhs->kelas_id)
+                ->whereNull('nim')
                 ->where('nama', 'LIKE', '%KKN%')
                 ->first();
 
