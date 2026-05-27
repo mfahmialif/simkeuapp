@@ -19,7 +19,7 @@ class TestingController extends Controller
 {
     public function index()
     {
-        dd($this->syncPembayaranSP());
+        // dd($this->syncPembayaranSP());
         // $cekPembayaran = self::cekPembayaran()->getData(true);
         // dd($cekPembayaran);
         // return response()->json($cekPembayaran["data"] ?? []);
