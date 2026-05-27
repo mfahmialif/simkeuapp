@@ -474,13 +474,7 @@ class PembayaranController extends Controller
 
                     $batasKeringanan = $keringananJenis === 'dhomin'
                         ? '9999-12-31'
-                        : ($dataValidated['list_keringanan_batas'][$i] ?? null);
-
-                    if ($keringananJenis === 'samahah' && empty($batasKeringanan)) {
-                        throw \Illuminate\Validation\ValidationException::withMessages([
-                            "list_keringanan_batas.$i" => 'Batas tanggal keringanan Samahah wajib diisi.',
-                        ]);
-                    }
+                        : (($dataValidated['list_keringanan_batas'][$i] ?? null) ?: '9999-12-31');
 
                     $this->upsertKeringananTagihan(
                         $dataValidated['tahun_akademik'],
@@ -492,7 +486,7 @@ class PembayaranController extends Controller
                     );
                 }
 
-                if ($keringananJenis === 'dhomin' || ($dibayar <= 0 && $depositDibayar <= 0)) {
+                if ($dibayar <= 0 && $depositDibayar <= 0) {
                     continue;
                 }
 
@@ -777,8 +771,10 @@ class PembayaranController extends Controller
         $jumlah = $this->normalizeNumber($jumlahInput);
         $sisaTagihan = max(0, (float) TagihanMahasiswa::getSisaTagihan($nim, $tagihanId));
 
+        $maksimalKeringanan = max(0, $sisaTagihan - $dibayar - $deposit);
+
         if ($jenis === 'dhomin') {
-            return $jumlah > 0 ? min($jumlah, $sisaTagihan) : $sisaTagihan;
+            return $jumlah > 0 ? min($jumlah, $maksimalKeringanan) : $maksimalKeringanan;
         }
 
         if ($jumlah <= 0) {
@@ -787,7 +783,6 @@ class PembayaranController extends Controller
             ]);
         }
 
-        $maksimalKeringanan = max(0, $sisaTagihan - $dibayar - $deposit);
         if ($jumlah > $maksimalKeringanan) {
             throw \Illuminate\Validation\ValidationException::withMessages([
                 "list_keringanan_jumlah.$index" => 'Jumlah keringanan tidak boleh melebihi sisa tagihan setelah pembayaran.',
