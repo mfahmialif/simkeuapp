@@ -198,36 +198,24 @@ class HelperController extends Controller
 
         try {
             $validated = $request->validate([
-                'id'   => 'nullable|integer|min:1',
-                'nim'  => 'nullable|string|max:255',
-                'nama' => 'nullable|string|max:255',
+                'nim'  => 'required|string|max:255',
+                'nama' => 'required|string|max:255',
             ]);
 
-            $id = $validated['id'] ?? null;
-            $nim = $request->filled('nim') ? strtoupper(trim($validated['nim'])) : null;
-            $nama = $request->filled('nama') ? trim($validated['nama']) : null;
+            $nim = strtoupper(trim($validated['nim']));
+            $nama = trim($validated['nama']);
 
-            if (! $id && blank($nim) && blank($nama)) {
+            if (blank($nim) || blank($nama)) {
                 return response()->json([
                     'status'  => false,
-                    'message' => 'Minimal kirim salah satu filter: id, nim, atau nama.',
+                    'message' => 'Filter nim dan nama wajib diisi.',
                 ], 422);
             }
 
             $query = KeuanganTagihan::whereNotNull('nim')
-                ->where('nim', '!=', '');
-
-            if ($id) {
-                $query->where('id', $id);
-            }
-
-            if (! blank($nim)) {
-                $query->where('nim', $nim);
-            }
-
-            if (! blank($nama)) {
-                $query->where('nama', $nama);
-            }
+                ->where('nim', '!=', '')
+                ->where('nim', $nim)
+                ->where('nama', $nama);
 
             $tagihan = $query->get();
 
