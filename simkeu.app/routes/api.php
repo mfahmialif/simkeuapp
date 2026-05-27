@@ -201,6 +201,7 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
 Route::prefix('helper')->group(function () {
     Route::get('/get-enum-values', [HelperController::class, 'getEnumValues'])->middleware('auth:sanctum');
     Route::post('tagihan-perorangan', [HelperController::class, 'createTagihanPerorangan']);
+    Route::delete('tagihan-perorangan', [HelperController::class, 'deleteTagihanPerorangan']);
     Route::get('cek-pembayaran', [HelperController::class, 'cekPembayaran']);
     Route::get('cek-pembayaran-uas', [HelperController::class, 'cekPembayaranUas']);
     Route::get('petugas-pembayaran', [HelperController::class, 'petugasPembayaran'])->middleware('auth:sanctum');

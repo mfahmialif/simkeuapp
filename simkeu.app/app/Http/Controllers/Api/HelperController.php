@@ -190,6 +190,82 @@ class HelperController extends Controller
         }
     }
 
+    public function deleteTagihanPerorangan(Request $request): JsonResponse
+    {
+        if ($apiKeyResponse = $this->validateSimkeuv2ApiKey($request)) {
+            return $apiKeyResponse;
+        }
+
+        try {
+            $validated = $request->validate([
+                'id'   => 'nullable|integer|min:1',
+                'nim'  => 'nullable|string|max:255',
+                'nama' => 'nullable|string|max:255',
+            ]);
+
+            $id = $validated['id'] ?? null;
+            $nim = $request->filled('nim') ? strtoupper(trim($validated['nim'])) : null;
+            $nama = $request->filled('nama') ? trim($validated['nama']) : null;
+
+            if (! $id && blank($nim) && blank($nama)) {
+                return response()->json([
+                    'status'  => false,
+                    'message' => 'Minimal kirim salah satu filter: id, nim, atau nama.',
+                ], 422);
+            }
+
+            $query = KeuanganTagihan::whereNotNull('nim')
+                ->where('nim', '!=', '');
+
+            if ($id) {
+                $query->where('id', $id);
+            }
+
+            if (! blank($nim)) {
+                $query->where('nim', $nim);
+            }
+
+            if (! blank($nama)) {
+                $query->where('nama', $nama);
+            }
+
+            $tagihan = $query->get();
+
+            if ($tagihan->isEmpty()) {
+                return response()->json([
+                    'status'  => false,
+                    'message' => 'Tagihan Perorangan tidak ditemukan.',
+                ], 404);
+            }
+
+            $ids = $tagihan->pluck('id')->values();
+            $deletedCount = 0;
+
+            DB::transaction(function () use ($ids, &$deletedCount) {
+                $deletedCount = KeuanganTagihan::whereIn('id', $ids)->delete();
+            });
+
+            return response()->json([
+                'status'        => true,
+                'message'       => 'Tagihan Perorangan deleted successfully.',
+                'deleted_count' => $deletedCount,
+                'deleted_ids'   => $ids,
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'Validasi gagal.',
+                'errors'  => $e->errors(),
+            ], 422);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status'  => false,
+                'message' => $th->getMessage(),
+                'code'    => 500,
+            ], 500);
+        }
+    }
+
     private function validateSimkeuv2ApiKey(Request $request): ?JsonResponse
     {
         $configuredKey = config('simkeu.simkeuv2_api_key');
