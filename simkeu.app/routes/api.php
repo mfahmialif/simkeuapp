@@ -126,6 +126,7 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
 
             Route::get('semester-pendek/search-krs', [SemesterPendekController::class, 'searchKrs']);
             Route::get('semester-pendek/search-krs-data', [SemesterPendekController::class, 'searchKrsData']);
+            Route::get('semester-pendek/krs-detail/{krsId}', [SemesterPendekController::class, 'krsDetail']);
             Route::get('semester-pendek/riwayat/{krsId}', [SemesterPendekController::class, 'getRiwayat']);
             Route::get('semester-pendek/statistic', [SemesterPendekController::class, 'statistic']);
             Route::get('semester-pendek/get-periode', [SemesterPendekController::class, 'getPeriode']);

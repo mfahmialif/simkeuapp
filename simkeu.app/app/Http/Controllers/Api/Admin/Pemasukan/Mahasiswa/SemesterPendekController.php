@@ -85,6 +85,37 @@ class SemesterPendekController extends Controller
         return response()->json($data);
     }
 
+    public function krsDetail($krsId)
+    {
+        if (! is_numeric($krsId)) {
+            return response()->json([
+                'status' => false,
+                'message' => 'KRS ID tidak valid.',
+            ], 422);
+        }
+
+        try {
+            $data = SemesterPendek::krsDetail($krsId);
+
+            if (! $data) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Data KRS Semester Pendek tidak ditemukan.',
+                ], 404);
+            }
+
+            return response()->json([
+                'status' => true,
+                'data' => $data,
+            ]);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status' => false,
+                'message' => $th->getMessage(),
+            ], 500);
+        }
+    }
+
     public function getPeriode()
     {
         $data = SemesterPendek::periode();

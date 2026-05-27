@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Services\Helper;
 use App\Services\Jadwal;
 use App\Services\Mahasiswa;
+use App\Models\KeuanganTagihan;
 use App\Models\KeuanganSetoran;
 use App\Models\KeuanganPembayaran;
 use App\Services\SemesterPendek;
@@ -15,9 +16,12 @@ class TestingController extends Controller
 {
     public function index()
     {
-        $search = "202285020123";
-        $tes = SemesterPendek::krs($search);
-        dd($tes);
+        // $cekPembayaran = self::cekPembayaran()->getData(true);
+        // dd($cekPembayaran);
+        // return response()->json($cekPembayaran["data"] ?? []);
+        // $search = "202285020123";
+        // $tes = SemesterPendek::krs($search);
+        // dd($tes);
         // $mahasiswa = Mahasiswa::all(null, null, "ahmad", null, null, [
         //     ['mst_prodi.alias', '=', 'PBA']
         // ]);
@@ -153,6 +157,328 @@ class TestingController extends Controller
         //     // 'pengeluaran' => $pengeluaran,
         //     // 'pending'     => $pending,
         // ];
+    }
+
+    public static function cekPembayaran()
+    {
+        try {
+            $tagihanUts = KeuanganTagihan::join(
+                "th_akademik as tha",
+                "tha.id",
+                "=",
+                "keuangan_tagihan.th_akademik_id",
+            )
+                ->join(
+                    "th_akademik as thangkatan",
+                    "thangkatan.id",
+                    "=",
+                    "keuangan_tagihan.th_angkatan_id",
+                )
+                ->leftJoin("prodi", "prodi.id", "=", "keuangan_tagihan.prodi_id")
+                ->leftJoin(
+                    "form_schadule as form",
+                    "form.id",
+                    "=",
+                    "keuangan_tagihan.form_schadule_id",
+                )
+                ->where("keuangan_tagihan.nama", "LIKE", "%UTS%")
+                ->select(
+                    "keuangan_tagihan.id",
+                    "keuangan_tagihan.kode",
+                    "keuangan_tagihan.nama",
+                    "keuangan_tagihan.jumlah",
+                    "keuangan_tagihan.nim",
+                    "keuangan_tagihan.th_akademik_id",
+                    "keuangan_tagihan.th_angkatan_id",
+                    "keuangan_tagihan.prodi_id",
+                    "keuangan_tagihan.kelas_id",
+                    "keuangan_tagihan.form_schadule_id",
+                    "tha.kode as th_akademik_kode",
+                    "tha.nama as th_akademik_nama",
+                    "thangkatan.kode as th_angkatan_kode",
+                    "thangkatan.nama as th_angkatan_nama",
+                    "prodi.nama as prodi_nama",
+                    "prodi.alias as prodi_alias",
+                    "form.kode as form_schadule_kode",
+                    "form.nama as form_schadule_nama",
+                )
+                ->get();
+
+            $pembayaranByTagihan = KeuanganPembayaran::leftJoin(
+                "th_akademik as thp",
+                "thp.id",
+                "=",
+                "keuangan_pembayaran.th_akademik_id",
+            )
+                ->leftJoin(
+                    "keuangan_nota as kn",
+                    "kn.pembayaran_id",
+                    "=",
+                    "keuangan_pembayaran.id",
+                )
+                ->leftJoin(
+                    "keuangan_jenis_pembayaran_detail as kjpd",
+                    "kjpd.pembayaran_id",
+                    "=",
+                    "keuangan_pembayaran.id",
+                )
+                ->leftJoin(
+                    "keuangan_jenis_pembayaran as kjp",
+                    "kjp.id",
+                    "=",
+                    "kjpd.jenis_pembayaran_id",
+                )
+                ->leftJoin("users", "users.id", "=", "keuangan_pembayaran.user_id")
+                ->whereIn("keuangan_pembayaran.tagihan_id", $tagihanUts->pluck("id"))
+                ->select(
+                    "keuangan_pembayaran.id",
+                    "keuangan_pembayaran.nomor",
+                    "keuangan_pembayaran.tanggal",
+                    "keuangan_pembayaran.th_akademik_id",
+                    "thp.kode as th_akademik_kode",
+                    "thp.nama as th_akademik_nama",
+                    "keuangan_pembayaran.tagihan_id",
+                    "keuangan_pembayaran.nim",
+                    "keuangan_pembayaran.smt",
+                    "keuangan_pembayaran.jml_sks",
+                    "keuangan_pembayaran.jumlah",
+                    "keuangan_pembayaran.jk_id",
+                    "keuangan_pembayaran.user_id",
+                    "users.name as petugas_nama",
+                    "kjpd.jenis_pembayaran_id",
+                    "kjp.nama as jenis_pembayaran_nama",
+                    "keuangan_pembayaran.created_at",
+                    "keuangan_pembayaran.updated_at",
+                )
+                ->addSelect(DB::raw("COALESCE(kn.nota, keuangan_pembayaran.nomor) as nota"))
+                ->orderBy("keuangan_pembayaran.tanggal")
+                ->orderBy("keuangan_pembayaran.id")
+                ->get()
+                ->groupBy("tagihan_id");
+
+            $tagihanTidakSesuai = $tagihanUts
+                ->map(function ($tagihan) use ($pembayaranByTagihan) {
+                    $semesterTagihan = null;
+                    if (preg_match(
+                        "/\bsemester\s+(\d+)\b/i",
+                        (string) $tagihan->nama,
+                        $matches,
+                    )) {
+                        $semesterTagihan = (int) $matches[1];
+                    }
+
+                    $semesterSeharusnya = TagihanMahasiswa::getSemesterTagihan(
+                        $tagihan,
+                        $tagihan->th_angkatan_kode,
+                    );
+                    $masalah = null;
+
+                    if ($semesterTagihan === null) {
+                        $masalah = "Semester pada nama tagihan tidak ditemukan";
+                    } elseif ($semesterSeharusnya === null) {
+                        $masalah = "Kode tahun angkatan atau tahun akademik tidak valid";
+                    } else {
+                        if ($semesterTagihan === $semesterSeharusnya) {
+                            return null;
+                        }
+
+                        $masalah = "Semester tagihan tidak sesuai";
+                    }
+
+                    return [
+                        "id" => $tagihan->id,
+                        "kode" => $tagihan->kode,
+                        "nama" => $tagihan->nama,
+                        "jumlah" => $tagihan->jumlah,
+                        "nim" => $tagihan->nim,
+                        "th_akademik_id" => $tagihan->th_akademik_id,
+                        "th_akademik_kode" => $tagihan->th_akademik_kode,
+                        "th_akademik_nama" => $tagihan->th_akademik_nama,
+                        "th_angkatan_id" => $tagihan->th_angkatan_id,
+                        "th_angkatan_kode" => $tagihan->th_angkatan_kode,
+                        "th_angkatan_nama" => $tagihan->th_angkatan_nama,
+                        "prodi_id" => $tagihan->prodi_id,
+                        "prodi_nama" => $tagihan->prodi_nama,
+                        "prodi_alias" => $tagihan->prodi_alias,
+                        "kelas_id" => $tagihan->kelas_id,
+                        "form_schadule_id" => $tagihan->form_schadule_id,
+                        "form_schadule_kode" => $tagihan->form_schadule_kode,
+                        "form_schadule_nama" => $tagihan->form_schadule_nama,
+                        "semester_tagihan" => $semesterTagihan,
+                        "semester_seharusnya" => $semesterSeharusnya,
+                        "masalah" => $masalah,
+                        "pembayaran" => $pembayaranByTagihan
+                            ->get($tagihan->id, collect())
+                            ->values(),
+                    ];
+                })
+                ->filter()
+                ->values();
+
+            return response()->json([
+                "status" => true,
+                "total" => $tagihanTidakSesuai->count(),
+                "data" => $tagihanTidakSesuai,
+            ]);
+        } catch (\Throwable $th) {
+            return response()->json([
+                "status" => false,
+                "message" => $th->getMessage(),
+            ]);
+        }
+    }
+
+    public static function cekPembayaranUts()
+    {
+        try {
+            $tagihanUtsSemester8 = KeuanganTagihan::join(
+                "th_akademik as tha",
+                "tha.id",
+                "=",
+                "keuangan_tagihan.th_akademik_id",
+            )
+                ->join(
+                    "th_akademik as thangkatan",
+                    "thangkatan.id",
+                    "=",
+                    "keuangan_tagihan.th_angkatan_id",
+                )
+                ->leftJoin("prodi", "prodi.id", "=", "keuangan_tagihan.prodi_id")
+                ->leftJoin(
+                    "form_schadule as form",
+                    "form.id",
+                    "=",
+                    "keuangan_tagihan.form_schadule_id",
+                )
+                ->where("keuangan_tagihan.nama", "LIKE", "%UTS%")
+                ->where("keuangan_tagihan.nama", "LIKE", "%SEMESTER 8%")
+                ->select(
+                    "keuangan_tagihan.id",
+                    "keuangan_tagihan.kode",
+                    "keuangan_tagihan.nama",
+                    "keuangan_tagihan.jumlah",
+                    "keuangan_tagihan.nim",
+                    "keuangan_tagihan.th_akademik_id",
+                    "keuangan_tagihan.th_angkatan_id",
+                    "keuangan_tagihan.prodi_id",
+                    "keuangan_tagihan.kelas_id",
+                    "keuangan_tagihan.form_schadule_id",
+                    "tha.kode as th_akademik_kode",
+                    "tha.nama as th_akademik_nama",
+                    "thangkatan.kode as th_angkatan_kode",
+                    "thangkatan.nama as th_angkatan_nama",
+                    "prodi.nama as prodi_nama",
+                    "prodi.alias as prodi_alias",
+                    "form.kode as form_schadule_kode",
+                    "form.nama as form_schadule_nama",
+                )
+                ->get()
+                ->filter(function ($tagihan) {
+                    return preg_match(
+                        "/\bsemester\s+8\b/i",
+                        (string) $tagihan->nama,
+                    );
+                })
+                ->values();
+
+            $pembayaranByTagihan = KeuanganPembayaran::leftJoin(
+                "th_akademik as thp",
+                "thp.id",
+                "=",
+                "keuangan_pembayaran.th_akademik_id",
+            )
+                ->leftJoin(
+                    "keuangan_nota as kn",
+                    "kn.pembayaran_id",
+                    "=",
+                    "keuangan_pembayaran.id",
+                )
+                ->leftJoin(
+                    "keuangan_jenis_pembayaran_detail as kjpd",
+                    "kjpd.pembayaran_id",
+                    "=",
+                    "keuangan_pembayaran.id",
+                )
+                ->leftJoin(
+                    "keuangan_jenis_pembayaran as kjp",
+                    "kjp.id",
+                    "=",
+                    "kjpd.jenis_pembayaran_id",
+                )
+                ->leftJoin("users", "users.id", "=", "keuangan_pembayaran.user_id")
+                ->whereIn(
+                    "keuangan_pembayaran.tagihan_id",
+                    $tagihanUtsSemester8->pluck("id"),
+                )
+                ->select(
+                    "keuangan_pembayaran.id",
+                    "keuangan_pembayaran.nomor",
+                    "keuangan_pembayaran.tanggal",
+                    "keuangan_pembayaran.th_akademik_id",
+                    "thp.kode as th_akademik_kode",
+                    "thp.nama as th_akademik_nama",
+                    "keuangan_pembayaran.tagihan_id",
+                    "keuangan_pembayaran.nim",
+                    "keuangan_pembayaran.smt",
+                    "keuangan_pembayaran.jml_sks",
+                    "keuangan_pembayaran.jumlah",
+                    "keuangan_pembayaran.jk_id",
+                    "keuangan_pembayaran.user_id",
+                    "users.name as petugas_nama",
+                    "kjpd.jenis_pembayaran_id",
+                    "kjp.nama as jenis_pembayaran_nama",
+                    "keuangan_pembayaran.created_at",
+                    "keuangan_pembayaran.updated_at",
+                )
+                ->addSelect(DB::raw("COALESCE(kn.nota, keuangan_pembayaran.nomor) as nota"))
+                ->orderBy("keuangan_pembayaran.tanggal")
+                ->orderBy("keuangan_pembayaran.id")
+                ->get()
+                ->groupBy("tagihan_id");
+
+            $data = $tagihanUtsSemester8->map(function ($tagihan) use ($pembayaranByTagihan) {
+                $pembayaran = $pembayaranByTagihan
+                    ->get($tagihan->id, collect())
+                    ->values();
+
+                return [
+                    "id" => $tagihan->id,
+                    "kode" => $tagihan->kode,
+                    "nama" => $tagihan->nama,
+                    "jumlah" => $tagihan->jumlah,
+                    "nim" => $tagihan->nim,
+                    "th_akademik_id" => $tagihan->th_akademik_id,
+                    "th_akademik_kode" => $tagihan->th_akademik_kode,
+                    "th_akademik_nama" => $tagihan->th_akademik_nama,
+                    "th_angkatan_id" => $tagihan->th_angkatan_id,
+                    "th_angkatan_kode" => $tagihan->th_angkatan_kode,
+                    "th_angkatan_nama" => $tagihan->th_angkatan_nama,
+                    "prodi_id" => $tagihan->prodi_id,
+                    "prodi_nama" => $tagihan->prodi_nama,
+                    "prodi_alias" => $tagihan->prodi_alias,
+                    "kelas_id" => $tagihan->kelas_id,
+                    "form_schadule_id" => $tagihan->form_schadule_id,
+                    "form_schadule_kode" => $tagihan->form_schadule_kode,
+                    "form_schadule_nama" => $tagihan->form_schadule_nama,
+                    "semester_tagihan" => 8,
+                    "total_pembayaran" => $pembayaran->count(),
+                    "total_dibayar" => $pembayaran->sum("jumlah"),
+                    "pembayaran" => $pembayaran,
+                ];
+            })->values();
+
+            return response()->json([
+                "status" => true,
+                "total_tagihan" => $data->count(),
+                "total_pembayaran" => $data->sum("total_pembayaran"),
+                "data" => $data,
+            ]);
+        } catch (\Throwable $th) {
+            return response()->json([
+                "status" => false,
+                "message" => $th->getMessage(),
+            ]);
+        }
     }
 
     public static function syncJkId()

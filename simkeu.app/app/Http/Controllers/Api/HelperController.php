@@ -132,21 +132,28 @@ class HelperController extends Controller
                 $duplicateQuery->where('double_degree', $doubleDegree);
             }
 
-            $duplicate = $duplicateQuery->first();
-
-            if ($duplicate) {
-                return response()->json([
-                    'status'  => false,
-                    'message' => 'Tagihan Perorangan sudah ada, silahkan edit.',
-                    'data'    => $duplicate,
-                ], 409);
-            }
-
             $kode = $refs['th_akademik_kode']->id
                 . $refs['th_angkatan_kode']->id
                 . $refs['prodi_alias']->id
                 . $refs['kelas_id']->id
                 . $refs['form_schadule_kode']->id;
+
+            $duplicate = $duplicateQuery->first();
+
+            if ($duplicate) {
+                $duplicate->update([
+                    'kode'    => $kode,
+                    'jumlah'  => $validated['jumlah'],
+                    'x_sks'   => 'Y',
+                    'user_id' => null,
+                ]);
+
+                return response()->json([
+                    'status'  => true,
+                    'message' => 'Tagihan Perorangan updated successfully.',
+                    'data'    => $duplicate->load('th_akademik', 'th_angkatan', 'prodi', 'form_schadule', 'kelas'),
+                ]);
+            }
 
             $data = KeuanganTagihan::create([
                 'nim'              => $nim,
