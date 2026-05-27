@@ -812,6 +812,22 @@ class LaporanController extends Controller
             ->values();
     }
 
+    private function mapSemesterPendekPaymentsFromTagihan($payments)
+    {
+        return collect($payments)
+            ->map(function ($payment) {
+                $payment->krs_id = SemesterPendek::parseKrsIdFromTagihanName(
+                    $payment->tagihan_nama,
+                );
+                $payment->tagihan_nama = "SEMESTER PENDEK";
+                $payment->prodi_id = null;
+
+                return $payment;
+            })
+            ->filter(fn($payment) => !empty($payment->krs_id))
+            ->values();
+    }
+
     private function getPemasukanBulanData(
         $year,
         $month,
@@ -838,6 +854,7 @@ class LaporanController extends Controller
                     $startDate . " 00:00:00",
                     $endDate . " 23:59:59",
                 ])
+                ->where("kt.nama", "NOT LIKE", "%SEMESTER PENDEK%")
                 ->where("keuangan_pembayaran.jk_id", "LIKE", "%$jp->id%");
 
             if ($jenjang === "sarjana") {
@@ -876,41 +893,48 @@ class LaporanController extends Controller
                 )
                 ->get();
 
-            $spPaymentsQuery = \App\Models\KeuanganPembayaranSemesterPendek::whereBetween(
-                "keuangan_pembayaran_semester_pendek.tanggal",
-                [$startDate . " 00:00:00", $endDate . " 23:59:59"],
-            )->where(
-                "keuangan_pembayaran_semester_pendek.jk_id",
-                "LIKE",
-                "%$jp->id%",
-            );
+            $spPaymentsQuery = KeuanganPembayaran::join(
+                "keuangan_tagihan as kt",
+                "kt.id",
+                "=",
+                "keuangan_pembayaran.tagihan_id",
+            )
+                ->whereBetween("keuangan_pembayaran.tanggal", [
+                    $startDate . " 00:00:00",
+                    $endDate . " 23:59:59",
+                ])
+                ->where("kt.nama", "LIKE", "%SEMESTER PENDEK%")
+                ->where("keuangan_pembayaran.jk_id", "LIKE", "%$jp->id%");
 
             if ($jenisPembayaranId) {
-                $spPaymentsQuery->where(
-                    "keuangan_pembayaran_semester_pendek.jenis_pembayaran_id",
-                    $jenisPembayaranId,
-                );
+                $spPaymentsQuery
+                    ->join(
+                        "keuangan_jenis_pembayaran_detail as kjpd",
+                        "kjpd.pembayaran_id",
+                        "=",
+                        "keuangan_pembayaran.id",
+                    )
+                    ->where("kjpd.jenis_pembayaran_id", $jenisPembayaranId);
             }
 
             if ($userId) {
-                $spPaymentsQuery->where(
-                    "keuangan_pembayaran_semester_pendek.user_id",
-                    $userId,
-                );
+                $spPaymentsQuery->where("keuangan_pembayaran.user_id", $userId);
             }
 
             $spPayments = $spPaymentsQuery
                 ->selectRaw(
-                    'DATE(keuangan_pembayaran_semester_pendek.tanggal) as tgl, keuangan_pembayaran_semester_pendek.krs_id, "SEMESTER PENDEK" as tagihan_nama, NULL as prodi_id, SUM(keuangan_pembayaran_semester_pendek.jumlah) as total_jumlah',
+                    "DATE(keuangan_pembayaran.tanggal) as tgl, kt.nama as tagihan_nama, kt.prodi_id, SUM(keuangan_pembayaran.jumlah) as total_jumlah",
                 )
                 ->groupBy(
-                    DB::raw(
-                        "DATE(keuangan_pembayaran_semester_pendek.tanggal)",
-                    ),
-                    "keuangan_pembayaran_semester_pendek.krs_id",
+                    DB::raw("DATE(keuangan_pembayaran.tanggal)"),
+                    "kt.nama",
+                    "kt.prodi_id",
                 )
                 ->get();
 
+            $spPayments = $this->mapSemesterPendekPaymentsFromTagihan(
+                $spPayments,
+            );
             $spPayments = $this->filterSemesterPendekPaymentsByJenjang(
                 $spPayments,
                 $jenjang,
@@ -1138,6 +1162,7 @@ class LaporanController extends Controller
                         $startDateYear . " 00:00:00",
                         $endDateYear . " 23:59:59",
                     ])
+                    ->where("kt.nama", "NOT LIKE", "%SEMESTER PENDEK%")
                     ->where("keuangan_pembayaran.jk_id", "LIKE", "%$jp->id%");
 
                 if ($jenjang === "sarjana") {
@@ -1179,41 +1204,51 @@ class LaporanController extends Controller
                     )
                     ->get();
 
-                $spPaymentsQuery = \App\Models\KeuanganPembayaranSemesterPendek::whereBetween(
-                    "keuangan_pembayaran_semester_pendek.tanggal",
-                    [$startDateYear . " 00:00:00", $endDateYear . " 23:59:59"],
-                )->where(
-                    "keuangan_pembayaran_semester_pendek.jk_id",
-                    "LIKE",
-                    "%$jp->id%",
-                );
+                $spPaymentsQuery = KeuanganPembayaran::join(
+                    "keuangan_tagihan as kt",
+                    "kt.id",
+                    "=",
+                    "keuangan_pembayaran.tagihan_id",
+                )
+                    ->whereBetween("keuangan_pembayaran.tanggal", [
+                        $startDateYear . " 00:00:00",
+                        $endDateYear . " 23:59:59",
+                    ])
+                    ->where("kt.nama", "LIKE", "%SEMESTER PENDEK%")
+                    ->where("keuangan_pembayaran.jk_id", "LIKE", "%$jp->id%");
 
                 if ($jenisPembayaranId) {
-                    $spPaymentsQuery->where(
-                        "keuangan_pembayaran_semester_pendek.jenis_pembayaran_id",
-                        $jenisPembayaranId,
-                    );
+                    $spPaymentsQuery
+                        ->join(
+                            "keuangan_jenis_pembayaran_detail as kjpd",
+                            "kjpd.pembayaran_id",
+                            "=",
+                            "keuangan_pembayaran.id",
+                        )
+                        ->where("kjpd.jenis_pembayaran_id", $jenisPembayaranId);
                 }
 
                 if ($userId) {
                     $spPaymentsQuery->where(
-                        "keuangan_pembayaran_semester_pendek.user_id",
+                        "keuangan_pembayaran.user_id",
                         $userId,
                     );
                 }
 
                 $spPayments = $spPaymentsQuery
                     ->selectRaw(
-                        'DATE(keuangan_pembayaran_semester_pendek.tanggal) as tgl, keuangan_pembayaran_semester_pendek.krs_id, "SEMESTER PENDEK" as tagihan_nama, NULL as prodi_id, SUM(keuangan_pembayaran_semester_pendek.jumlah) as total_jumlah',
+                        "DATE(keuangan_pembayaran.tanggal) as tgl, kt.nama as tagihan_nama, kt.prodi_id, SUM(keuangan_pembayaran.jumlah) as total_jumlah",
                     )
                     ->groupBy(
-                        DB::raw(
-                            "DATE(keuangan_pembayaran_semester_pendek.tanggal)",
-                        ),
-                        "keuangan_pembayaran_semester_pendek.krs_id",
+                        DB::raw("DATE(keuangan_pembayaran.tanggal)"),
+                        "kt.nama",
+                        "kt.prodi_id",
                     )
                     ->get();
 
+                $spPayments = $this->mapSemesterPendekPaymentsFromTagihan(
+                    $spPayments,
+                );
                 $spPayments = $this->filterSemesterPendekPaymentsByJenjang(
                     $spPayments,
                     $jenjang,
@@ -1556,6 +1591,11 @@ class LaporanController extends Controller
             }
         }
 
+        $paymentNimList = $payments
+            ->pluck("nim")
+            ->filter()
+            ->unique()
+            ->values();
         $nimList = collect($krsMap)
             ->map(
                 fn($krs) => data_get(
@@ -1564,6 +1604,7 @@ class LaporanController extends Controller
                     data_get($krs, "mahasiswa.nim", data_get($krs, "mhs_nim")),
                 ),
             )
+            ->merge($paymentNimList)
             ->filter()
             ->unique()
             ->values();
@@ -1585,7 +1626,11 @@ class LaporanController extends Controller
                 $nim = data_get(
                     $krs,
                     "nim",
-                    data_get($krs, "mahasiswa.nim", data_get($krs, "mhs_nim", $item->krs_id)),
+                    data_get(
+                        $krs,
+                        "mahasiswa.nim",
+                        data_get($krs, "mhs_nim", $item->nim ?? $item->krs_id),
+                    ),
                 );
                 $mhs = $mahasiswaMap[$nim] ?? null;
                 $matchesJenjang = $this->laporanHarianSemesterPendekMatchesJenjang(
@@ -1605,7 +1650,7 @@ class LaporanController extends Controller
                     "tanggal_transaksi" => $item->tanggal
                         ? date("Y-m-d", strtotime($item->tanggal))
                         : null,
-                    "kwitansi" => $item->nomor,
+                    "kwitansi" => $item->nota ?? $item->nomor,
                     "nim" => $nim,
                     "nama" => data_get(
                         $krs,
@@ -1806,6 +1851,7 @@ class LaporanController extends Controller
             ->leftJoin("users as u", "u.id", "=", "keuangan_pembayaran.user_id")
             ->leftJoin("prodi as p", "p.id", "=", "kt.prodi_id")
             ->whereDate("keuangan_pembayaran.tanggal", $tanggal)
+            ->where("kt.nama", "NOT LIKE", "%SEMESTER PENDEK%")
             ->where("keuangan_pembayaran.jk_id", "LIKE", "%$jp->id%");
 
         if ($jenjang === "sarjana") {
@@ -1849,54 +1895,72 @@ class LaporanController extends Controller
             $this->getLaporanHarianMahasiswaMap($payments),
         );
 
-        $spPaymentsQuery = \App\Models\KeuanganPembayaranSemesterPendek::leftJoin(
-            "keuangan_jenis_pembayaran as kjp",
-            "kjp.id",
+        $spPaymentsQuery = KeuanganPembayaran::join(
+            "keuangan_tagihan as kt",
+            "kt.id",
             "=",
-            "keuangan_pembayaran_semester_pendek.jenis_pembayaran_id",
+            "keuangan_pembayaran.tagihan_id",
         )
+            ->leftJoin(
+                "keuangan_nota as kn",
+                "kn.pembayaran_id",
+                "=",
+                "keuangan_pembayaran.id",
+            )
+            ->leftJoin(
+                "keuangan_jenis_pembayaran_detail as kjpd",
+                "kjpd.pembayaran_id",
+                "=",
+                "keuangan_pembayaran.id",
+            )
+            ->leftJoin(
+                "keuangan_jenis_pembayaran as kjp",
+                "kjp.id",
+                "=",
+                "kjpd.jenis_pembayaran_id",
+            )
             ->leftJoin(
                 "users as u",
                 "u.id",
                 "=",
-                "keuangan_pembayaran_semester_pendek.user_id",
+                "keuangan_pembayaran.user_id",
             )
-            ->whereDate("keuangan_pembayaran_semester_pendek.tanggal", $tanggal)
-            ->where(
-                "keuangan_pembayaran_semester_pendek.jk_id",
-                "LIKE",
-                "%$jp->id%",
-            );
+            ->whereDate("keuangan_pembayaran.tanggal", $tanggal)
+            ->where("kt.nama", "LIKE", "%SEMESTER PENDEK%")
+            ->where("keuangan_pembayaran.jk_id", "LIKE", "%$jp->id%");
 
         if ($jenisPembayaranId) {
             $spPaymentsQuery->where(
-                "keuangan_pembayaran_semester_pendek.jenis_pembayaran_id",
+                "kjpd.jenis_pembayaran_id",
                 $jenisPembayaranId,
             );
         }
 
         if ($userId) {
             $spPaymentsQuery->where(
-                "keuangan_pembayaran_semester_pendek.user_id",
+                "keuangan_pembayaran.user_id",
                 $userId,
             );
         }
 
         $spPayments = $spPaymentsQuery
             ->select(
-                "keuangan_pembayaran_semester_pendek.id",
-                "keuangan_pembayaran_semester_pendek.nomor",
-                "keuangan_pembayaran_semester_pendek.tanggal",
-                "keuangan_pembayaran_semester_pendek.created_at",
-                "keuangan_pembayaran_semester_pendek.krs_id",
-                "keuangan_pembayaran_semester_pendek.jumlah",
+                "keuangan_pembayaran.id",
+                "keuangan_pembayaran.nomor",
+                "keuangan_pembayaran.tanggal",
+                "keuangan_pembayaran.created_at",
+                "keuangan_pembayaran.nim",
+                "keuangan_pembayaran.jumlah",
+                "kt.nama as tagihan_nama",
                 "kjp.nama as jenis_pembayaran_nama",
                 "u.name as petugas_nama",
             )
-            ->orderBy("keuangan_pembayaran_semester_pendek.created_at")
-            ->orderBy("keuangan_pembayaran_semester_pendek.id")
+            ->addSelect(DB::raw("COALESCE(kn.nota, keuangan_pembayaran.nomor) AS nota"))
+            ->orderBy("keuangan_pembayaran.created_at")
+            ->orderBy("keuangan_pembayaran.id")
             ->get();
 
+        $spPayments = $this->mapSemesterPendekPaymentsFromTagihan($spPayments);
         $rows = array_merge(
             $rows,
             $this->normalizeLaporanHarianSemesterPendekRows($spPayments, $jenjang),
@@ -2159,6 +2223,7 @@ class LaporanController extends Controller
                     $startDate . " 00:00:00",
                     $endDate . " 23:59:59",
                 ])
+                ->where("kt.nama", "NOT LIKE", "%SEMESTER PENDEK%")
                 ->where("keuangan_pembayaran.jk_id", "LIKE", "%$jp->id%");
 
             if ($jenjang === "sarjana") {
@@ -2191,25 +2256,34 @@ class LaporanController extends Controller
                     ->get();
             }
 
-            $spPaymentsQuery = \App\Models\KeuanganPembayaranSemesterPendek::join(
-                "keuangan_jenis_pembayaran as kjp",
-                "kjp.id",
+            $spPaymentsQuery = KeuanganPembayaran::join(
+                "keuangan_tagihan as kt",
+                "kt.id",
                 "=",
-                "keuangan_pembayaran_semester_pendek.jenis_pembayaran_id",
+                "keuangan_pembayaran.tagihan_id",
             )
-                ->whereBetween("keuangan_pembayaran_semester_pendek.tanggal", [
+                ->join(
+                    "keuangan_jenis_pembayaran_detail as kjpd",
+                    "kjpd.pembayaran_id",
+                    "=",
+                    "keuangan_pembayaran.id",
+                )
+                ->join(
+                    "keuangan_jenis_pembayaran as kjp",
+                    "kjp.id",
+                    "=",
+                    "kjpd.jenis_pembayaran_id",
+                )
+                ->whereBetween("keuangan_pembayaran.tanggal", [
                     $startDate . " 00:00:00",
                     $endDate . " 23:59:59",
                 ])
-                ->where(
-                    "keuangan_pembayaran_semester_pendek.jk_id",
-                    "LIKE",
-                    "%$jp->id%",
-                );
+                ->where("kt.nama", "LIKE", "%SEMESTER PENDEK%")
+                ->where("keuangan_pembayaran.jk_id", "LIKE", "%$jp->id%");
 
             if ($userId) {
                 $spPaymentsQuery->where(
-                    "keuangan_pembayaran_semester_pendek.user_id",
+                    "keuangan_pembayaran.user_id",
                     $userId,
                 );
             }
@@ -2217,10 +2291,11 @@ class LaporanController extends Controller
             if ($mode === "tahunan") {
                 $spPayments = $spPaymentsQuery
                     ->selectRaw(
-                        '"SEMESTER PENDEK" as tagihan_nama, keuangan_pembayaran_semester_pendek.krs_id, NULL as prodi_id, kjp.nama as jenis_pembayaran_nama, MONTH(keuangan_pembayaran_semester_pendek.tanggal) as bulan, SUM(keuangan_pembayaran_semester_pendek.jumlah) as total_jumlah',
+                        "kt.nama as tagihan_nama, kt.prodi_id, kjp.nama as jenis_pembayaran_nama, MONTH(keuangan_pembayaran.tanggal) as bulan, SUM(keuangan_pembayaran.jumlah) as total_jumlah",
                     )
                     ->groupBy(
-                        "keuangan_pembayaran_semester_pendek.krs_id",
+                        "kt.nama",
+                        "kt.prodi_id",
                         "kjp.nama",
                         "bulan",
                     )
@@ -2228,15 +2303,15 @@ class LaporanController extends Controller
             } else {
                 $spPayments = $spPaymentsQuery
                     ->selectRaw(
-                        '"SEMESTER PENDEK" as tagihan_nama, keuangan_pembayaran_semester_pendek.krs_id, NULL as prodi_id, kjp.nama as jenis_pembayaran_nama, SUM(keuangan_pembayaran_semester_pendek.jumlah) as total_jumlah',
+                        "kt.nama as tagihan_nama, kt.prodi_id, kjp.nama as jenis_pembayaran_nama, SUM(keuangan_pembayaran.jumlah) as total_jumlah",
                     )
-                    ->groupBy(
-                        "keuangan_pembayaran_semester_pendek.krs_id",
-                        "kjp.nama",
-                    )
+                    ->groupBy("kt.nama", "kt.prodi_id", "kjp.nama")
                     ->get();
             }
 
+            $spPayments = $this->mapSemesterPendekPaymentsFromTagihan(
+                $spPayments,
+            );
             $spPayments = $this->filterSemesterPendekPaymentsByJenjang(
                 $spPayments,
                 $jenjang,

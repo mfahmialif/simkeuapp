@@ -7,14 +7,18 @@ use App\Services\Mahasiswa;
 use App\Models\KeuanganNota;
 use Illuminate\Http\Request;
 use App\Models\KeuanganDeposit;
+use App\Models\KeuanganTagihan;
 use App\Exports\pdf\KwitansiPdf;
 use App\Models\KeuanganKamarMhs;
 use App\Models\KeuanganPembayaran;
+use App\Services\SemesterPendek;
+use App\Services\TagihanMahasiswa;
 use Illuminate\Support\Facades\DB;
 use App\Http\Controllers\Controller;
 use Illuminate\Support\Facades\Auth;
 use App\Exports\pdf\KwitansiPreviewPdf;
 use App\Models\KeuanganJenisPembayaran;
+use App\Models\KeuanganDispensasiTagihan;
 use Illuminate\Support\Facades\Validator;
 use App\Models\KeuanganJenisPembayaranDetail;
 
@@ -37,7 +41,7 @@ class PembayaranController extends Controller
 
             $pembayaranQuery = DB::table('keuangan_pembayaran');
             $pembayaranQuery->where('keuangan_pembayaran.jk_id', 'LIKE', "%" . $jkUser->id . "%");
-            
+
             if ($thAkademikId !== 'all') {
                 $pembayaranQuery->where('keuangan_pembayaran.th_akademik_id', $thAkademikId);
             }
@@ -111,7 +115,7 @@ class PembayaranController extends Controller
                 COALESCE(SUM(CASE WHEN DATE(keuangan_pembayaran.tanggal) >= ? AND keuangan_pembayaran.jk_id = 9 THEN keuangan_pembayaran.jumlah ELSE 0 END), 0) as bulanan_perempuan,
                 SUM(CASE WHEN DATE(keuangan_pembayaran.tanggal) >= ? AND keuangan_pembayaran.jk_id = 9 THEN 1 ELSE 0 END) as count_bulanan_perempuan
             ";
-            
+
             // SQL order: semua_laki(value) -> count_semua_laki -> semua_perempuan(value) -> count_semua_perempuan -> harian -> mingguan -> bulanan
             $bindingsPembayaran = array_merge(
                 $semuaBindingsSingle, // semua_laki value
@@ -144,7 +148,7 @@ class PembayaranController extends Controller
 
                 return $result;
             };
-            
+
             if ($prodiFilter === 'all') {
                 $harianDetailQuery->join('keuangan_tagihan', 'keuangan_tagihan.id', '=', 'keuangan_pembayaran.tagihan_id');
             }
@@ -158,6 +162,8 @@ class PembayaranController extends Controller
             $caseExpr = "CASE
                 WHEN keuangan_tagihan.nama LIKE '%SPP%' THEN 'SPP'
                 WHEN keuangan_tagihan.nama LIKE '%regis%' OR keuangan_tagihan.nama LIKE '%daftar%' THEN 'Registrasi'
+                WHEN keuangan_tagihan.nama LIKE '%SEMESTER PENDEK%' THEN 'Semester Pendek'
+                WHEN keuangan_tagihan.nama LIKE '%UTS%' THEN 'UTS'
                 WHEN keuangan_tagihan.nama LIKE '%UAS%' THEN 'UAS'
                 WHEN keuangan_tagihan.nama LIKE '%KKN%' OR keuangan_tagihan.nama LIKE '%PPL%' OR keuangan_tagihan.nama LIKE '%PKL%' THEN 'KKN / PPL / PKL'
                 ELSE keuangan_tagihan.nama
@@ -215,6 +221,7 @@ class PembayaranController extends Controller
         $thAkademikId = $request->th_akademik_id ?? 'all';
         $prodiFilter = $request->prodi_id ?? 'all';
         $jenisPembayaranFilter = $request->jenis_pembayaran_id ?? 'all';
+        $paymentMethodFilter = $request->payment_method ?? null;
         $userIdFilter = $request->user_id ?? 'all';
         $tanggalMulai = $request->tanggal_mulai ?? null;
         $tanggalAkhir = $request->tanggal_akhir ?? null;
@@ -226,7 +233,7 @@ class PembayaranController extends Controller
 
         $pembayaranQuery = DB::table('keuangan_pembayaran');
         $pembayaranQuery->where('keuangan_pembayaran.jk_id', 'LIKE', "%" . $jkUser->id . "%");
-        
+
         if ($thAkademikId !== 'all') {
             $pembayaranQuery->where('keuangan_pembayaran.th_akademik_id', $thAkademikId);
         }
@@ -249,6 +256,17 @@ class PembayaranController extends Controller
         if ($jenisPembayaranFilter !== 'all') {
             $pembayaranQuery->join('keuangan_jenis_pembayaran_detail', 'keuangan_jenis_pembayaran_detail.pembayaran_id', '=', 'keuangan_pembayaran.id');
             $pembayaranQuery->where('keuangan_jenis_pembayaran_detail.jenis_pembayaran_id', $jenisPembayaranFilter);
+        } elseif ($paymentMethodFilter) {
+            $pembayaranQuery->leftJoin('keuangan_jenis_pembayaran_detail', 'keuangan_jenis_pembayaran_detail.pembayaran_id', '=', 'keuangan_pembayaran.id');
+            $pembayaranQuery->leftJoin('keuangan_jenis_pembayaran', 'keuangan_jenis_pembayaran.id', '=', 'keuangan_jenis_pembayaran_detail.jenis_pembayaran_id');
+
+            if (strtoupper(trim((string) $paymentMethodFilter)) === 'LAINNYA') {
+                $pembayaranQuery->whereNull('keuangan_jenis_pembayaran.id');
+            } else {
+                $pembayaranQuery->whereRaw('UPPER(TRIM(keuangan_jenis_pembayaran.nama)) = ?', [
+                    strtoupper(trim((string) $paymentMethodFilter)),
+                ]);
+            }
         }
 
         // Filter by user_id
@@ -264,6 +282,10 @@ class PembayaranController extends Controller
                 $q->where('keuangan_tagihan.nama', 'LIKE', '%regis%')
                   ->orWhere('keuangan_tagihan.nama', 'LIKE', '%daftar%');
             });
+        } elseif ($category === 'Semester Pendek') {
+            $pembayaranQuery->where('keuangan_tagihan.nama', 'LIKE', '%SEMESTER PENDEK%');
+        } elseif ($category === 'UTS') {
+            $pembayaranQuery->where('keuangan_tagihan.nama', 'LIKE', '%UTS%');
         } elseif ($category === 'UAS') {
             $pembayaranQuery->where('keuangan_tagihan.nama', 'LIKE', '%UAS%');
         } elseif ($category === 'KKN / PPL / PKL') {
@@ -278,7 +300,7 @@ class PembayaranController extends Controller
 
         // Apply Date Filters based on period
         $period = $request->period ?? 'Harian';
-        
+
         if ($period === 'Harian') {
             $today = $tanggalMulai ? $tanggalMulai : \Carbon\Carbon::today()->format('Y-m-d');
             $pembayaranQuery->whereDate('keuangan_pembayaran.tanggal', $today);
@@ -412,6 +434,12 @@ class PembayaranController extends Controller
                 'list_tagihan'        => 'required',
                 'list_dibayar'        => 'required',
                 'list_deposit'        => 'required',
+                'list_keringanan_jenis'  => 'nullable|array',
+                'list_keringanan_jumlah' => 'nullable|array',
+                'list_keringanan_batas'  => 'nullable|array',
+                'list_keringanan_jenis.*'  => 'nullable|in:samahah,dhomin',
+                'list_keringanan_jumlah.*' => 'nullable|numeric|min:0',
+                'list_keringanan_batas.*'  => 'nullable|date',
                 'jenis_pembayaran'    => 'required',
                 'dipakai_deposit_mhs' => 'nullable',
                 'kamar_id'            => 'nullable',
@@ -423,21 +451,64 @@ class PembayaranController extends Controller
             $jk = Helper::getJenisKelaminUser();
 
             $nota = Helper::generateNota($dataValidated['tanggal'], $request->jk_id);
+            $pembayaran = null;
+            $nim = strtoupper($dataValidated['nim']);
+            $totalDepositDipakai = 0;
 
             for ($i = 0; $i < count($dataValidated['list_tagihan']); $i++) {
+                $tagihanId = $dataValidated['list_tagihan_id'][$i];
+                $dibayar = $this->normalizeNumber($dataValidated['list_dibayar'][$i] ?? 0);
+                $depositDibayar = $this->normalizeNumber($dataValidated['list_deposit'][$i] ?? 0);
+                $keringananJenis = $this->normalizeKeringananJenis($dataValidated['list_keringanan_jenis'][$i] ?? null);
+
+                if ($keringananJenis) {
+                    $jumlahKeringanan = $this->resolveKeringananJumlah(
+                        $keringananJenis,
+                        $tagihanId,
+                        $nim,
+                        $dataValidated['list_keringanan_jumlah'][$i] ?? 0,
+                        $dibayar,
+                        $depositDibayar,
+                        $i
+                    );
+
+                    $batasKeringanan = $keringananJenis === 'dhomin'
+                        ? '9999-12-31'
+                        : ($dataValidated['list_keringanan_batas'][$i] ?? null);
+
+                    if ($keringananJenis === 'samahah' && empty($batasKeringanan)) {
+                        throw \Illuminate\Validation\ValidationException::withMessages([
+                            "list_keringanan_batas.$i" => 'Batas tanggal keringanan Samahah wajib diisi.',
+                        ]);
+                    }
+
+                    $this->upsertKeringananTagihan(
+                        $dataValidated['tahun_akademik'],
+                        $tagihanId,
+                        $nim,
+                        $jumlahKeringanan,
+                        $batasKeringanan,
+                        $keringananJenis
+                    );
+                }
+
+                if ($keringananJenis === 'dhomin' || ($dibayar <= 0 && $depositDibayar <= 0)) {
+                    continue;
+                }
+
                 $nomor = Helper::generateNumber();
                 $data  = KeuanganPembayaran::where('nomor', $request->nomor)->first();
 
                 if (! $data) {
 
-                    if ($dataValidated['list_dibayar'][$i] != 0) {
+                    if ($dibayar != 0) {
                         $pembayaran = KeuanganPembayaran::create([
                             "th_akademik_id" => $dataValidated['tahun_akademik'],
                             "nomor"          => $nomor,
                             "tanggal"        => $dataValidated['tanggal'],
-                            "tagihan_id"     => $dataValidated['list_tagihan_id'][$i],
-                            "nim"            => strtoupper($dataValidated['nim']),
-                            "jumlah"         => $dataValidated['list_dibayar'][$i],
+                            "tagihan_id"     => $tagihanId,
+                            "nim"            => $nim,
+                            "jumlah"         => $dibayar,
                             "smt"            => $dataValidated['semester'],
                             "jml_sks"        => 1,
                             "jk_id"          => $request->jk_id,
@@ -465,7 +536,7 @@ class PembayaranController extends Controller
                     }
 
                     // insert data deposit jika bukan 0, auto jenis pembayaran deposit
-                    if ($dataValidated['list_deposit'][$i] != 0) {
+                    if ($depositDibayar != 0) {
                         $jenisPembayaran = KeuanganJenisPembayaran::where([
                             ['nama', 'LIKE', "%deposit%"],
                             ['kategori', 'LIKE', "%$jk->kategori%"],
@@ -475,9 +546,9 @@ class PembayaranController extends Controller
                             "th_akademik_id" => $dataValidated['tahun_akademik'],
                             "nomor"          => $nomor,
                             "tanggal"        => $dataValidated['tanggal'],
-                            "tagihan_id"     => $dataValidated['list_tagihan_id'][$i],
-                            "nim"            => strtoupper($dataValidated['nim']),
-                            "jumlah"         => $dataValidated['list_deposit'][$i],
+                            "tagihan_id"     => $tagihanId,
+                            "nim"            => $nim,
+                            "jumlah"         => $depositDibayar,
                             "smt"            => $dataValidated['semester'],
                             "jml_sks"        => 1,
                             "jk_id"          => $request->jk_id,
@@ -500,15 +571,17 @@ class PembayaranController extends Controller
                         ) {
                             Mahasiswa::updateStatusMahasiswa($dataValidated['nim'], 18);
                         }
+
+                        $totalDepositDipakai += $depositDibayar;
                     }
                 }
             }
 
             // catatan-deposit
-            if (isset($dataValidated['dipakai_deposit_mhs']) && $dataValidated['dipakai_deposit_mhs'] > 0) {
+            if ($totalDepositDipakai > 0) {
                 $deposit = KeuanganDeposit::where('nim', $dataValidated['nim'])->first();
                 if ($deposit != null) {
-                    $jumlahDepositBaru = $deposit->jumlah - $dataValidated['dipakai_deposit_mhs'];
+                    $jumlahDepositBaru = $deposit->jumlah - $totalDepositDipakai;
                     $deposit->update([
                         'jumlah' => $jumlahDepositBaru,
                     ]);
@@ -531,12 +604,14 @@ class PembayaranController extends Controller
             }
             // End Banat Tambah Kamar
 
+            SemesterPendek::syncTagihanIds($dataValidated['list_tagihan_id'], $dataValidated['nim']);
+
             DB::commit();
 
             $data = [
                 "status" => true,
                 "code" => 200,
-                "id"      => $pembayaran->id,
+                "id"      => $pembayaran ? $pembayaran->id : null,
                 "message" => "Berhasil menyimpan data",
                 'req' => $request->all()
             ];
@@ -628,6 +703,8 @@ class PembayaranController extends Controller
                 // 'user_id'        => Auth::user()->id,
             ]);
 
+            SemesterPendek::syncFromPembayaran($pembayaran);
+
             return response()->json([
                 'status'  => true,
                 'message' => 'Berhasil mengupdate data.',
@@ -648,7 +725,18 @@ class PembayaranController extends Controller
     public function destroy(string $id)
     {
         try {
-            KeuanganPembayaran::destroy($id);
+            $pembayaran = KeuanganPembayaran::with('tagihan')->find($id);
+
+            if (! $pembayaran) {
+                return [
+                    "status" => false,
+                    "code" => 404,
+                    "message" => "Data tidak ditemukan",
+                ];
+            }
+
+            $pembayaran->delete();
+            SemesterPendek::syncFromPembayaran($pembayaran);
 
             $data = [
                 "status" => true,
@@ -664,6 +752,67 @@ class PembayaranController extends Controller
             ];
             return $data;
         }
+    }
+
+    private function normalizeKeringananJenis($jenis): ?string
+    {
+        $jenis = strtolower(trim((string) $jenis));
+
+        return in_array($jenis, ['samahah', 'dhomin'], true) ? $jenis : null;
+    }
+
+    private function normalizeNumber($value): float
+    {
+        return (float) str_replace(',', '.', (string) ($value ?? 0));
+    }
+
+    private function resolveKeringananJumlah($jenis, $tagihanId, $nim, $jumlahInput, $dibayar, $deposit, $index): float
+    {
+        if (! KeuanganTagihan::whereKey($tagihanId)->exists()) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                "list_tagihan_id.$index" => 'Tagihan tidak ditemukan.',
+            ]);
+        }
+
+        $jumlah = $this->normalizeNumber($jumlahInput);
+        $sisaTagihan = max(0, (float) TagihanMahasiswa::getSisaTagihan($nim, $tagihanId));
+
+        if ($jenis === 'dhomin') {
+            return $jumlah > 0 ? min($jumlah, $sisaTagihan) : $sisaTagihan;
+        }
+
+        if ($jumlah <= 0) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                "list_keringanan_jumlah.$index" => 'Jumlah keringanan Samahah wajib lebih dari 0.',
+            ]);
+        }
+
+        $maksimalKeringanan = max(0, $sisaTagihan - $dibayar - $deposit);
+        if ($jumlah > $maksimalKeringanan) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                "list_keringanan_jumlah.$index" => 'Jumlah keringanan tidak boleh melebihi sisa tagihan setelah pembayaran.',
+            ]);
+        }
+
+        return $jumlah;
+    }
+
+    private function upsertKeringananTagihan($tahunAkademikId, $tagihanId, $nim, $jumlah, $batas, $jenisKeringanan): void
+    {
+        KeuanganDispensasiTagihan::updateOrCreate(
+            [
+                'nim' => $nim,
+                'jenis_tagihan_id' => $tagihanId,
+            ],
+            [
+                'th_akademik_id' => $tahunAkademikId,
+                'jenis' => 'Beasiswa',
+                'jumlah' => $jumlah,
+                'batas' => $batas,
+                'keterangan' => ucfirst($jenisKeringanan),
+                'user_id' => Auth::user()->id,
+            ]
+        );
     }
 
     public function kwitansi($id)

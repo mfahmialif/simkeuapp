@@ -5,17 +5,21 @@ namespace App\Http\Controllers;
 use App\Services\Helper;
 use App\Services\Jadwal;
 use App\Services\Mahasiswa;
+use App\Models\KeuanganNota;
 use App\Models\KeuanganTagihan;
 use App\Models\KeuanganSetoran;
 use App\Models\KeuanganPembayaran;
 use App\Services\SemesterPendek;
 use App\Services\TagihanMahasiswa;
+use App\Models\KeuanganJenisPembayaranDetail;
+use App\Models\KeuanganPembayaranSemesterPendek;
 use Illuminate\Support\Facades\DB;
 
 class TestingController extends Controller
 {
     public function index()
     {
+        dd($this->syncPembayaranSP());
         // $cekPembayaran = self::cekPembayaran()->getData(true);
         // dd($cekPembayaran);
         // return response()->json($cekPembayaran["data"] ?? []);
@@ -174,7 +178,12 @@ class TestingController extends Controller
                     "=",
                     "keuangan_tagihan.th_angkatan_id",
                 )
-                ->leftJoin("prodi", "prodi.id", "=", "keuangan_tagihan.prodi_id")
+                ->leftJoin(
+                    "prodi",
+                    "prodi.id",
+                    "=",
+                    "keuangan_tagihan.prodi_id",
+                )
                 ->leftJoin(
                     "form_schadule as form",
                     "form.id",
@@ -228,8 +237,16 @@ class TestingController extends Controller
                     "=",
                     "kjpd.jenis_pembayaran_id",
                 )
-                ->leftJoin("users", "users.id", "=", "keuangan_pembayaran.user_id")
-                ->whereIn("keuangan_pembayaran.tagihan_id", $tagihanUts->pluck("id"))
+                ->leftJoin(
+                    "users",
+                    "users.id",
+                    "=",
+                    "keuangan_pembayaran.user_id",
+                )
+                ->whereIn(
+                    "keuangan_pembayaran.tagihan_id",
+                    $tagihanUts->pluck("id"),
+                )
                 ->select(
                     "keuangan_pembayaran.id",
                     "keuangan_pembayaran.nomor",
@@ -250,7 +267,11 @@ class TestingController extends Controller
                     "keuangan_pembayaran.created_at",
                     "keuangan_pembayaran.updated_at",
                 )
-                ->addSelect(DB::raw("COALESCE(kn.nota, keuangan_pembayaran.nomor) as nota"))
+                ->addSelect(
+                    DB::raw(
+                        "COALESCE(kn.nota, keuangan_pembayaran.nomor) as nota",
+                    ),
+                )
                 ->orderBy("keuangan_pembayaran.tanggal")
                 ->orderBy("keuangan_pembayaran.id")
                 ->get()
@@ -259,11 +280,13 @@ class TestingController extends Controller
             $tagihanTidakSesuai = $tagihanUts
                 ->map(function ($tagihan) use ($pembayaranByTagihan) {
                     $semesterTagihan = null;
-                    if (preg_match(
-                        "/\bsemester\s+(\d+)\b/i",
-                        (string) $tagihan->nama,
-                        $matches,
-                    )) {
+                    if (
+                        preg_match(
+                            "/\bsemester\s+(\d+)\b/i",
+                            (string) $tagihan->nama,
+                            $matches,
+                        )
+                    ) {
                         $semesterTagihan = (int) $matches[1];
                     }
 
@@ -276,7 +299,8 @@ class TestingController extends Controller
                     if ($semesterTagihan === null) {
                         $masalah = "Semester pada nama tagihan tidak ditemukan";
                     } elseif ($semesterSeharusnya === null) {
-                        $masalah = "Kode tahun angkatan atau tahun akademik tidak valid";
+                        $masalah =
+                            "Kode tahun angkatan atau tahun akademik tidak valid";
                     } else {
                         if ($semesterTagihan === $semesterSeharusnya) {
                             return null;
@@ -343,7 +367,12 @@ class TestingController extends Controller
                     "=",
                     "keuangan_tagihan.th_angkatan_id",
                 )
-                ->leftJoin("prodi", "prodi.id", "=", "keuangan_tagihan.prodi_id")
+                ->leftJoin(
+                    "prodi",
+                    "prodi.id",
+                    "=",
+                    "keuangan_tagihan.prodi_id",
+                )
                 ->leftJoin(
                     "form_schadule as form",
                     "form.id",
@@ -405,7 +434,12 @@ class TestingController extends Controller
                     "=",
                     "kjpd.jenis_pembayaran_id",
                 )
-                ->leftJoin("users", "users.id", "=", "keuangan_pembayaran.user_id")
+                ->leftJoin(
+                    "users",
+                    "users.id",
+                    "=",
+                    "keuangan_pembayaran.user_id",
+                )
                 ->whereIn(
                     "keuangan_pembayaran.tagihan_id",
                     $tagihanUtsSemester8->pluck("id"),
@@ -430,42 +464,48 @@ class TestingController extends Controller
                     "keuangan_pembayaran.created_at",
                     "keuangan_pembayaran.updated_at",
                 )
-                ->addSelect(DB::raw("COALESCE(kn.nota, keuangan_pembayaran.nomor) as nota"))
+                ->addSelect(
+                    DB::raw(
+                        "COALESCE(kn.nota, keuangan_pembayaran.nomor) as nota",
+                    ),
+                )
                 ->orderBy("keuangan_pembayaran.tanggal")
                 ->orderBy("keuangan_pembayaran.id")
                 ->get()
                 ->groupBy("tagihan_id");
 
-            $data = $tagihanUtsSemester8->map(function ($tagihan) use ($pembayaranByTagihan) {
-                $pembayaran = $pembayaranByTagihan
-                    ->get($tagihan->id, collect())
-                    ->values();
+            $data = $tagihanUtsSemester8
+                ->map(function ($tagihan) use ($pembayaranByTagihan) {
+                    $pembayaran = $pembayaranByTagihan
+                        ->get($tagihan->id, collect())
+                        ->values();
 
-                return [
-                    "id" => $tagihan->id,
-                    "kode" => $tagihan->kode,
-                    "nama" => $tagihan->nama,
-                    "jumlah" => $tagihan->jumlah,
-                    "nim" => $tagihan->nim,
-                    "th_akademik_id" => $tagihan->th_akademik_id,
-                    "th_akademik_kode" => $tagihan->th_akademik_kode,
-                    "th_akademik_nama" => $tagihan->th_akademik_nama,
-                    "th_angkatan_id" => $tagihan->th_angkatan_id,
-                    "th_angkatan_kode" => $tagihan->th_angkatan_kode,
-                    "th_angkatan_nama" => $tagihan->th_angkatan_nama,
-                    "prodi_id" => $tagihan->prodi_id,
-                    "prodi_nama" => $tagihan->prodi_nama,
-                    "prodi_alias" => $tagihan->prodi_alias,
-                    "kelas_id" => $tagihan->kelas_id,
-                    "form_schadule_id" => $tagihan->form_schadule_id,
-                    "form_schadule_kode" => $tagihan->form_schadule_kode,
-                    "form_schadule_nama" => $tagihan->form_schadule_nama,
-                    "semester_tagihan" => 8,
-                    "total_pembayaran" => $pembayaran->count(),
-                    "total_dibayar" => $pembayaran->sum("jumlah"),
-                    "pembayaran" => $pembayaran,
-                ];
-            })->values();
+                    return [
+                        "id" => $tagihan->id,
+                        "kode" => $tagihan->kode,
+                        "nama" => $tagihan->nama,
+                        "jumlah" => $tagihan->jumlah,
+                        "nim" => $tagihan->nim,
+                        "th_akademik_id" => $tagihan->th_akademik_id,
+                        "th_akademik_kode" => $tagihan->th_akademik_kode,
+                        "th_akademik_nama" => $tagihan->th_akademik_nama,
+                        "th_angkatan_id" => $tagihan->th_angkatan_id,
+                        "th_angkatan_kode" => $tagihan->th_angkatan_kode,
+                        "th_angkatan_nama" => $tagihan->th_angkatan_nama,
+                        "prodi_id" => $tagihan->prodi_id,
+                        "prodi_nama" => $tagihan->prodi_nama,
+                        "prodi_alias" => $tagihan->prodi_alias,
+                        "kelas_id" => $tagihan->kelas_id,
+                        "form_schadule_id" => $tagihan->form_schadule_id,
+                        "form_schadule_kode" => $tagihan->form_schadule_kode,
+                        "form_schadule_nama" => $tagihan->form_schadule_nama,
+                        "semester_tagihan" => 8,
+                        "total_pembayaran" => $pembayaran->count(),
+                        "total_dibayar" => $pembayaran->sum("jumlah"),
+                        "pembayaran" => $pembayaran,
+                    ];
+                })
+                ->values();
 
             return response()->json([
                 "status" => true,
@@ -543,6 +583,363 @@ class TestingController extends Controller
                 "message" => $th->getMessage(),
             ]);
         }
+    }
+
+    public function syncPembayaranSP()
+    {
+        $summary = [
+            "status" => true,
+            "message" => "Sync pembayaran semester pendek selesai.",
+            "processed" => 0,
+            "migrated" => 0,
+            "skipped_existing" => 0,
+            "skipped_zero_amount" => 0,
+            "skipped_no_krs_id" => 0,
+            "skipped_no_nim" => 0,
+            "skipped_no_tagihan" => 0,
+            "errors" => [],
+        ];
+
+        $krsNimCache = [];
+
+        KeuanganPembayaranSemesterPendek::orderBy("id")->chunkById(
+            100,
+            function ($pembayaranSemesterPendek) use (
+                &$summary,
+                &$krsNimCache,
+            ) {
+                $this->primeSemesterPendekNimCache(
+                    $pembayaranSemesterPendek,
+                    $krsNimCache,
+                );
+
+                foreach ($pembayaranSemesterPendek as $pembayaranSp) {
+                    $summary["processed"]++;
+
+                    try {
+                        $krsId = (int) $pembayaranSp->krs_id;
+                        if (!$krsId) {
+                            $summary["skipped_no_krs_id"]++;
+                            continue;
+                        }
+
+                        if ((float) $pembayaranSp->jumlah <= 0) {
+                            $summary["skipped_zero_amount"]++;
+                            continue;
+                        }
+
+                        $nim = $this->resolveSemesterPendekNim(
+                            $pembayaranSp,
+                            $krsNimCache,
+                        );
+                        if (!$nim) {
+                            $summary["skipped_no_nim"]++;
+                            continue;
+                        }
+
+                        $tagihan = $this->resolveSemesterPendekTagihan(
+                            $nim,
+                            $krsId,
+                        );
+                        if (!$tagihan) {
+                            $summary["skipped_no_tagihan"]++;
+                            continue;
+                        }
+
+                        if (
+                            $this->findExistingMigratedPembayaran(
+                                $pembayaranSp,
+                                $tagihan,
+                                $nim,
+                            )
+                        ) {
+                            $summary["skipped_existing"]++;
+                            continue;
+                        }
+
+                        DB::transaction(function () use (
+                            $pembayaranSp,
+                            $tagihan,
+                            $nim,
+                            &$summary,
+                        ) {
+                            $timestamps = [
+                                "created_at" => $pembayaranSp->created_at,
+                                "updated_at" => $pembayaranSp->updated_at,
+                            ];
+
+                            $pembayaran = KeuanganPembayaran::create([
+                                "nomor" =>
+                                    $pembayaranSp->nomor ?:
+                                    Helper::generateNumber(),
+                                "tanggal" => $pembayaranSp->tanggal,
+                                "th_akademik_id" =>
+                                    $tagihan->th_akademik_id ?:
+                                    $pembayaranSp->th_akademik_id,
+                                "tagihan_id" => $tagihan->id,
+                                "nim" => $nim,
+                                "smt" => 0,
+                                "jml_sks" => 1,
+                                "jumlah" => $pembayaranSp->jumlah,
+                                "jk_id" => $pembayaranSp->jk_id,
+                                "user_id" => $pembayaranSp->user_id,
+                            ] + $timestamps);
+
+                            if ($pembayaranSp->jenis_pembayaran_id) {
+                                KeuanganJenisPembayaranDetail::firstOrCreate(
+                                    [
+                                        "pembayaran_id" => $pembayaran->id,
+                                    ],
+                                    [
+                                        "jenis_pembayaran_id" =>
+                                            $pembayaranSp->jenis_pembayaran_id,
+                                    ] + $timestamps,
+                                );
+                            }
+
+                            KeuanganNota::firstOrCreate(
+                                [
+                                    "pembayaran_id" => $pembayaran->id,
+                                ],
+                                [
+                                    "nota" =>
+                                        $pembayaranSp->nomor ?:
+                                        $pembayaran->nomor,
+                                ] + $timestamps,
+                            );
+
+                            $summary["migrated"]++;
+                        });
+                    } catch (\Throwable $th) {
+                        $summary["status"] = false;
+                        $summary["errors"][] = [
+                            "id" => $pembayaranSp->id,
+                            "krs_id" => $pembayaranSp->krs_id,
+                            "nomor" => $pembayaranSp->nomor,
+                            "message" => $th->getMessage(),
+                        ];
+                    }
+                }
+            },
+        );
+
+        return response()->json($summary);
+    }
+
+    private function primeSemesterPendekNimCache(
+        $pembayaranSemesterPendek,
+        &$krsNimCache,
+    ) {
+        $krsIds = collect($pembayaranSemesterPendek)
+            ->pluck("krs_id")
+            ->map(fn($krsId) => (int) $krsId)
+            ->filter()
+            ->unique()
+            ->reject(fn($krsId) => array_key_exists($krsId, $krsNimCache))
+            ->values();
+
+        if ($krsIds->isEmpty()) {
+            return;
+        }
+
+        try {
+            $searchKrs = SemesterPendek::searchKrs($krsIds->all());
+            $this->fillSemesterPendekNimCache($searchKrs, $krsNimCache);
+        } catch (\Throwable $th) {
+            //
+        }
+    }
+
+    private function fillSemesterPendekNimCache($krsData, &$krsNimCache)
+    {
+        foreach ($this->normalizeList($krsData) as $item) {
+            $krsId = (int) $this->pickValue($item, ["id", "krs_id"]);
+            $nim = $this->getKrsNim($item);
+
+            if ($krsId && $nim) {
+                $krsNimCache[$krsId] = strtoupper(trim((string) $nim));
+            }
+        }
+    }
+
+    private function resolveSemesterPendekNim($pembayaranSp, &$krsNimCache)
+    {
+        $krsId = (int) $pembayaranSp->krs_id;
+
+        if (array_key_exists($krsId, $krsNimCache)) {
+            return $krsNimCache[$krsId];
+        }
+
+        $nim = null;
+
+        try {
+            $searchKrs = SemesterPendek::searchKrs([$krsId]);
+            $krsItem = $this->findKrsItemById($searchKrs, $krsId);
+            $nim = $this->getKrsNim($krsItem);
+
+            if (!$nim) {
+                $krsDetail = SemesterPendek::krsDetail($krsId);
+                $nim = $this->getKrsNim($krsDetail);
+            }
+        } catch (\Throwable $th) {
+            $nim = null;
+        }
+
+        if (!$nim) {
+            $tagihan = $this->findTagihanSemesterPendekByKrsId($krsId);
+            $nim = $tagihan ? $tagihan->nim : null;
+        }
+
+        $krsNimCache[$krsId] = $nim ? strtoupper(trim((string) $nim)) : null;
+
+        return $krsNimCache[$krsId];
+    }
+
+    private function resolveSemesterPendekTagihan($nim, $krsId)
+    {
+        return $this->findTagihanSemesterPendekByKrsId($krsId, $nim);
+    }
+
+    private function findExistingMigratedPembayaran(
+        $pembayaranSp,
+        $tagihan,
+        $nim,
+    ) {
+        $query = KeuanganPembayaran::where("tanggal", $pembayaranSp->tanggal)
+            ->where("tagihan_id", $tagihan->id)
+            ->where("nim", $nim)
+            ->where("jumlah", $pembayaranSp->jumlah);
+
+        if ($pembayaranSp->nomor) {
+            $query->where("nomor", $pembayaranSp->nomor);
+        }
+
+        if ($pembayaranSp->created_at) {
+            $query->where("created_at", $pembayaranSp->created_at);
+        }
+
+        return $query->first();
+    }
+
+    private function findTagihanSemesterPendekByKrsId($krsId, $nim = null)
+    {
+        $query = KeuanganTagihan::where(
+            "nama",
+            "LIKE",
+            "SEMESTER PENDEK%",
+        )->where(function ($q) use ($krsId) {
+            $q->where("nama", "LIKE", "% - {$krsId}")
+                ->orWhere("nama", "LIKE", "% - {$krsId} - %")
+                ->orWhere("nama", "LIKE", "%-{$krsId}")
+                ->orWhere("nama", "LIKE", "%-{$krsId}-%");
+        });
+
+        if ($nim) {
+            $query->where("nim", strtoupper(trim((string) $nim)));
+        } else {
+            $query->whereNotNull("nim");
+        }
+
+        return $query->orderByDesc("id")->first();
+    }
+
+    private function findKrsItemById($data, $krsId)
+    {
+        $items = $this->normalizeList($data);
+        $fallback = null;
+
+        foreach ($items as $item) {
+            $itemKrsId = (int) $this->pickValue($item, ["id", "krs_id"]);
+
+            if (!$fallback) {
+                $fallback = $item;
+            }
+
+            if ($itemKrsId === (int) $krsId) {
+                return $item;
+            }
+        }
+
+        return $fallback;
+    }
+
+    private function getKrsNim($data)
+    {
+        return $this->pickValue($data, [
+            "nim",
+            "mhs_nim",
+            "mahasiswa.nim",
+            "mhs.nim",
+            "mst_mhs.nim",
+        ]);
+    }
+
+    private function normalizeList($data)
+    {
+        if ($data instanceof \Illuminate\Support\Collection) {
+            return $data->values()->all();
+        }
+
+        if (is_array($data)) {
+            return array_values($data);
+        }
+
+        if (is_object($data)) {
+            foreach (["data", "result", "results", "krs"] as $key) {
+                $nested = $this->readValue($data, $key);
+                if ($nested instanceof \Illuminate\Support\Collection) {
+                    return $nested->values()->all();
+                }
+                if (is_array($nested)) {
+                    return array_values($nested);
+                }
+            }
+
+            if (
+                !$this->pickValue($data, ["id", "krs_id", "nim", "mhs_nim"]) &&
+                count(get_object_vars($data)) > 0
+            ) {
+                return array_values(get_object_vars($data));
+            }
+
+            return [$data];
+        }
+
+        return [];
+    }
+
+    private function pickValue($data, $paths)
+    {
+        foreach ($paths as $path) {
+            $value = $this->readValue($data, $path);
+            if ($value !== null && $value !== "") {
+                return $value;
+            }
+        }
+
+        return null;
+    }
+
+    private function readValue($data, $path)
+    {
+        $segments = explode(".", $path);
+        $current = $data;
+
+        foreach ($segments as $segment) {
+            if (is_array($current) && array_key_exists($segment, $current)) {
+                $current = $current[$segment];
+                continue;
+            }
+
+            if (is_object($current) && isset($current->{$segment})) {
+                $current = $current->{$segment};
+                continue;
+            }
+
+            return null;
+        }
+
+        return $current;
     }
 
     public function tesPembayaranPmb(\Illuminate\Http\Request $request)

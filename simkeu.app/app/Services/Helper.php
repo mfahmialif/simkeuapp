@@ -283,23 +283,33 @@ class Helper
             "kode" => "%",
         ];
 
-        $jenisKelamin = auth()->user()->jenis_kelamin != null ? auth()->user()->jenis_kelamin : 'Laki-laki';
+        $user = auth()->user();
+        $jenisKelamin = $user->jenis_kelamin != null ? $user->jenis_kelamin : 'Laki-laki';
+
+        if ($user->role_id == 1) { // admin bisa switch scope sistem dari navbar
+            $scope = strtolower((string) (
+                request()->header('X-Simkeu-Jk-Scope')
+                ?? request()->input('jk_scope')
+                ?? request()->input('jenis_kelamin_scope')
+                ?? 'semua'
+            ));
+
+            if (in_array($scope, ['putra', 'laki-laki', 'laki', 'l', '8'])) {
+                return $putra;
+            }
+
+            if (in_array($scope, ['putri', 'perempuan', 'p', '9'])) {
+                return $putri;
+            }
+
+            return $semua;
+        }
 
         if ($jenisKelamin == 'Perempuan') {
             return $putri;
-        } else {
-            if (auth()->user()->role_id == 1) { // jika admin
-                // if (strtolower(Session::get('kategori_sistem')) == "putri") {
-                //     return $putri;
-                // }
-                // if (strtolower(Session::get('kategori_sistem')) == "putra") {
-                //     return $putra;
-                // }
-                return $semua;
-            }
-
-            return $putra;
         }
+
+        return $putra;
     }
 
     public static function isAdmin()

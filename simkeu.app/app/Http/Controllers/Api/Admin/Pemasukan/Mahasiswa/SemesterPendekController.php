@@ -103,6 +103,32 @@ class SemesterPendekController extends Controller
                     'message' => 'Data KRS Semester Pendek tidak ditemukan.',
                 ], 404);
             }
+            $data = is_array($data) ? json_decode(json_encode($data)) : $data;
+
+            $searchKrs = SemesterPendek::searchKrs([(int) $krsId]);
+            $searchItem = null;
+            foreach ((array) $searchKrs as $item) {
+                if ((int) ($item->id ?? $item->krs_id ?? 0) === (int) $krsId) {
+                    $searchItem = $item;
+                    break;
+                }
+            }
+            $searchItems = (array) $searchKrs;
+            $searchItem = $searchItem ?: ($searchItems[0] ?? null);
+
+            if ($searchItem) {
+                $data->search_krs = $searchItem;
+
+                if (! isset($data->periode_semester_pendek) && isset($searchItem->periode_semester_pendek)) {
+                    $data->periode_semester_pendek = $searchItem->periode_semester_pendek;
+                }
+
+                if (! isset($data->biaya_per_mk)) {
+                    $data->biaya_per_mk = $searchItem->biaya_per_mk
+                        ?? $searchItem->periode_semester_pendek->biaya_per_mk
+                        ?? 0;
+                }
+            }
 
             return response()->json([
                 'status' => true,

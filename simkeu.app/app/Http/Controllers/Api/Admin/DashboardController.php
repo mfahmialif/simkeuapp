@@ -169,13 +169,15 @@ class DashboardController extends Controller
     public function financeOverview(Request $request)
     {
         try {
-            $cacheKey = 'dashboard_finance_overview_' . md5(json_encode($request->only(['th_akademik_id', 'prodi_id', 'jk_id'])));
+            $cacheKey = 'dashboard_finance_overview_v2_' . md5(json_encode($request->only(['th_akademik_id', 'prodi_id', 'jk_id'])));
 
             $result = Cache::remember($cacheKey, 600, function () use ($request) {
                 // Bundle grouping via CASE expression
                 $caseExpr = "CASE
                     WHEN keuangan_tagihan.nama LIKE '%SPP%' THEN 'SPP'
                     WHEN keuangan_tagihan.nama LIKE '%regis%' OR keuangan_tagihan.nama LIKE '%daftar%' THEN 'Registrasi'
+                    WHEN keuangan_tagihan.nama LIKE '%SEMESTER PENDEK%' THEN 'Semester Pendek'
+                    WHEN keuangan_tagihan.nama LIKE '%UTS%' THEN 'UTS'
                     WHEN keuangan_tagihan.nama LIKE '%UAS%' THEN 'UAS'
                     ELSE keuangan_tagihan.nama
                 END";
@@ -183,7 +185,9 @@ class DashboardController extends Controller
                 // Subquery: hitung category name per row + jumlah pembayaran
                 $subquery = DB::table('keuangan_tagihan')
                     ->leftJoin('keuangan_pembayaran', 'keuangan_tagihan.id', '=', 'keuangan_pembayaran.tagihan_id')
-                    ->selectRaw("{$caseExpr} as category_name, keuangan_pembayaran.jumlah");
+                    ->selectRaw("{$caseExpr} as category_name")
+                    ->selectRaw("COALESCE(keuangan_pembayaran.jumlah, 0) as jumlah")
+                    ->selectRaw("keuangan_pembayaran.jk_id");
 
                 // Filter opsional pada subquery
                 if ($request->th_akademik_id) {
@@ -198,32 +202,48 @@ class DashboardController extends Controller
 
                 // Query utama: GROUP BY alias dari subquery (aman untuk strict mode)
                 $data = DB::query()->fromSub($subquery, 'sub')
-                    ->selectRaw("sub.category_name as name, COALESCE(SUM(sub.jumlah), 0) as amount")
+                    ->selectRaw("
+                        sub.category_name as name,
+                        COALESCE(SUM(sub.jumlah), 0) as amount,
+                        COALESCE(SUM(CASE WHEN sub.jk_id = 8 THEN sub.jumlah ELSE 0 END), 0) as laki_laki,
+                        COALESCE(SUM(CASE WHEN sub.jk_id = 9 THEN sub.jumlah ELSE 0 END), 0) as perempuan
+                    ")
                     ->groupBy('sub.category_name')
                     ->orderByDesc('amount')
                     ->get()
                     ->map(function ($item) {
                         return [
-                            'name' => $item->name,
-                            'amount' => (float) $item->amount,
+                            'name'       => $item->name,
+                            'amount'     => (float) $item->amount,
+                            'laki_laki'  => (float) $item->laki_laki,
+                            'perempuan'  => (float) $item->perempuan,
                         ];
                     });
 
                 $total = $data->sum('amount');
+                $totalLaki = $data->sum('laki_laki');
+                $totalPerempuan = $data->sum('perempuan');
 
                 $data = $data->map(function ($item) use ($total) {
                     $item['percent'] = $total > 0 ? number_format($item['amount'] / $total * 100, 2) : 0;
                     return $item;
                 })->values();
 
-                return ['data' => $data, 'total' => $total];
+                return [
+                    'data'            => $data,
+                    'total'           => $total,
+                    'total_laki_laki' => $totalLaki,
+                    'total_perempuan' => $totalPerempuan,
+                ];
             });
 
             return response()->json([
-                'status' => true,
-                'message' => 'Data berhasil diambil',
-                'data' => $result['data'],
-                'total' => $result['total']
+                'status'          => true,
+                'message'         => 'Data berhasil diambil',
+                'data'            => $result['data'],
+                'total'           => $result['total'],
+                'total_laki_laki' => $result['total_laki_laki'],
+                'total_perempuan' => $result['total_perempuan'],
             ]);
         } catch (\Throwable $th) {
             return response()->json([
@@ -243,7 +263,7 @@ class DashboardController extends Controller
     public function financeOverviewDetail(Request $request)
     {
         try {
-            $cacheKey = 'dashboard_finance_detail_' . md5(json_encode($request->only(['category', 'group_by', 'th_akademik_id', 'prodi_id', 'jk_id'])));
+            $cacheKey = 'dashboard_finance_detail_v2_' . md5(json_encode($request->only(['category', 'group_by', 'th_akademik_id', 'prodi_id', 'jk_id'])));
 
             $result = Cache::remember($cacheKey, 600, function () use ($request) {
                 $category = $request->category;
@@ -251,6 +271,8 @@ class DashboardController extends Controller
 
                 $query = DB::table('keuangan_tagihan')
                     ->leftJoin('keuangan_pembayaran', 'keuangan_tagihan.id', '=', 'keuangan_pembayaran.tagihan_id')
+                    ->leftJoin('keuangan_jenis_pembayaran_detail', 'keuangan_jenis_pembayaran_detail.pembayaran_id', '=', 'keuangan_pembayaran.id')
+                    ->leftJoin('keuangan_jenis_pembayaran', 'keuangan_jenis_pembayaran.id', '=', 'keuangan_jenis_pembayaran_detail.jenis_pembayaran_id')
                     ->leftJoin('th_akademik', 'keuangan_tagihan.th_akademik_id', '=', 'th_akademik.id')
                     ->leftJoin('prodi', 'keuangan_tagihan.prodi_id', '=', 'prodi.id');
 
@@ -264,6 +286,12 @@ class DashboardController extends Controller
                             $q->where('keuangan_tagihan.nama', 'LIKE', '%regis%')
                               ->orWhere('keuangan_tagihan.nama', 'LIKE', '%daftar%');
                         });
+                        break;
+                    case 'Semester Pendek':
+                        $query->where('keuangan_tagihan.nama', 'LIKE', '%SEMESTER PENDEK%');
+                        break;
+                    case 'UTS':
+                        $query->where('keuangan_tagihan.nama', 'LIKE', '%UTS%');
                         break;
                     case 'UAS':
                         $query->where('keuangan_tagihan.nama', 'LIKE', '%UAS%');
@@ -285,68 +313,136 @@ class DashboardController extends Controller
                 }
 
                 // Group by pilihan
+                $groupByColumns = [];
+                $groupByRaw = null;
                 switch ($groupBy) {
                     case 'semester':
-                        $query->selectRaw("CONCAT(th_akademik.nama, ' - ', th_akademik.semester) as label, COALESCE(SUM(keuangan_pembayaran.jumlah), 0) as amount")
-                              ->groupBy('th_akademik.id', 'th_akademik.nama', 'th_akademik.semester')
-                              ->orderBy('th_akademik.nama', 'desc');
+                        $labelExpr = "CONCAT(COALESCE(th_akademik.nama, ''), ' - ', COALESCE(th_akademik.semester, ''))";
+                        $groupByColumns = ['th_akademik.id', 'th_akademik.nama', 'th_akademik.semester'];
                         break;
 
                     case 'prodi':
-                        $query->selectRaw("COALESCE(prodi.nama, 'Tanpa Prodi') as label, COALESCE(SUM(keuangan_pembayaran.jumlah), 0) as amount")
-                              ->groupBy('prodi.id', 'prodi.nama')
-                              ->orderByDesc('amount');
+                        $labelExpr = "COALESCE(prodi.nama, 'Tanpa Prodi')";
+                        $groupByColumns = ['prodi.id', 'prodi.nama'];
                         break;
 
                     case 'bulan':
-                        $query->selectRaw("DATE_FORMAT(keuangan_pembayaran.tanggal, '%Y-%m') as label, COALESCE(SUM(keuangan_pembayaran.jumlah), 0) as amount")
-                              ->groupByRaw("DATE_FORMAT(keuangan_pembayaran.tanggal, '%Y-%m')")
-                              ->orderBy('label', 'desc');
+                        $labelExpr = "DATE_FORMAT(keuangan_pembayaran.tanggal, '%Y-%m')";
+                        $groupByRaw = "DATE_FORMAT(keuangan_pembayaran.tanggal, '%Y-%m')";
                         break;
 
                     case 'tahun':
-                        $query->selectRaw("YEAR(keuangan_pembayaran.tanggal) as label, COALESCE(SUM(keuangan_pembayaran.jumlah), 0) as amount")
-                              ->groupByRaw("YEAR(keuangan_pembayaran.tanggal)")
-                              ->orderBy('label', 'desc');
+                        $labelExpr = "YEAR(keuangan_pembayaran.tanggal)";
+                        $groupByRaw = "YEAR(keuangan_pembayaran.tanggal)";
                         break;
 
                     case 'detail':
                         // Tanpa bundle — tampilkan per nama tagihan asli
-                        $query->selectRaw("keuangan_tagihan.nama as label, COALESCE(SUM(keuangan_pembayaran.jumlah), 0) as amount")
-                              ->groupBy('keuangan_tagihan.nama')
-                              ->orderByDesc('amount');
+                        $labelExpr = "keuangan_tagihan.nama";
+                        $groupByColumns = ['keuangan_tagihan.nama'];
+                        break;
+
+                    default:
+                        $labelExpr = "keuangan_tagihan.nama";
+                        $groupByColumns = ['keuangan_tagihan.nama'];
                         break;
                 }
 
-                $data = $query->get()->map(function ($item) {
-                    return [
-                        'label'  => $item->label ?? '-',
-                        'amount' => (float) $item->amount,
-                    ];
-                });
+                $query->selectRaw("{$labelExpr} as label")
+                    ->selectRaw("COALESCE(keuangan_jenis_pembayaran.nama, 'Lainnya') as jenis_pembayaran")
+                    ->selectRaw("COALESCE(keuangan_jenis_pembayaran.kategori, 'Semua') as jenis_kelamin")
+                    ->selectRaw("COALESCE(SUM(keuangan_pembayaran.jumlah), 0) as amount")
+                    ->selectRaw("COALESCE(SUM(CASE WHEN keuangan_pembayaran.jk_id = 8 THEN keuangan_pembayaran.jumlah ELSE 0 END), 0) as laki_laki")
+                    ->selectRaw("COALESCE(SUM(CASE WHEN keuangan_pembayaran.jk_id = 9 THEN keuangan_pembayaran.jumlah ELSE 0 END), 0) as perempuan");
+
+                foreach ($groupByColumns as $column) {
+                    $query->groupBy($column);
+                }
+
+                if ($groupByRaw) {
+                    $query->groupByRaw($groupByRaw);
+                }
+
+                $query->groupBy(
+                    'keuangan_jenis_pembayaran.id',
+                    'keuangan_jenis_pembayaran.nama',
+                    'keuangan_jenis_pembayaran.kategori'
+                );
+
+                $rows = $query->get();
+
+                $data = $rows->groupBy(fn($item) => $item->label ?? '-')
+                    ->map(function ($items, $label) {
+                        $amount = $items->sum(fn($item) => (float) $item->amount);
+                        $lakiLaki = $items->sum(fn($item) => (float) $item->laki_laki);
+                        $perempuan = $items->sum(fn($item) => (float) $item->perempuan);
+
+                        $paymentMethods = $items
+                            ->filter(fn($item) => (float) $item->amount > 0)
+                            ->sortByDesc(fn($item) => (float) $item->amount)
+                            ->values()
+                            ->map(function ($item) {
+                                return [
+                                    'nama'          => $item->jenis_pembayaran,
+                                    'jenis_kelamin' => $item->jenis_kelamin,
+                                    'amount'        => (float) $item->amount,
+                                    'laki_laki'     => (float) $item->laki_laki,
+                                    'perempuan'     => (float) $item->perempuan,
+                                ];
+                            })
+                            ->values();
+
+                        return [
+                            'label'            => $label ?: '-',
+                            'amount'           => $amount,
+                            'laki_laki'        => $lakiLaki,
+                            'perempuan'        => $perempuan,
+                            'payment_methods'  => $paymentMethods,
+                        ];
+                    })
+                    ->values();
+
+                if (in_array($groupBy, ['detail', 'prodi'])) {
+                    $data = $data->sortByDesc('amount')->values();
+                } else {
+                    $data = $data->sortByDesc('label')->values();
+                }
 
                 $total = $data->sum('amount');
+                $totalLaki = $data->sum('laki_laki');
+                $totalPerempuan = $data->sum('perempuan');
 
                 $data = $data->map(function ($item) use ($total) {
                     $item['percent'] = $total > 0 ? number_format($item['amount'] / $total * 100, 2) : 0;
-                    return $item;
+                    return [
+                        'label'           => $item['label'],
+                        'amount'          => (float) $item['amount'],
+                        'laki_laki'       => (float) $item['laki_laki'],
+                        'perempuan'       => (float) $item['perempuan'],
+                        'payment_methods' => $item['payment_methods'],
+                        'percent'         => $item['percent'],
+                    ];
                 })->values();
 
                 return [
-                    'category' => $category,
-                    'group_by' => $groupBy,
-                    'data'     => $data,
-                    'total'    => $total,
+                    'category'        => $category,
+                    'group_by'        => $groupBy,
+                    'data'            => $data,
+                    'total'           => $total,
+                    'total_laki_laki' => $totalLaki,
+                    'total_perempuan' => $totalPerempuan,
                 ];
             });
 
             return response()->json([
-                'status'   => true,
-                'message'  => 'Data berhasil diambil',
-                'category' => $result['category'],
-                'group_by' => $result['group_by'],
-                'data'     => $result['data'],
-                'total'    => $result['total'],
+                'status'          => true,
+                'message'         => 'Data berhasil diambil',
+                'category'        => $result['category'],
+                'group_by'        => $result['group_by'],
+                'data'            => $result['data'],
+                'total'           => $result['total'],
+                'total_laki_laki' => $result['total_laki_laki'],
+                'total_perempuan' => $result['total_perempuan'],
             ]);
         } catch (\Throwable $th) {
             return response()->json([

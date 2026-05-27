@@ -7,9 +7,9 @@ use App\Models\KeuanganDispensasi;
 use App\Models\KeuanganDispensasiTagihan;
 use App\Services\Helper;
 use App\Services\Mahasiswa;
+use App\Services\SemesterPendek;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;;
 
 class DispensasiTagihanController extends Controller
@@ -52,7 +52,6 @@ class DispensasiTagihanController extends Controller
     }
     public function store(Request $request)
     {
-        Log::info($request->all());
         $validator = Validator::make($request->all(), [
             'th_akademik_id' => 'required|exists:th_akademik,id',
             'nim' => 'required',
@@ -83,14 +82,15 @@ class DispensasiTagihanController extends Controller
                     'keterangan' => $request->keterangan,
                 ]);
             }
+            SemesterPendek::syncTagihanIds($request->jenis_tagihan_id, $request->nim);
+
             return response()->json([
                 'status' => 'true',
                 'data' => $data,
                 'message' => 'Data dispensasi keuangan berhasil disimpan'
             ]);
-        }else {
-            Log::info('bukan array');
         }
+
         $data = KeuanganDispensasiTagihan::create([
             'th_akademik_id' => $request->th_akademik_id,
             'nim' => $request->nim,
@@ -101,6 +101,8 @@ class DispensasiTagihanController extends Controller
             'user_id' => $idUsers,
             'keterangan' => $request->keterangan,
         ]);
+        SemesterPendek::syncFromDispensasi($data);
+
         return response()->json([
             'status' => 'true',
             'data' => $data,
@@ -123,10 +125,6 @@ class DispensasiTagihanController extends Controller
         ]);
     }
     public function gabung(Request $request) {
-        
-        Log::info('masuk join');
-        Log::info('join ',$request->all());
-
         $validator = Validator::make($request->all(), [
             'jenis_tagihan_id' => 'required',
             'id'=>'required',
@@ -174,7 +172,9 @@ class DispensasiTagihanController extends Controller
                 'message' => 'Data dispensasi keuangan tidak ditemukan'
             ]);
         }
-         $idUsers = Auth::user()->id;
+        $oldTagihanId = $data->jenis_tagihan_id;
+        $oldNim = $data->nim;
+        $idUsers = Auth::user()->id;
         $data->update([
             'th_akademik_id' => $request->th_akademik_id,
             'nim' => $request->nim,
@@ -185,6 +185,11 @@ class DispensasiTagihanController extends Controller
             'user_id' => $idUsers,
             'keterangan' => $request->keterangan,
         ]);
+        if ($oldTagihanId != $data->jenis_tagihan_id || strtoupper($oldNim) !== strtoupper($data->nim)) {
+            SemesterPendek::syncTagihanIds([$oldTagihanId], $oldNim);
+        }
+        SemesterPendek::syncFromDispensasi($data);
+
         return response()->json([
             'status' => 'true',
             'data' => $data,
@@ -200,7 +205,11 @@ class DispensasiTagihanController extends Controller
                 'message' => 'Data dispensasi keuangan tidak ditemukan'
             ], 404);
         }
+        $tagihanId = $data->jenis_tagihan_id;
+        $nim = $data->nim;
         $data->delete();
+        SemesterPendek::syncTagihanIds([$tagihanId], $nim);
+
         return response()->json([
             'status' => 'true',
             'message' => 'Data dispensasi keuangan berhasil dihapus'

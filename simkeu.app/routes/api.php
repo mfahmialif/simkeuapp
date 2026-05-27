@@ -124,14 +124,13 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
             Route::get('dispensasi-uas/auto-complete/{search}', [DispensasiUasController::class, 'autoComplete']);
             Route::apiResource('dispensasi-uas', DispensasiUasController::class);
 
-            Route::get('semester-pendek/search-krs', [SemesterPendekController::class, 'searchKrs']);
-            Route::get('semester-pendek/search-krs-data', [SemesterPendekController::class, 'searchKrsData']);
             Route::get('semester-pendek/krs-detail/{krsId}', [SemesterPendekController::class, 'krsDetail']);
-            Route::get('semester-pendek/riwayat/{krsId}', [SemesterPendekController::class, 'getRiwayat']);
-            Route::get('semester-pendek/statistic', [SemesterPendekController::class, 'statistic']);
-            Route::get('semester-pendek/get-periode', [SemesterPendekController::class, 'getPeriode']);
-            Route::get('semester-pendek/kwitansi/{id}', [SemesterPendekController::class, 'kwitansi'])->name('admin.pemasukan.mahasiswa.semester-pendek.kwitansi');
-            Route::apiResource('semester-pendek', SemesterPendekController::class);
+            Route::any('semester-pendek/{path?}', function () {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Modul Semester Pendek sudah dinonaktifkan. Gunakan pembayaran mahasiswa biasa.',
+                ], 403);
+            })->where('path', '.*');
 
             Route::prefix('laporan')->group(function () {
                 Route::get('harian', [LaporanController::class, 'harian']);
