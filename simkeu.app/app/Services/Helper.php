@@ -142,11 +142,11 @@ class Helper
 
         $d = date('Y-m-d', strtotime($tanggal));
         $tanggalNota = date('dmy', strtotime($tanggal));
-        $transaksiTagihan = KeuanganPembayaran::leftJoin('keuangan_nota as kn', 'kn.pembayaran_id', 'keuangan_pembayaran.id')
+        $notas = KeuanganPembayaran::leftJoin('keuangan_nota as kn', 'kn.pembayaran_id', 'keuangan_pembayaran.id')
             ->where('keuangan_pembayaran.jk_id', $jkId)
             ->whereDate('tanggal', $d)
-            ->orderBy('kn.nota', 'desc')
-            ->first();
+            ->where('kn.nota', 'like', "$tanggalNota-%")
+            ->pluck('kn.nota');
         $jk = 0;
         if ($jkId == 9) {
             // $notaBanat = Helper::generateNotaBanat($tanggalNota);
@@ -160,15 +160,7 @@ class Helper
         if ($jkId == 8) {
             $jk = "L";
         }
-        $number = sprintf("%05d", 1);
-        if ($transaksiTagihan != null) {
-            $nomer = $transaksiTagihan->nota;
-            if ($nomer) {
-                $len = 5;
-                $n = substr($nomer, 7, $len) + 1;
-                $number = sprintf("%05d", $n);
-            }
-        }
+        $number = Helper::nextNotaNumber($notas);
 
         $uniq = Helper::randomNumber();
         return "$tanggalNota-$number-$jk-$uniq";
@@ -194,19 +186,11 @@ class Helper
     {
         $d = date('Y-m-d', strtotime($tanggal));
         $tanggalNota = date('dmy', strtotime($tanggal));
-        $transaksiTagihan = KeuanganPembayaranTambahan::whereDate('tanggal', $d)
-            ->orderBy('nota', 'desc')
-            ->first();
+        $notas = KeuanganPembayaranTambahan::whereDate('tanggal', $d)
+            ->where('nota', 'like', "$tanggalNota-%")
+            ->pluck('nota');
 
-        $number = sprintf("%05d", 1);
-        if ($transaksiTagihan != null) {
-            $nomer = $transaksiTagihan->nota;
-            if ($nomer) {
-                $len = 5;
-                $n = substr($nomer, 7, $len) + 1;
-                $number = sprintf("%05d", $n);
-            }
-        }
+        $number = Helper::nextNotaNumber($notas);
 
         $uniq = Helper::randomNumber();
         return "$tanggalNota-$number-$uniq";
@@ -230,10 +214,10 @@ class Helper
         $d = date('Y-m-d', strtotime($tanggal));
         $tanggalNota = date('dmy', strtotime($tanggal));
 
-        $transaksiSp = \App\Models\KeuanganPembayaranSemesterPendek::where('jk_id', $jkId)
+        $notas = \App\Models\KeuanganPembayaranSemesterPendek::where('jk_id', $jkId)
             ->whereDate('tanggal', $d)
-            ->orderBy('nomor', 'desc')
-            ->first();
+            ->where('nomor', 'like', "%$tanggalNota-%")
+            ->pluck('nomor');
 
         $jk = 0;
         if ($jkId == 9) {
@@ -243,20 +227,23 @@ class Helper
             $jk = "L";
         }
 
-        $number = sprintf("%05d", 1);
-        if ($transaksiSp != null) {
-            $nomer = $transaksiSp->nomor;
-            if ($nomer) {
-                // nomor format: SP-DDMMYY-NNNNN-JK-UNIQ → angka di posisi 10..14 (setelah "SP-")
-                $stripped = str_replace('SP-', '', $nomer);
-                $len = 5;
-                $n = substr($stripped, 7, $len) + 1;
-                $number = sprintf("%05d", $n);
-            }
-        }
+        $number = Helper::nextNotaNumber($notas);
 
         $uniq = Helper::randomNumber();
         return "$tanggalNota-$number-$jk-$uniq";
+    }
+
+    private static function nextNotaNumber(iterable $notas): string
+    {
+        $max = 0;
+
+        foreach ($notas as $nota) {
+            if (preg_match('/^(?:SP-)?\d{6}-(\d{5})(?:-|$)/', (string) $nota, $matches)) {
+                $max = max($max, (int) $matches[1]);
+            }
+        }
+
+        return sprintf("%05d", $max + 1);
     }
 
     /**
