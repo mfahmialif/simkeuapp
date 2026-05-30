@@ -7,13 +7,19 @@ use App\Models\Ref;
 use App\Models\Prodi;
 use App\Models\ThAkademik;
 use App\Models\FormSchadule;
+use App\Models\KeuanganNota;
 use App\Models\KeuanganTagihan;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use App\Models\KeuanganDispensasi;
 use App\Models\KeuanganPembayaran;
+use App\Models\KeuanganJenisPembayaran;
+use App\Services\Helper as SimkeuHelper;
+use App\Services\TagihanMahasiswa;
 use Illuminate\Support\Facades\DB;
 use App\Http\Controllers\Controller;
+use App\Models\KeuanganJenisPembayaranDetail;
+use Illuminate\Support\Str;
 
 class HelperController extends Controller
 {
@@ -62,10 +68,6 @@ class HelperController extends Controller
 
     public function createTagihanPerorangan(Request $request): JsonResponse
     {
-        if ($apiKeyResponse = $this->validateSimkeuv2ApiKey($request)) {
-            return $apiKeyResponse;
-        }
-
         try {
             if ($request->filled('form_schedule_kode') && ! $request->filled('form_schadule_kode')) {
                 $request->merge(['form_schadule_kode' => $request->input('form_schedule_kode')]);
@@ -192,10 +194,6 @@ class HelperController extends Controller
 
     public function deleteTagihanPerorangan(Request $request): JsonResponse
     {
-        if ($apiKeyResponse = $this->validateSimkeuv2ApiKey($request)) {
-            return $apiKeyResponse;
-        }
-
         try {
             $validated = $request->validate([
                 'nim'  => 'required|string|max:255',
@@ -254,27 +252,256 @@ class HelperController extends Controller
         }
     }
 
-    private function validateSimkeuv2ApiKey(Request $request): ?JsonResponse
+    public function createPembayaranWisuda(Request $request): JsonResponse
     {
-        $configuredKey = config('simkeu.simkeuv2_api_key');
+        try {
+            $dataValidated = $request->validate([
+                'nim'              => 'required|string|max:255',
+                'jenis_pembayaran' => 'required|string|max:255',
+                'th_akademik_kode' => 'required|string|max:255',
+                'tanggal'          => 'required|date',
+                'jumlah'           => 'nullable|numeric|min:0',
+            ]);
 
-        if (blank($configuredKey)) {
+            $nim = strtoupper(trim($dataValidated['nim']));
+            $tanggalTransaksi = Carbon::parse($dataValidated['tanggal']);
+            $tanggal = $tanggalTransaksi->toDateTimeString();
+            $createdAt = $tanggalTransaksi->copy();
+
+            $pembayaranExisting = KeuanganPembayaran::where('nim', $nim)
+                ->where('created_at', $createdAt->toDateTimeString())
+                ->first();
+
+            if ($pembayaranExisting) {
+                return response()->json([
+                    'status'  => true,
+                    'code'    => 200,
+                    'skipped' => true,
+                    'message' => 'Pembayaran wisuda sudah ada, data dilewati.',
+                    'data'    => [
+                        'id'         => $pembayaranExisting->id,
+                        'nim'        => $pembayaranExisting->nim,
+                        'created_at' => optional($pembayaranExisting->created_at)->toDateTimeString(),
+                    ],
+                ]);
+            }
+
+            $thAkademik = ThAkademik::where('kode', trim($dataValidated['th_akademik_kode']))->first();
+            if (! $thAkademik) {
+                return response()->json([
+                    'status'  => false,
+                    'code'    => 404,
+                    'message' => 'Tahun akademik tidak ditemukan.',
+                ], 404);
+            }
+
+            $semester = $this->resolveSemesterMahasiswa($nim, $thAkademik->kode);
+            if ($semester === null) {
+                return response()->json([
+                    'status'  => false,
+                    'code'    => 422,
+                    'message' => 'Semester mahasiswa tidak bisa dihitung dari NIM dan tahun akademik.',
+                ], 422);
+            }
+
+            $jenisKelamin = $this->resolveJenisKelaminMahasiswaLokal($nim);
+            if (! $jenisKelamin) {
+                return response()->json([
+                    'status'  => false,
+                    'code'    => 422,
+                    'message' => 'Jenis kelamin mahasiswa tidak ditemukan dari data pembayaran lokal.',
+                ], 422);
+            }
+
+            $tagihan = $this->resolveTagihanWisuda($nim, $thAkademik->id);
+            if (! $tagihan) {
+                return response()->json([
+                    'status'  => false,
+                    'code'    => 404,
+                    'message' => 'Tagihan wisuda mahasiswa tidak ditemukan pada tahun akademik tersebut.',
+                ], 404);
+            }
+
+            $sisaTagihan = (float) TagihanMahasiswa::getSisaTagihan($nim, $tagihan->id);
+            if ($sisaTagihan <= 0) {
+                return response()->json([
+                    'status'  => false,
+                    'code'    => 422,
+                    'message' => 'Tagihan wisuda sudah lunas.',
+                ], 422);
+            }
+
+            $jumlah = array_key_exists('jumlah', $dataValidated)
+                ? (float) $dataValidated['jumlah']
+                : $sisaTagihan;
+
+            if ($jumlah <= 0) {
+                return response()->json([
+                    'status'  => false,
+                    'code'    => 422,
+                    'message' => 'Jumlah pembayaran harus lebih dari 0.',
+                ], 422);
+            }
+
+            if ($jumlah > $sisaTagihan) {
+                return response()->json([
+                    'status'  => false,
+                    'code'    => 422,
+                    'message' => 'Jumlah pembayaran melebihi sisa tagihan wisuda.',
+                    'data'    => [
+                        'sisa_tagihan' => $sisaTagihan,
+                    ],
+                ], 422);
+            }
+
+            $jenisPembayaran = $this->resolveJenisPembayaranWisuda(
+                $dataValidated['jenis_pembayaran'],
+                $jenisKelamin['kategori']
+            );
+
+            if (! $jenisPembayaran) {
+                return response()->json([
+                    'status'  => false,
+                    'code'    => 404,
+                    'message' => 'Jenis pembayaran tidak ditemukan untuk kategori ' . $jenisKelamin['kategori'] . '.',
+                ], 404);
+            }
+
+            $pembayaran = DB::transaction(function () use (
+                $jenisKelamin,
+                $jenisPembayaran,
+                $jumlah,
+                $nim,
+                $semester,
+                $tagihan,
+                $tanggal,
+                $createdAt
+            ) {
+                $pembayaran = KeuanganPembayaran::create([
+                    'th_akademik_id' => $tagihan->th_akademik_id,
+                    'nomor'          => SimkeuHelper::generateNumber(),
+                    'tanggal'        => $tanggal,
+                    'tagihan_id'     => $tagihan->id,
+                    'nim'            => $nim,
+                    'jumlah'         => $jumlah,
+                    'smt'            => $semester,
+                    'jml_sks'        => 1,
+                    'jk_id'          => $jenisKelamin['id'],
+                    'user_id'        => null,
+                    'created_at'     => $createdAt,
+                    'updated_at'     => $createdAt,
+                ]);
+
+                KeuanganJenisPembayaranDetail::create([
+                    'jenis_pembayaran_id' => $jenisPembayaran->id,
+                    'pembayaran_id'       => $pembayaran->id,
+                    'created_at'          => $createdAt,
+                    'updated_at'          => $createdAt,
+                ]);
+
+                KeuanganNota::create([
+                    'nota'          => SimkeuHelper::generateNota($tanggal, $jenisKelamin['id']),
+                    'pembayaran_id' => $pembayaran->id,
+                    'created_at'    => $createdAt,
+                    'updated_at'    => $createdAt,
+                ]);
+
+                return $pembayaran;
+            });
+
+            return response()->json([
+                'status'  => true,
+                'code'    => 201,
+                'message' => 'Pembayaran wisuda berhasil disimpan.',
+                'data'    => [
+                    'id'                    => $pembayaran->id,
+                    'nim'                   => $nim,
+                    'th_akademik_id'        => $thAkademik->id,
+                    'th_akademik_kode'      => $thAkademik->kode,
+                    'tagihan_id'            => $tagihan->id,
+                    'tagihan_nama'          => $tagihan->nama,
+                    'jumlah'                => $pembayaran->jumlah,
+                    'semester'              => $semester,
+                    'created_at'            => optional($pembayaran->created_at)->toDateTimeString(),
+                    'jenis_kelamin'         => $jenisKelamin['nama'],
+                    'jenis_pembayaran_id'   => $jenisPembayaran->id,
+                    'jenis_pembayaran_nama' => $jenisPembayaran->nama,
+                ],
+            ], 201);
+        } catch (\Illuminate\Validation\ValidationException $e) {
             return response()->json([
                 'status'  => false,
-                'message' => 'SIMKEUV2_API_KEY belum dikonfigurasi.',
+                'message' => 'Validasi gagal.',
+                'errors'  => $e->errors(),
+            ], 422);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status'  => false,
+                'message' => $th->getMessage(),
+                'code'    => 500,
             ], 500);
         }
+    }
 
-        $providedKey = $request->header('apikey')
-            ?? $request->header('x-api-key')
-            ?? $request->header('x-simkeuv2-api-key')
-            ?? $request->header('simkeuv2-api-key');
+    private function resolveTagihanWisuda(string $nim, int $thAkademikId): ?KeuanganTagihan
+    {
+        return KeuanganTagihan::whereRaw('UPPER(nim) = ?', [$nim])
+            ->where('th_akademik_id', $thAkademikId)
+            ->where('nama', 'LIKE', '%wisuda%')
+            ->orderByDesc('id')
+            ->first();
+    }
 
-        if (! $providedKey || ! hash_equals((string) $configuredKey, (string) $providedKey)) {
-            return response()->json([
-                'status'  => false,
-                'message' => 'API key tidak valid.',
-            ], 401);
+    private function resolveJenisPembayaranWisuda(string $nama, string $kategori): ?KeuanganJenisPembayaran
+    {
+        $nama = trim($nama);
+        $namaLower = Str::lower($nama);
+
+        return KeuanganJenisPembayaran::whereRaw('LOWER(nama) = ?', [$namaLower])
+            ->where('kategori', 'LIKE', '%' . $kategori . '%')
+            ->first()
+            ?: KeuanganJenisPembayaran::where('nama', 'LIKE', '%' . $nama . '%')
+                ->where('kategori', 'LIKE', '%' . $kategori . '%')
+                ->first();
+    }
+
+    private function resolveSemesterMahasiswa(string $nim, string $thAkademikKode): ?int
+    {
+        $tahunMasuk = (int) substr($nim, 0, 4);
+        $tahunAkademik = (int) substr($thAkademikKode, 0, 4);
+        $semesterAkademik = (int) substr($thAkademikKode, -1);
+
+        if ($tahunMasuk <= 0 || $tahunAkademik <= 0 || ! in_array($semesterAkademik, [1, 2], true)) {
+            return null;
+        }
+
+        $semester = (($tahunAkademik - $tahunMasuk) * 2) + $semesterAkademik;
+
+        return $semester > 0 ? $semester : null;
+    }
+
+    private function resolveJenisKelaminMahasiswaLokal(string $nim): ?array
+    {
+        $jkId = KeuanganPembayaran::where('nim', $nim)
+            ->whereIn('jk_id', [8, 9])
+            ->orderByDesc('tanggal')
+            ->orderByDesc('id')
+            ->value('jk_id');
+
+        if ((int) $jkId === 8) {
+            return [
+                'id'       => 8,
+                'nama'     => 'Laki-Laki',
+                'kategori' => 'Putra',
+            ];
+        }
+
+        if ((int) $jkId === 9) {
+            return [
+                'id'       => 9,
+                'nama'     => 'Perempuan',
+                'kategori' => 'Putri',
+            ];
         }
 
         return null;
@@ -427,6 +654,105 @@ class HelperController extends Controller
                             AND kpt.smt = '{$getThAkademik->semester}'
                             AND UPPER(kpt.tagihan) LIKE 'UAS%'
                         ) AS status_pembayaran_tambahan_uas
+                    "),
+                ])
+                ->get();
+
+            return response()->json([
+                'status' => true,
+                'message' => 'success',
+                'data' => $data
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'message' => 422,
+                'error' => implode(' ', collect($e->errors())->flatten()->toArray()),
+                'req' => $request->all()
+            ]);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status'  => false,
+                'message' => $th->getMessage(),
+                'code'     => 500,
+            ], 500);
+        }
+    }
+
+    public function cekPembayaranUTS(Request $request)
+    {
+        try {
+            $request->validate([
+                'nim' => 'required',
+                'th_akademik_kode' => 'required'
+            ]);
+
+            $getThAkademik = ThAkademik::where('kode', $request->th_akademik_kode)->first();
+            $tahunAkademik = substr($getThAkademik->kode, 0, 4); // 2024
+            $semester = substr($getThAkademik->kode, -1);   // 1 / 2
+            $thAkademikNama = str_replace("/", "-", $getThAkademik->nama);
+
+            $nimList = collect($request->nim)
+                ->map(fn($nim) => "SELECT '{$nim}' AS nim")
+                ->implode(" UNION ALL ");
+
+            $data = DB::table(DB::raw("({$nimList}) AS mhs"))
+                ->select('mhs.nim')
+                ->addSelect([
+
+                    // HITUNG SEMESTER
+                    DB::raw("
+                        (
+                            ({$tahunAkademik} - LEFT(mhs.nim, 4)) * 2
+                            + {$semester}
+                        ) AS semester_mhs
+                    "),
+
+                    // STATUS PEMBAYARAN UTS
+                    DB::raw("
+                        EXISTS (
+                            SELECT 1
+                            FROM keuangan_pembayaran kp
+                            JOIN keuangan_tagihan kt
+                                ON kt.id = kp.tagihan_id
+                            WHERE kp.nim = mhs.nim
+                            AND UPPER(kt.nama) = CONCAT(
+                                'UTS SEMESTER ',
+                                (
+                                    ({$tahunAkademik} - LEFT(mhs.nim, 4)) * 2
+                                    + {$semester}
+                                )
+                            )
+                        ) AS status_pembayaran_uts
+                    "),
+
+                    // STATUS DISPENSASI TAGIHAN UTS
+                    DB::raw("
+                        EXISTS (
+                            SELECT 1
+                            FROM keuangan_dispensasi_tagihan kdt
+                            JOIN keuangan_tagihan kt
+                                ON kt.id = kdt.jenis_tagihan_id
+                            WHERE kdt.nim = mhs.nim
+                            AND UPPER(kt.nama) = CONCAT(
+                                'UTS SEMESTER ',
+                                (
+                                    ({$tahunAkademik} - LEFT(mhs.nim, 4)) * 2
+                                    + {$semester}
+                                )
+                            )
+                        ) AS status_uts_dispensasi_tagihan
+                    "),
+
+                    // STATUS PEMBAYARAN TAMBAHAN
+                    DB::raw("
+                        EXISTS (
+                            SELECT 1
+                            FROM keuangan_pembayaran_tambahan kpt
+                            WHERE kpt.nim = mhs.nim
+                            AND kpt.th_akademik = '{$thAkademikNama}'
+                            AND kpt.smt = '{$getThAkademik->semester}'
+                            AND UPPER(kpt.tagihan) LIKE 'UTS%'
+                        ) AS status_pembayaran_tambahan_uts
                     "),
                 ])
                 ->get();
