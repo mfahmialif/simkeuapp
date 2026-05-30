@@ -86,6 +86,7 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
             Route::get('pembayaran/kwitansi/{id}/view', [PembayaranController::class, 'kwitansiPreview'])->name('admin.pemasukan.mahasiswa.pembayaran.kwitansi.view');
             Route::get('pembayaran-statistic', [PembayaranController::class, 'statistic'])->name('admin.pemasukan.mahasiswa.pembayaran.statistic');
             Route::get('pembayaran-statistic-detail-prodi', [PembayaranController::class, 'statisticDetailProdi'])->name('admin.pemasukan.mahasiswa.pembayaran.statistic-detail-prodi');
+            Route::get('wisuda/tahun', [PembayaranController::class, 'tahunWisuda'])->name('admin.pemasukan.mahasiswa.wisuda.tahun');
             Route::apiResource('pembayaran', PembayaranController::class);
 
             Route::get('pembayaran-tambahan/kwitansi/{id}', [PembayaranTambahanController::class, 'kwitansi'])->name('admin.pemasukan.mahasiswa.pembayaran-tambahan.kwitansi');
@@ -202,6 +203,7 @@ Route::prefix('helper')->group(function () {
     Route::get('/get-enum-values', [HelperController::class, 'getEnumValues'])->middleware('auth:sanctum');
     Route::post('tagihan-perorangan', [HelperController::class, 'createTagihanPerorangan'])->middleware('simkeuv2.apikey');
     Route::delete('tagihan-perorangan', [HelperController::class, 'deleteTagihanPerorangan'])->middleware('simkeuv2.apikey');
+    Route::get('pembayaran-wisuda', [HelperController::class, 'getDataPembayaranWisuda'])->middleware('simkeuv2.apikey');
     Route::post('pembayaran-wisuda', [HelperController::class, 'createPembayaranWisuda'])->middleware('simkeuv2.apikey');
     Route::get('cek-pembayaran', [HelperController::class, 'cekPembayaran']);
     Route::get('cek-pembayaran-uas', [HelperController::class, 'cekPembayaranUas']);

@@ -13,6 +13,7 @@ use App\Models\KeuanganKamarMhs;
 use App\Models\KeuanganPembayaran;
 use App\Services\SemesterPendek;
 use App\Services\TagihanMahasiswa;
+use App\Services\Wisuda;
 use Illuminate\Support\Facades\DB;
 use App\Http\Controllers\Controller;
 use Illuminate\Support\Facades\Auth;
@@ -24,6 +25,44 @@ use App\Models\KeuanganJenisPembayaranDetail;
 
 class PembayaranController extends Controller
 {
+    public function tahunWisuda()
+    {
+        try {
+            $response = Wisuda::tahun();
+
+            if ($response === null) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Tidak ada response dari API tahun wisuda.',
+                    'code' => 502,
+                ], 502);
+            }
+
+            if (is_object($response) && isset($response->status) && $response->status === false) {
+                return response()->json([
+                    'status' => false,
+                    'message' => $response->message ?? 'Gagal mengambil data tahun wisuda.',
+                    'code' => 502,
+                    'wisuda_response' => $response,
+                ], 502);
+            }
+
+            return response()->json([
+                'status' => true,
+                'data' => $response->data ?? $response->tahun ?? $response,
+                'message' => 'Berhasil mengambil data tahun wisuda.',
+                'code' => 200,
+                'wisuda_response' => $response,
+            ]);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status' => false,
+                'message' => $th->getMessage(),
+                'code' => 500,
+            ], 500);
+        }
+    }
+
     public function statistic(Request $request)
     {
         $jkUser = Helper::getJenisKelaminUser();
@@ -443,8 +482,15 @@ class PembayaranController extends Controller
                 'jenis_pembayaran'    => 'required',
                 'dipakai_deposit_mhs' => 'nullable',
                 'kamar_id'            => 'nullable',
+                'wisuda'              => 'nullable',
                 'jk_id'               => 'required'
             ]);
+
+            $wisudaPayload = $this->resolveWisudaPayload(
+                $request->input('wisuda'),
+                $dataValidated['nim'],
+                $dataValidated['list_tagihan']
+            );
 
             DB::beginTransaction();
 
@@ -602,16 +648,37 @@ class PembayaranController extends Controller
 
             DB::commit();
 
+            $wisudaResponse = null;
+            $wisudaError = null;
+
+            if ($wisudaPayload) {
+                try {
+                    $wisudaResponse = Wisuda::registrasi($wisudaPayload);
+                    if ($wisudaResponse === null) {
+                        $wisudaError = 'Tidak ada response dari API wisuda.';
+                    } elseif (is_object($wisudaResponse) && isset($wisudaResponse->status) && $wisudaResponse->status === false) {
+                        $wisudaError = $wisudaResponse->message ?? 'Registrasi wisuda gagal.';
+                    }
+                } catch (\Throwable $th) {
+                    $wisudaError = $th->getMessage();
+                }
+            }
+
             $data = [
                 "status" => true,
                 "code" => 200,
                 "id"      => $pembayaran ? $pembayaran->id : null,
-                "message" => "Berhasil menyimpan data",
-                'req' => $request->all()
+                "message" => $wisudaError
+                    ? "Berhasil menyimpan data, tetapi registrasi wisuda gagal: $wisudaError"
+                    : "Berhasil menyimpan data",
+                'req' => $request->all(),
+                'wisuda_response' => $wisudaResponse,
             ];
             return $data;
         } catch (\Illuminate\Validation\ValidationException $e) {
-            DB::rollBack();
+            if (DB::transactionLevel() > 0) {
+                DB::rollBack();
+            }
             return response()->json([
                 'status' => false,
                 'message' => $e->errors(),
@@ -619,7 +686,9 @@ class PembayaranController extends Controller
                 'req'     => $request->all(),
             ]);
         } catch (\Throwable $th) {
-            DB::rollBack();
+            if (DB::transactionLevel() > 0) {
+                DB::rollBack();
+            }
             $data = [
                 "status" => false,
                 "code" => 500,
@@ -746,6 +815,57 @@ class PembayaranController extends Controller
             ];
             return $data;
         }
+    }
+
+    private function resolveWisudaPayload($rawWisuda, string $nim, $listTagihan): ?array
+    {
+        if (! $this->hasWisudaTagihan($listTagihan)) {
+            return null;
+        }
+
+        $payload = null;
+
+        if (is_array($rawWisuda)) {
+            $payload = $rawWisuda;
+        } elseif (is_string($rawWisuda) && trim($rawWisuda) !== '') {
+            $decoded = json_decode($rawWisuda, true);
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                $payload = $decoded;
+            }
+        }
+
+        if (! $payload) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'wisuda' => 'Detail input wisuda wajib diisi saat memilih tagihan wisuda.',
+            ]);
+        }
+
+        $payload['nim'] = strtoupper(trim((string) ($payload['nim'] ?? $nim)));
+        $payload['tahun_id'] = (int) ($payload['tahun_id'] ?? 0);
+        $payload['nama_ayah'] = $payload['nama_ayah'] ?? '-';
+        $payload['is_bayar'] = Wisuda::TANPA_BAYAR;
+        unset($payload['jenis_pembayaran'], $payload['jumlah'], $payload['keterangan']);
+
+        foreach (['nim', 'nama', 'nama_ayah', 'tahun_id', 'jenis_kelamin', 'prodi', 'ukuran_baju'] as $field) {
+            if (! isset($payload[$field]) || $payload[$field] === '' || $payload[$field] === 0) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    "wisuda.$field" => "Field $field pada detail wisuda wajib diisi.",
+                ]);
+            }
+        }
+
+        return $payload;
+    }
+
+    private function hasWisudaTagihan($listTagihan): bool
+    {
+        foreach ((array) $listTagihan as $namaTagihan) {
+            if (stripos((string) $namaTagihan, 'wisuda') !== false) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function normalizeKeringananJenis($jenis): ?string

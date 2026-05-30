@@ -252,6 +252,20 @@ class HelperController extends Controller
         }
     }
 
+    /**
+     * Contoh curl:
+     * curl -X POST "{BASE_URL}/api/helper/pembayaran-wisuda" \
+     *   -H "Accept: application/json" \
+     *   -H "Content-Type: application/json" \
+     *   -H "apikey: ISI_API_KEY_KAMU" \
+     *   -d '{
+     *     "nim": "2021001001",
+     *     "jenis_pembayaran": "transfer",
+     *     "th_akademik_kode": "20252",
+     *     "tanggal": "2026-05-30 12:00:00",
+     *     "jumlah": 500000
+     *   }'
+     */
     public function createPembayaranWisuda(Request $request): JsonResponse
     {
         try {
@@ -428,6 +442,88 @@ class HelperController extends Controller
                     'jenis_pembayaran_nama' => $jenisPembayaran->nama,
                 ],
             ], 201);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'Validasi gagal.',
+                'errors'  => $e->errors(),
+            ], 422);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status'  => false,
+                'message' => $th->getMessage(),
+                'code'    => 500,
+            ], 500);
+        }
+    }
+
+    /**
+     * Contoh curl:
+     * curl -X GET "{BASE_URL}/api/helper/pembayaran-wisuda?nim=2021001001" \
+     *   -H "Accept: application/json" \
+     *   -H "apikey: ISI_API_KEY_KAMU"
+     */
+    public function getDataPembayaranWisuda(Request $request): JsonResponse
+    {
+        try {
+            $validated = $request->validate([
+                'nim' => 'required|string|max:255',
+            ]);
+
+            $nim = strtoupper(trim($validated['nim']));
+
+            $pembayaran = KeuanganPembayaran::with([
+                'tagihan',
+                'th_akademik',
+                'keuanganNota',
+                'jenisPembayaranDetail.jenisPembayaran',
+            ])
+                ->whereRaw('UPPER(nim) = ?', [$nim])
+                ->whereHas('tagihan', function ($query) {
+                    $query->where('nama', 'LIKE', '%wisuda%');
+                })
+                ->orderByDesc('tanggal')
+                ->orderByDesc('id')
+                ->get();
+
+            return response()->json([
+                'status' => true,
+                'code' => 200,
+                'message' => 'Data pembayaran wisuda berhasil diambil.',
+                'data' => $pembayaran->map(function (KeuanganPembayaran $item) {
+                    return [
+                        'id' => $item->id,
+                        'nim' => $item->nim,
+                        'nomor' => $item->nomor,
+                        'tanggal' => $item->tanggal,
+                        'jumlah' => $item->jumlah,
+                        'semester' => $item->smt,
+                        'created_at' => optional($item->created_at)->toDateTimeString(),
+                        'updated_at' => optional($item->updated_at)->toDateTimeString(),
+                        'th_akademik' => [
+                            'id' => $item->th_akademik?->id,
+                            'kode' => $item->th_akademik?->kode,
+                            'nama' => $item->th_akademik?->nama,
+                            'semester' => $item->th_akademik?->semester,
+                        ],
+                        'tagihan' => [
+                            'id' => $item->tagihan?->id,
+                            'nama' => $item->tagihan?->nama,
+                            'jumlah' => $item->tagihan?->jumlah,
+                        ],
+                        'jenis_pembayaran' => [
+                            'id' => $item->jenisPembayaranDetail?->jenisPembayaran?->id,
+                            'nama' => $item->jenisPembayaranDetail?->jenisPembayaran?->nama,
+                        ],
+                        'nota' => $item->keuanganNota?->nota,
+                    ];
+                })->values(),
+                'summary' => [
+                    'nim' => $nim,
+                    'total_data' => $pembayaran->count(),
+                    'total_jumlah' => $pembayaran->sum('jumlah'),
+                ],
+            ]);
         } catch (\Illuminate\Validation\ValidationException $e) {
             return response()->json([
                 'status'  => false,

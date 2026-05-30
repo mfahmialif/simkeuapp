@@ -9,6 +9,7 @@ use App\Models\KeuanganNota;
 use App\Models\KeuanganTagihan;
 use App\Models\KeuanganSetoran;
 use App\Models\KeuanganPembayaran;
+use App\Services\Wisuda;
 use App\Services\SemesterPendek;
 use App\Services\TagihanMahasiswa;
 use App\Models\KeuanganJenisPembayaranDetail;
@@ -19,6 +20,8 @@ class TestingController extends Controller
 {
     public function index()
     {
+        // dd(Mahasiswa::nim("202385020016"));
+        // dd($this->tesInputWisuda());
         // dd($this->syncPembayaranSP());
         // $cekPembayaran = self::cekPembayaran()->getData(true);
         // dd($cekPembayaran);
@@ -585,6 +588,32 @@ class TestingController extends Controller
         }
     }
 
+    public function tesInputWisuda()
+    {
+        $payload = [
+            "nim" => "202385020016",
+            "nama" => "Testing Wisudaaa",
+            "nama_ayah" => "-",
+            "judul" => "Testing Integrasi Wisuda",
+            "tanggal_sidang" => now()->toDateString(),
+            "tahun_id" => 1,
+            "jenis_kelamin" => "Laki-Laki",
+            "prodi" => "AS-HK",
+            "ukuran_baju" => "M",
+            "is_bayar" => Wisuda::TANPA_BAYAR,
+        ];
+        // dd($payload);
+
+        $response = Wisuda::registrasi($payload);
+
+        return response()->json([
+            "status" => true,
+            "message" => "Registrasi wisuda sudah dikirim.",
+            "payload" => $payload,
+            "response" => $response,
+        ]);
+    }
+
     public function syncPembayaranSP()
     {
         $summary = [
@@ -942,9 +971,11 @@ class TestingController extends Controller
         return $current;
     }
 
-    public function tesPembayaranPmb(\Illuminate\Http\Request $request)
+    public function tesPembayaranPmb()
     {
         try {
+            $input = request();
+
             // Mengambil URL dan API Key dari .env
             $url = rtrim(env("pmb_url"), "/") . "/simkeu/pembayaran";
             $apiKey = env("pmb_api_key");
@@ -953,8 +984,8 @@ class TestingController extends Controller
             $response = \Illuminate\Support\Facades\Http::withHeaders([
                 "apikey" => $apiKey,
             ])->get($url, [
-                "start_date" => $request->start_date,
-                "end_date" => $request->end_date,
+                "start_date" => $input->start_date,
+                "end_date" => $input->end_date,
             ]);
 
             return response()->json([
