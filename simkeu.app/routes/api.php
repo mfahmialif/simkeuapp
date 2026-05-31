@@ -203,8 +203,8 @@ Route::prefix('helper')->group(function () {
     Route::get('/get-enum-values', [HelperController::class, 'getEnumValues'])->middleware('auth:sanctum');
     Route::post('tagihan-perorangan', [HelperController::class, 'createTagihanPerorangan'])->middleware('simkeuv2.apikey');
     Route::delete('tagihan-perorangan', [HelperController::class, 'deleteTagihanPerorangan'])->middleware('simkeuv2.apikey');
-    Route::get('pembayaran-wisuda', [HelperController::class, 'getDataPembayaranWisuda']);
-    Route::post('pembayaran-wisuda', [HelperController::class, 'createPembayaranWisuda']);
+    Route::get('pembayaran-wisuda', [HelperController::class, 'getDataPembayaranWisuda'])->middleware('simkeuv2.apikey');
+    Route::post('pembayaran-wisuda', [HelperController::class, 'createPembayaranWisuda'])->middleware('simkeuv2.apikey');
     Route::get('cek-pembayaran', [HelperController::class, 'cekPembayaran']);
     Route::get('cek-pembayaran-uas', [HelperController::class, 'cekPembayaranUas']);
     Route::get('cek-pembayaran-uts', [HelperController::class, 'cekPembayaranUTS']);
