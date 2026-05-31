@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Api\HelperController as ApiHelperController;
 use App\Services\Helper;
 use App\Services\Jadwal;
 use App\Services\Mahasiswa;
@@ -14,12 +15,14 @@ use App\Services\SemesterPendek;
 use App\Services\TagihanMahasiswa;
 use App\Models\KeuanganJenisPembayaranDetail;
 use App\Models\KeuanganPembayaranSemesterPendek;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class TestingController extends Controller
 {
     public function index()
     {
+        // dd($this->testingBayarWisuda());
         // dd(Mahasiswa::nim("202385020016"));
         // dd($this->tesInputWisuda());
         // dd($this->syncPembayaranSP());
@@ -612,6 +615,22 @@ class TestingController extends Controller
             "payload" => $payload,
             "response" => $response,
         ]);
+    }
+
+    public function testingBayarWisuda()
+    {
+        $payload = [
+            "nim" => "202085030112",
+            "jenis_pembayaran" => "cash",
+            "th_akademik_kode" => "20241",
+            "tanggal" => "2024-09-21 18:24:26",
+            "jumlah" => 3000000,
+        ];
+
+        $request = Request::create("", "POST", $payload);
+        $request->headers->set("Accept", "application/json");
+
+        return app(ApiHelperController::class)->createPembayaranWisuda($request);
     }
 
     public function syncPembayaranSP()

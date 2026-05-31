@@ -270,10 +270,6 @@ class HelperController extends Controller
     public function createPembayaranWisuda(Request $request): JsonResponse
     {
         try {
-            return response()->json([
-                'status' => true,
-                'data' => 'nais'
-            ]);
             $dataValidated = $request->validate([
                 'nim'              => 'required|string|max:255',
                 'jenis_pembayaran' => 'required|string|max:255',
@@ -344,16 +340,21 @@ class HelperController extends Controller
                 ], 422);
             }
 
-            $tagihan = $this->resolveTagihanWisuda($nim, $thAkademik->id);
+            $tagihan = $this->resolveTagihanWisuda($nim);
             if (! $tagihan) {
                 return response()->json([
                     'status'  => false,
                     'code'    => 404,
-                    'message' => 'Tagihan wisuda mahasiswa tidak ditemukan pada tahun akademik tersebut.',
+                    'message' => 'Tagihan wisuda mahasiswa tidak ditemukan pada daftar tagihan.',
                 ], 404);
             }
 
-            $sisaTagihan = (float) TagihanMahasiswa::getSisaTagihan($nim, $tagihan->id);
+            $sisaTagihan = data_get($tagihan, 'sisa');
+            if ($sisaTagihan === null) {
+                $sisaTagihan = TagihanMahasiswa::getSisaTagihan($nim, $tagihan->id);
+            }
+            $sisaTagihan = (float) $sisaTagihan;
+
             if ($sisaTagihan <= 0) {
                 return response()->json([
                     'status'  => false,
@@ -405,11 +406,12 @@ class HelperController extends Controller
                 $nim,
                 $semester,
                 $tagihan,
+                $thAkademik,
                 $tanggal,
                 $createdAt
             ) {
                 $pembayaran = KeuanganPembayaran::create([
-                    'th_akademik_id' => $tagihan->th_akademik_id,
+                    'th_akademik_id' => $thAkademik->id,
                     'nomor'          => SimkeuHelper::generateNumber(),
                     'tanggal'        => $tanggal,
                     'tagihan_id'     => $tagihan->id,
@@ -557,13 +559,15 @@ class HelperController extends Controller
         }
     }
 
-    private function resolveTagihanWisuda(string $nim, int $thAkademikId): ?KeuanganTagihan
+    private function resolveTagihanWisuda(string $nim): ?KeuanganTagihan
     {
-        return KeuanganTagihan::whereRaw('UPPER(nim) = ?', [$nim])
-            ->where('th_akademik_id', $thAkademikId)
-            ->where('nama', 'LIKE', '%wisuda%')
-            ->orderByDesc('id')
-            ->first();
+        $dataTagihan = TagihanMahasiswa::tagihan($nim);
+        $listTagihan = $dataTagihan['list_tagihan'] ?? [];
+
+        return collect($listTagihan)
+            ->first(function ($tagihan) {
+                return stripos((string) data_get($tagihan, 'nama'), 'wisuda') !== false;
+            });
     }
 
     private function resolveJenisPembayaranWisuda(string $nama, string $kategori): ?KeuanganJenisPembayaran
