@@ -15,6 +15,7 @@ use App\Models\KeuanganDispensasi;
 use App\Models\KeuanganPembayaran;
 use App\Models\KeuanganJenisPembayaran;
 use App\Services\Helper as SimkeuHelper;
+use App\Services\Mahasiswa;
 use App\Services\TagihanMahasiswa;
 use Illuminate\Support\Facades\DB;
 use App\Http\Controllers\Controller;
@@ -282,6 +283,18 @@ class HelperController extends Controller
             $tanggal = $tanggalTransaksi->toDateTimeString();
             $createdAt = $tanggalTransaksi->copy();
 
+            $mahasiswa = $this->resolveMahasiswa($nim);
+            if (! $mahasiswa) {
+                return response()->json([
+                    'status'  => false,
+                    'code'    => 404,
+                    'message' => 'Mahasiswa tidak ditemukan.',
+                    'data'    => [
+                        'nim' => $nim,
+                    ],
+                ], 404);
+            }
+
             $pembayaranExisting = KeuanganPembayaran::where('nim', $nim)
                 ->where('created_at', $createdAt->toDateTimeString())
                 ->first();
@@ -318,12 +331,12 @@ class HelperController extends Controller
                 ], 422);
             }
 
-            $jenisKelamin = $this->resolveJenisKelaminMahasiswaLokal($nim);
+            $jenisKelamin = $this->resolveJenisKelaminMahasiswa($mahasiswa);
             if (! $jenisKelamin) {
                 return response()->json([
                     'status'  => false,
                     'code'    => 422,
-                    'message' => 'Jenis kelamin mahasiswa tidak ditemukan dari data pembayaran lokal.',
+                    'message' => 'Jenis kelamin mahasiswa tidak ditemukan dari data mahasiswa.',
                 ], 422);
             }
 
@@ -430,6 +443,7 @@ class HelperController extends Controller
                 'data'    => [
                     'id'                    => $pembayaran->id,
                     'nim'                   => $nim,
+                    'mahasiswa_nama'        => data_get($mahasiswa, 'nama'),
                     'th_akademik_id'        => $thAkademik->id,
                     'th_akademik_kode'      => $thAkademik->kode,
                     'tagihan_id'            => $tagihan->id,
@@ -576,15 +590,71 @@ class HelperController extends Controller
         return $semester > 0 ? $semester : null;
     }
 
-    private function resolveJenisKelaminMahasiswaLokal(string $nim): ?array
+    private function resolveMahasiswa(string $nim)
     {
-        $jkId = KeuanganPembayaran::where('nim', $nim)
-            ->whereIn('jk_id', [8, 9])
-            ->orderByDesc('tanggal')
-            ->orderByDesc('id')
-            ->value('jk_id');
+        $mahasiswa = Mahasiswa::nim($nim);
 
-        if ((int) $jkId === 8) {
+        if (! $mahasiswa) {
+            return null;
+        }
+
+        if (is_array($mahasiswa)) {
+            if (empty($mahasiswa)) {
+                return null;
+            }
+
+            if (array_key_exists('nim', $mahasiswa)) {
+                return $mahasiswa;
+            }
+
+            return collect($mahasiswa)->first(function ($item) use ($nim) {
+                return strtoupper((string) data_get($item, 'nim')) === $nim;
+            }) ?: collect($mahasiswa)->first();
+        }
+
+        if (! data_get($mahasiswa, 'nim')) {
+            return null;
+        }
+
+        return $mahasiswa;
+    }
+
+    private function resolveJenisKelaminMahasiswa($mahasiswa): ?array
+    {
+        $jkId = (int) data_get($mahasiswa, 'jk_id', data_get($mahasiswa, 'jk.id'));
+        $jenisKelamin = $this->formatJenisKelaminMahasiswa($jkId);
+
+        if ($jenisKelamin) {
+            return $jenisKelamin;
+        }
+
+        $candidates = [
+            data_get($mahasiswa, 'jk.kode'),
+            data_get($mahasiswa, 'jk.nama'),
+            data_get($mahasiswa, 'jk.kategori'),
+            data_get($mahasiswa, 'jenis_kelamin'),
+            data_get($mahasiswa, 'gender'),
+        ];
+
+        foreach ($candidates as $candidate) {
+            $normalized = Str::lower(trim((string) $candidate));
+            $normalized = str_replace([' ', '_'], '-', $normalized);
+
+            if (in_array($normalized, ['l', 'laki', 'laki-laki', 'putra', 'pria', 'male'], true)) {
+                return $this->formatJenisKelaminMahasiswa(8);
+            }
+
+            if (in_array($normalized, ['p', 'perempuan', 'putri', 'wanita', 'female'], true)) {
+                return $this->formatJenisKelaminMahasiswa(9);
+            }
+        }
+
+        return null;
+    }
+
+    private function formatJenisKelaminMahasiswa(int $jkId): ?array
+    {
+        if ($jkId === 8) {
             return [
                 'id'       => 8,
                 'nama'     => 'Laki-Laki',
@@ -592,7 +662,7 @@ class HelperController extends Controller
             ];
         }
 
-        if ((int) $jkId === 9) {
+        if ($jkId === 9) {
             return [
                 'id'       => 9,
                 'nama'     => 'Perempuan',
@@ -602,7 +672,6 @@ class HelperController extends Controller
 
         return null;
     }
-
 
     public function cekPembayaran(Request $request)
     {
