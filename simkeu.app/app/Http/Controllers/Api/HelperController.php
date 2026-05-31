@@ -414,7 +414,7 @@ class HelperController extends Controller
                     'smt'            => $semester,
                     'jml_sks'        => 1,
                     'jk_id'          => $jenisKelamin['id'],
-                    'user_id'        => null,
+                    'user_id'        => 8,
                     'created_at'     => $createdAt,
                     'updated_at'     => $createdAt,
                 ]);
@@ -946,7 +946,7 @@ class HelperController extends Controller
     {
         try {
             $jkUser = \App\Services\Helper::getJenisKelaminUser();
-            
+
             $query = \App\Models\User::whereHas('role', function ($q) {
                 $q->whereIn('name', ['kabag', 'staff']);
             });
