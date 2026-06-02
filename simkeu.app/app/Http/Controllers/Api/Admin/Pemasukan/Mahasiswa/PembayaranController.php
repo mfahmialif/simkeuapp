@@ -492,13 +492,15 @@ class PembayaranController extends Controller
                 $dataValidated['list_tagihan']
             );
 
+            $nim = strtoupper($dataValidated['nim']);
+            $this->ensureTagihanCanBePaid($nim, $dataValidated['list_tagihan_id']);
+
             DB::beginTransaction();
 
             $jk = Helper::getJenisKelaminUser();
 
             $nota = Helper::generateNota($dataValidated['tanggal'], $request->jk_id);
             $pembayaran = null;
-            $nim = strtoupper($dataValidated['nim']);
             $totalDepositDipakai = 0;
 
             for ($i = 0; $i < count($dataValidated['list_tagihan']); $i++) {
@@ -866,6 +868,31 @@ class PembayaranController extends Controller
         }
 
         return false;
+    }
+
+    private function ensureTagihanCanBePaid(string $nim, $tagihanIds): void
+    {
+        $ids = array_values(array_filter((array) $tagihanIds, function ($id) {
+            return $id !== null && $id !== '';
+        }));
+
+        if (empty($ids)) {
+            return;
+        }
+
+        $tagihan = KeuanganTagihan::whereIn('id', $ids)->get(['id', 'nama']);
+        $tagihan = TagihanMahasiswa::markPaymentEligibility($tagihan, $nim);
+        $blocked = collect($tagihan)
+            ->filter(fn ($item) => ! empty($item->tidak_bisa_dibayar))
+            ->pluck('nama')
+            ->values()
+            ->all();
+
+        if (! empty($blocked)) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'list_tagihan_id' => 'Tagihan ' . implode(', ', $blocked) . ' belum memenuhi syarat dan tidak bisa dibayar.',
+            ]);
+        }
     }
 
     private function normalizeKeringananJenis($jenis): ?string
