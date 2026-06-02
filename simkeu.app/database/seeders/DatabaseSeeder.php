@@ -51,6 +51,24 @@ class DatabaseSeeder extends Seeder
                 'name' => 'user',
             ]
         );
+        DB::table('role')->insert(
+            [
+                'name' => 'barokahdosen_tatapmuka',
+                'keterangan' => 'Barokah Dosen Tatapmuka',
+            ]
+        );
+        DB::table('role')->insert(
+            [
+                'name' => 'barokahdosen_kegiatan',
+                'keterangan' => 'Barokah Dosen Kegiatan',
+            ]
+        );
+        DB::table('role')->insert(
+            [
+                'name' => 'barokahdosen_bulanan',
+                'keterangan' => 'Barokah Dosen Bulanan',
+            ]
+        );
 
         DB::table('users')->insert([
             'id'            => 8,

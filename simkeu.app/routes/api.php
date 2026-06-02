@@ -50,7 +50,7 @@ Route::prefix('auth')->group(function () {
     });
 });
 
-Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuangan,kabag,staff,rumahtangga,barokahdosen'])->group(function () {
+Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuangan,kabag,staff,rumahtangga,barokahdosen_tatapmuka,barokahdosen_kegiatan,barokahdosen_bulanan'])->group(function () {
 // Route::prefix('admin')->group(function () {
     Route::prefix('dashboard')->group(function () {
         Route::get('/widget', [DashboardController::class, 'widget'])->name('admin.dashboard.widget');
