@@ -80,14 +80,25 @@ class SlipGajiPdf
 
         // Jam & hari
         self::rowSalary($fpdf, "Jam", $data->jam ?? 0);
-        self::rowSalary($fpdf, "Hari", $data->hari ?? 0);
+        self::rowSalary($fpdf, "Hari Transport Motor", $data->hari_transport_motor ?? $data->hari ?? 0);
+        self::rowSalary($fpdf, "Hari Mobil Tol", $data->hari_transport_mobil_tol ?? 0);
+        self::rowSalary($fpdf, "Hari Mobil Tanpa Tol", $data->hari_transport_mobil_tanpa_tol ?? $data->hari_transport_mobil ?? 0);
 
         $fpdf->Cell(105, 1, "", "B", 1);
         $fpdf->Ln(2);
 
         // Barokah & Transport
-        self::rowSalaryRp($fpdf, "Barokah", $data->barokah ?? 0);
-        self::rowSalaryRp($fpdf, "Transport", $data->transport ?? 0);
+        self::rowSalaryRp($fpdf, "Transport Motor", $data->transport_motor ?? $data->transport ?? 0);
+        self::rowSalaryRp($fpdf, "Transport Mobil Tol", $data->transport_mobil_tol ?? 0);
+        self::rowSalaryRp($fpdf, "Transport Mobil Tanpa Tol", $data->transport_mobil_tanpa_tol ?? $data->transport_mobil ?? 0);
+        self::rowSalaryRp($fpdf, "Total Nominal Transport", $data->transport ?? 0);
+        self::rowSalaryRp($fpdf, "Barokah Mengajar Biasa", $data->barokah_mengajar_biasa ?? $data->barokah ?? 0);
+        self::rowSalaryRp($fpdf, "Barokah Mengajar DD", $data->barokah_mengajar_double_degree ?? 0);
+        self::rowSalaryRp($fpdf, "Barokah UAS / Mahasiswa", $data->barokah_uas ?? 0);
+        self::rowSalary($fpdf, "Jumlah Mahasiswa UAS", $data->jumlah_mahasiswa_uas ?? 0);
+        self::rowSalaryRp($fpdf, "Barokah Sempro", $data->barokah_sempro ?? 0);
+        self::rowText($fpdf, "Jenis Pembayaran", $data->jenis_pembayaran ?? "-");
+        self::rowText($fpdf, "Keterangan", $data->keterangan ?? "-");
 
         // Hitung total
         $penerimaan = $data->total;
@@ -158,5 +169,12 @@ class SlipGajiPdf
         $formatted = "Rp. " . number_format($value, 0, ',', '.');
 
         $fpdf->Cell(40, 6, $formatted, 0, 1, 'R');
+    }
+
+    private static function rowText($fpdf, $label, $value)
+    {
+        $fpdf->Cell(60, 6, $label, 0, 0);
+        $fpdf->Cell(5, 6, ":", 0, 0);
+        $fpdf->Cell(40, 6, $value, 0, 1, 'R');
     }
 }

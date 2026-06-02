@@ -37,7 +37,8 @@ use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\DispensasiTagihanControll
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\PembayaranTambahanController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\PemasukanPengeluaranController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\SemesterPendekController;
-use App\Http\Controllers\Api\Admin\Pengeluaran\DosenController as PengeluaranDosenController;
+use App\Http\Controllers\Api\Admin\Pengeluaran\DosenTatapMukaController;
+use App\Http\Controllers\Api\Admin\Pengeluaran\DosenKegiatanController as PengeluaranDosenKegiatanController;
 
 Route::prefix('auth')->group(function () {
     Route::post('/login', [AuthController::class, 'login']);
@@ -152,9 +153,11 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
     });
 
     Route::prefix('pengeluaran')->group(function () {
-        Route::get('/dosen/print-slip/{id}', [PengeluaranDosenController::class, 'printSlip']);
-        Route::get('/dosen/export-excel', [PengeluaranDosenController::class, 'exportExcel']);
-        Route::apiResource('dosen', PengeluaranDosenController::class);
+        Route::get('/dosen/by-date', [DosenTatapMukaController::class, 'byDate']);
+        Route::get('/dosen/print-slip/{id}', [DosenTatapMukaController::class, 'printSlip']);
+        Route::get('/dosen/export-excel', [DosenTatapMukaController::class, 'exportExcel']);
+        Route::apiResource('dosen', DosenTatapMukaController::class);
+        Route::apiResource('dosen-kegiatan', PengeluaranDosenKegiatanController::class);
     });
     Route::apiResource('pengeluaran', PengeluaranController::class);
 
@@ -212,11 +215,11 @@ Route::prefix('helper')->group(function () {
 });
 
 Route::prefix('pengeluaran')->group(function () {
-    Route::apiResource('dosen', PengeluaranDosenController::class);
+    Route::apiResource('dosen', DosenTatapMukaController::class);
 });
 // Route::get('admin/pemasukan/mahasiswa/uas-susulann/excel', [UasSusulanController::class, 'excel']);
-Route::get('/testing/{id}', [PengeluaranDosenController::class, 'printSlip']);
-Route::get('/testingexcel', [PengeluaranDosenController::class, 'exportExcel']);
+Route::get('/testing/{id}', [DosenTatapMukaController::class, 'printSlip']);
+Route::get('/testingexcel', [DosenTatapMukaController::class, 'exportExcel']);
 // Route::get('testing/{nim}', [MahasiswaController::class, 'cekPelanggaran']);
 // Route::get('testing2', [CekTagihanController::class, 'excel']);
 // Route::get('admin/pemasukan/mahasiswa/pembayaran/kwitansi/{id}', [PembayaranController::class, 'kwitansi'])->name('admin.pemasukan.mahasiswa.kwitansi.view');
