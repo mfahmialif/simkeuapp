@@ -50,6 +50,8 @@ class DosenTatapMukaController extends Controller
                     ->orWhere('keuangan_pengeluaran_dosen.barokah_uas', 'LIKE', "%$request->search%")
                     ->orWhere('keuangan_pengeluaran_dosen.jumlah_mahasiswa_uas', 'LIKE', "%$request->search%")
                     ->orWhere('keuangan_pengeluaran_dosen.barokah_sempro', 'LIKE', "%$request->search%")
+                    ->orWhere('keuangan_pengeluaran_dosen.jam_sempro', 'LIKE', "%$request->search%")
+                    ->orWhere('keuangan_pengeluaran_dosen.keterangan_sempro', 'LIKE', "%$request->search%")
                     ->orWhere('keuangan_pengeluaran_dosen.total', 'LIKE', "%$request->search%")
                     ->orWhere('keuangan_pengeluaran_dosen.jenis_pembayaran', 'LIKE', "%$request->search%")
                     ->orWhere('keuangan_pengeluaran_dosen.keterangan', 'LIKE', "%$request->search%")
@@ -90,6 +92,7 @@ class DosenTatapMukaController extends Controller
             'barokah_uas' => 'keuangan_pengeluaran_dosen.barokah_uas',
             'jumlah_mahasiswa_uas' => 'keuangan_pengeluaran_dosen.jumlah_mahasiswa_uas',
             'barokah_sempro' => 'keuangan_pengeluaran_dosen.barokah_sempro',
+            'jam_sempro' => 'keuangan_pengeluaran_dosen.jam_sempro',
             'total' => 'keuangan_pengeluaran_dosen.total',
             'jenis_pembayaran' => 'keuangan_pengeluaran_dosen.jenis_pembayaran',
             'nama_dosen' => 'pegawai.nama',
@@ -295,18 +298,16 @@ class DosenTatapMukaController extends Controller
             'keuangan_pengeluaran_dosen.hari',
             'keuangan_pengeluaran_dosen.hari_transport_motor',
             'keuangan_pengeluaran_dosen.hari_transport_mobil',
-            'keuangan_pengeluaran_dosen.hari_transport_mobil_tol',
-            'keuangan_pengeluaran_dosen.hari_transport_mobil_tanpa_tol',
             'keuangan_pengeluaran_dosen.transport_motor',
             'keuangan_pengeluaran_dosen.transport_mobil',
-            'keuangan_pengeluaran_dosen.transport_mobil_tol',
-            'keuangan_pengeluaran_dosen.transport_mobil_tanpa_tol',
             'keuangan_pengeluaran_dosen.transport',
             DB::raw('COALESCE(keuangan_pengeluaran_dosen.barokah_mengajar_biasa, keuangan_pengeluaran_dosen.barokah) as barokah_mengajar_biasa'),
             'keuangan_pengeluaran_dosen.barokah_mengajar_double_degree',
             'keuangan_pengeluaran_dosen.barokah_uas',
             'keuangan_pengeluaran_dosen.jumlah_mahasiswa_uas',
             'keuangan_pengeluaran_dosen.barokah_sempro',
+            'keuangan_pengeluaran_dosen.jam_sempro',
+            'keuangan_pengeluaran_dosen.keterangan_sempro',
             'keuangan_pengeluaran_dosen.total',
             'keuangan_pengeluaran_dosen.jenis_pembayaran',
             'keuangan_pengeluaran_dosen.keterangan',
@@ -332,6 +333,8 @@ class DosenTatapMukaController extends Controller
                     ->orWhere('keuangan_pengeluaran_dosen.barokah_uas', 'LIKE', "%$request->search%")
                     ->orWhere('keuangan_pengeluaran_dosen.jumlah_mahasiswa_uas', 'LIKE', "%$request->search%")
                     ->orWhere('keuangan_pengeluaran_dosen.barokah_sempro', 'LIKE', "%$request->search%")
+                    ->orWhere('keuangan_pengeluaran_dosen.jam_sempro', 'LIKE', "%$request->search%")
+                    ->orWhere('keuangan_pengeluaran_dosen.keterangan_sempro', 'LIKE', "%$request->search%")
                     ->orWhere('keuangan_pengeluaran_dosen.total', 'LIKE', "%$request->search%")
                     ->orWhere('keuangan_pengeluaran_dosen.jenis_pembayaran', 'LIKE', "%$request->search%")
                     ->orWhere('keuangan_pengeluaran_dosen.keterangan', 'LIKE', "%$request->search%")
@@ -423,6 +426,8 @@ class DosenTatapMukaController extends Controller
             'barokah_uas' => 'nullable|numeric|min:0',
             'jumlah_mahasiswa_uas' => 'nullable|numeric|min:0',
             'barokah_sempro' => 'nullable|numeric|min:0',
+            'jam_sempro' => 'nullable|numeric|min:0',
+            'keterangan_sempro' => 'nullable|string',
             'total' => 'nullable|numeric|min:0',
             'jenis_pembayaran' => 'required|in:' . implode(',', self::JENIS_PEMBAYARAN),
             'bukti_transfer' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:4096',
@@ -437,12 +442,13 @@ class DosenTatapMukaController extends Controller
         $barokahUas = $this->number($request->barokah_uas);
         $jumlahMahasiswaUas = $this->number($request->jumlah_mahasiswa_uas);
         $barokahSempro = $this->number($request->barokah_sempro);
+        $jamSempro = $request->has('jam_sempro')
+            ? $this->number($request->jam_sempro)
+            : ($barokahSempro > 0 ? 1 : 0);
         $transportMotor = $this->number($request->transport_motor);
-        $transportMobilTol = $this->number($request->transport_mobil_tol);
-        $transportMobilTanpaTol = $this->number($request->transport_mobil_tanpa_tol);
-        if (! $request->has('transport_mobil_tol') && ! $request->has('transport_mobil_tanpa_tol')) {
-            $transportMobilTanpaTol = $this->number($request->transport_mobil);
-        }
+        $transportMobil = $request->has('transport_mobil')
+            ? $this->number($request->transport_mobil)
+            : $this->number($request->transport_mobil_tol) + $this->number($request->transport_mobil_tanpa_tol);
         if (
             ! $request->has('transport_motor')
             && ! $request->has('transport_mobil')
@@ -451,18 +457,15 @@ class DosenTatapMukaController extends Controller
         ) {
             $transportMotor = $this->number($request->transport);
         }
-        $transportMobil = $transportMobilTol + $transportMobilTanpaTol;
         $transport = $transportMotor + $transportMobil;
         $jam = $this->number($request->jam);
         $jamMengajarDoubleDegree = $request->has('jam_mengajar_double_degree')
             ? $this->number($request->jam_mengajar_double_degree)
             : $jam;
         $hariTransportMotor = $this->number($request->hari_transport_motor);
-        $hariTransportMobilTol = $this->number($request->hari_transport_mobil_tol);
-        $hariTransportMobilTanpaTol = $this->number($request->hari_transport_mobil_tanpa_tol);
-        if (! $request->has('hari_transport_mobil_tol') && ! $request->has('hari_transport_mobil_tanpa_tol')) {
-            $hariTransportMobilTanpaTol = $this->number($request->hari_transport_mobil);
-        }
+        $hariTransportMobil = $request->has('hari_transport_mobil')
+            ? $this->number($request->hari_transport_mobil)
+            : $this->number($request->hari_transport_mobil_tol) + $this->number($request->hari_transport_mobil_tanpa_tol);
         if (
             ! $request->has('hari_transport_motor')
             && ! $request->has('hari_transport_mobil')
@@ -471,7 +474,6 @@ class DosenTatapMukaController extends Controller
         ) {
             $hariTransportMotor = $this->number($request->hari);
         }
-        $hariTransportMobil = $hariTransportMobilTol + $hariTransportMobilTanpaTol;
         $hari = $hariTransportMotor + $hariTransportMobil;
 
         $data->tanggal = $request->tanggal;
@@ -481,35 +483,36 @@ class DosenTatapMukaController extends Controller
         $data->hari = $hari;
         $data->hari_transport_motor = $hariTransportMotor;
         $data->hari_transport_mobil = $hariTransportMobil;
-        $data->hari_transport_mobil_tol = $hariTransportMobilTol;
-        $data->hari_transport_mobil_tanpa_tol = $hariTransportMobilTanpaTol;
+        $data->hari_transport_mobil_tol = 0;
+        $data->hari_transport_mobil_tanpa_tol = $hariTransportMobil;
         $data->jam = $jam;
         $data->jam_mengajar_double_degree = $jamMengajarDoubleDegree;
         $data->transport = $transport;
         $data->transport_motor = $transportMotor;
         $data->transport_mobil = $transportMobil;
-        $data->transport_mobil_tol = $transportMobilTol;
-        $data->transport_mobil_tanpa_tol = $transportMobilTanpaTol;
+        $data->transport_mobil_tol = 0;
+        $data->transport_mobil_tanpa_tol = $transportMobil;
         $data->barokah = $barokahMengajarBiasa;
         $data->barokah_mengajar_biasa = $barokahMengajarBiasa;
         $data->barokah_mengajar_double_degree = $barokahMengajarDoubleDegree;
         $data->barokah_uas = $barokahUas;
         $data->jumlah_mahasiswa_uas = $jumlahMahasiswaUas;
         $data->barokah_sempro = $barokahSempro;
+        $data->jam_sempro = $jamSempro;
+        $data->keterangan_sempro = $request->keterangan_sempro;
         $data->total = $this->calculateTotal(
             $transportMotor,
             $hariTransportMotor,
-            $transportMobilTol,
-            $hariTransportMobilTol,
-            $transportMobilTanpaTol,
-            $hariTransportMobilTanpaTol,
+            $transportMobil,
+            $hariTransportMobil,
             $barokahMengajarBiasa,
             $barokahMengajarDoubleDegree,
             $jam,
             $jamMengajarDoubleDegree,
             $barokahUas,
             $jumlahMahasiswaUas,
-            $barokahSempro
+            $barokahSempro,
+            $jamSempro
         );
         $data->jenis_pembayaran = $request->jenis_pembayaran;
         $data->keterangan = $request->keterangan;
@@ -528,26 +531,24 @@ class DosenTatapMukaController extends Controller
     private function calculateTotal(
         float $transportMotor,
         float $hariTransportMotor,
-        float $transportMobilTol,
-        float $hariTransportMobilTol,
-        float $transportMobilTanpaTol,
-        float $hariTransportMobilTanpaTol,
+        float $transportMobil,
+        float $hariTransportMobil,
         float $barokahMengajarBiasa,
         float $barokahMengajarDoubleDegree,
         float $jam,
         float $jamMengajarDoubleDegree,
         float $barokahUas,
         float $jumlahMahasiswaUas,
-        float $barokahSempro
+        float $barokahSempro,
+        float $jamSempro
     ): int {
         return (int) round(
             ($transportMotor * $hariTransportMotor)
-            + ($transportMobilTol * $hariTransportMobilTol)
-            + ($transportMobilTanpaTol * $hariTransportMobilTanpaTol)
+            + ($transportMobil * $hariTransportMobil)
             + ($barokahMengajarBiasa * $jam)
-            + ($barokahMengajarDoubleDegree * $jamMengajarDoubleDegree * 1.5)
+            + ($barokahMengajarDoubleDegree * $jamMengajarDoubleDegree)
             + ($barokahUas * $jumlahMahasiswaUas)
-            + $barokahSempro
+            + ($barokahSempro * $jamSempro)
         );
     }
 
