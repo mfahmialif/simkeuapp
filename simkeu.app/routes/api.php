@@ -174,7 +174,8 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
     Route::get('pegawai/staff-absensi/preview', [PegawaiController::class, 'previewStaffAbsensi'])->middleware('role:admin');
     Route::get('pegawai/staff-absensi/ids', [PegawaiController::class, 'staffAbsensiIds'])->middleware('role:admin');
     Route::post('pegawai/sync-staff-absensi', [PegawaiController::class, 'syncStaffAbsensi'])->middleware('role:admin');
-    Route::apiResource('pegawai', PegawaiController::class)->middleware('role:admin');
+    Route::apiResource('pegawai', PegawaiController::class)->only(['index', 'show']);
+    Route::apiResource('pegawai', PegawaiController::class)->except(['index', 'show'])->middleware('role:admin');
 
     Route::prefix('aktifkan-mahasiswa')->middleware('role:admin')->group(function () {
         Route::get('preview', [AktifkanMahasiswaController::class, 'preview']);
