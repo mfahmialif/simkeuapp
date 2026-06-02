@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\Admin\DosenController;
 use App\Http\Controllers\Api\Admin\ProdiController;
 use App\Http\Controllers\Api\Admin\JadwalController;
 use App\Http\Controllers\Api\Admin\ProfilController;
+use App\Http\Controllers\Api\Admin\PegawaiController;
 use App\Http\Controllers\Api\Admin\DashboardController;
 use App\Http\Controllers\Api\Admin\MahasiswaController;
 use App\Http\Controllers\Api\Admin\ThAkademikController;
@@ -157,6 +158,7 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
         Route::get('/dosen/print-slip/{id}', [DosenTatapMukaController::class, 'printSlip']);
         Route::get('/dosen/export-excel', [DosenTatapMukaController::class, 'exportExcel']);
         Route::apiResource('dosen', DosenTatapMukaController::class);
+        Route::get('/dosen-kegiatan/by-date', [PengeluaranDosenKegiatanController::class, 'byDate']);
         Route::apiResource('dosen-kegiatan', PengeluaranDosenKegiatanController::class);
     });
     Route::apiResource('pengeluaran', PengeluaranController::class);
@@ -166,6 +168,13 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
     Route::apiResource('th-akademik', ThAkademikController::class);
     Route::apiResource('prodi', ProdiController::class);
     Route::apiResource('ref', RefController::class);
+    Route::get('pegawai/dosen-siakad/preview', [PegawaiController::class, 'previewDosenSiakad'])->middleware('role:admin');
+    Route::get('pegawai/dosen-siakad/ids', [PegawaiController::class, 'dosenSiakadIds'])->middleware('role:admin');
+    Route::post('pegawai/sync-dosen-siakad', [PegawaiController::class, 'syncDosenSiakad'])->middleware('role:admin');
+    Route::get('pegawai/staff-absensi/preview', [PegawaiController::class, 'previewStaffAbsensi'])->middleware('role:admin');
+    Route::get('pegawai/staff-absensi/ids', [PegawaiController::class, 'staffAbsensiIds'])->middleware('role:admin');
+    Route::post('pegawai/sync-staff-absensi', [PegawaiController::class, 'syncStaffAbsensi'])->middleware('role:admin');
+    Route::apiResource('pegawai', PegawaiController::class)->middleware('role:admin');
 
     Route::prefix('aktifkan-mahasiswa')->middleware('role:admin')->group(function () {
         Route::get('preview', [AktifkanMahasiswaController::class, 'preview']);

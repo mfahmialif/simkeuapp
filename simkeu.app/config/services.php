@@ -22,6 +22,11 @@ return [
         'key' => env('RESEND_KEY'),
     ],
 
+    'absensi' => [
+        'base_url' => env('ABSENSI_BASE_URL', 'https://absensi.uiidalwa.web.id'),
+        'token' => env('ABSENSI_API_TOKEN'),
+    ],
+
     'ses' => [
         'key' => env('AWS_ACCESS_KEY_ID'),
         'secret' => env('AWS_SECRET_ACCESS_KEY'),

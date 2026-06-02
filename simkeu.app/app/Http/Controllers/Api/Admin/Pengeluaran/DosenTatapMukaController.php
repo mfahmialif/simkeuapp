@@ -6,11 +6,11 @@ use App\Exports\ExcelExport;
 use App\Exports\pdf\SlipGajiPdf;
 use App\Http\Controllers\Controller;
 use App\Models\KeuanganPengeluaranDosen;
-use App\Services\Dosen;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 use Maatwebsite\Excel\Facades\Excel;
 
 class DosenTatapMukaController extends Controller
@@ -20,18 +20,17 @@ class DosenTatapMukaController extends Controller
 
     public function index(Request $request)
     {
-        $this->syncTempDosen();
-
         $query = KeuanganPengeluaranDosen::query();
 
         $query->select([
             'keuangan_pengeluaran_dosen.*',
-            'temp_dosen.nama as nama_dosen',
-            'temp_dosen.kode as kode_dosen',
-            'temp_dosen.nama_prodi as nama_prodi_dosen',
+            'pegawai.nama as nama_dosen',
+            'pegawai.kode as kode_dosen',
+            'prodi.nama as nama_prodi_dosen',
+            'prodi.alias as alias_prodi_dosen',
         ]);
 
-        $query->join('temp_dosen', 'temp_dosen.kode', '=', 'keuangan_pengeluaran_dosen.dosen_kode');
+        $this->joinPegawaiDosen($query);
 
         if ($request->filled('search')) {
             $query->where(function ($q) use ($request) {
@@ -54,15 +53,20 @@ class DosenTatapMukaController extends Controller
                     ->orWhere('keuangan_pengeluaran_dosen.total', 'LIKE', "%$request->search%")
                     ->orWhere('keuangan_pengeluaran_dosen.jenis_pembayaran', 'LIKE', "%$request->search%")
                     ->orWhere('keuangan_pengeluaran_dosen.keterangan', 'LIKE', "%$request->search%")
-                    ->orWhere('temp_dosen.nama', 'LIKE', "%$request->search%")
-                    ->orWhere('temp_dosen.nama_prodi', 'LIKE', "%$request->search%");
+                    ->orWhere('pegawai.nama', 'LIKE', "%$request->search%")
+                    ->orWhere('pegawai.kode', 'LIKE', "%$request->search%")
+                    ->orWhere('prodi.nama', 'LIKE', "%$request->search%");
             });
         }
 
         $this->applyDateFilter($query, $request);
 
         if ($request->filled('kode')) {
-            $query->where('temp_dosen.kode', $request->kode);
+            $query->where('pegawai.kode', $request->kode);
+        }
+
+        if ($request->filled('pegawai_id')) {
+            $query->where('keuangan_pengeluaran_dosen.pegawai_id', $request->pegawai_id);
         }
 
         $sortColumns = [
@@ -88,7 +92,7 @@ class DosenTatapMukaController extends Controller
             'barokah_sempro' => 'keuangan_pengeluaran_dosen.barokah_sempro',
             'total' => 'keuangan_pengeluaran_dosen.total',
             'jenis_pembayaran' => 'keuangan_pengeluaran_dosen.jenis_pembayaran',
-            'nama_dosen' => 'temp_dosen.nama',
+            'nama_dosen' => 'pegawai.nama',
         ];
 
         $sortKey = $request->input('sort_key', 'id');
@@ -116,7 +120,7 @@ class DosenTatapMukaController extends Controller
             ], 422);
         }
 
-        $data = KeuanganPengeluaranDosen::where('dosen_kode', $request->dosen_kode)
+        $data = KeuanganPengeluaranDosen::where('pegawai_id', $request->pegawai_id)
             ->whereDate('tanggal', $request->tanggal)
             ->first();
 
@@ -131,7 +135,7 @@ class DosenTatapMukaController extends Controller
 
         return response()->json([
             'status' => true,
-            'data' => $this->appendBuktiTransferUrl($data),
+            'data' => $this->appendBuktiTransferUrl($this->findWithDosen($data->id) ?? $data),
             'message' => $isExistingData
                 ? 'Barokah Dosen Tatapmuka updated successfully'
                 : 'Barokah Dosen Tatapmuka created successfully',
@@ -140,7 +144,7 @@ class DosenTatapMukaController extends Controller
 
     public function show($id)
     {
-        $data = KeuanganPengeluaranDosen::find($id);
+        $data = $this->findWithDosen($id);
 
         if (! $data) {
             return response()->json([
@@ -159,7 +163,10 @@ class DosenTatapMukaController extends Controller
     public function byDate(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'dosen_kode' => 'required',
+            'pegawai_id' => [
+                'required',
+                Rule::exists('pegawai', 'id')->where(fn ($query) => $query->where('tipe', 'dosen')),
+            ],
             'tanggal' => 'required|date',
         ]);
 
@@ -170,10 +177,14 @@ class DosenTatapMukaController extends Controller
             ], 422);
         }
 
-        $data = KeuanganPengeluaranDosen::where('dosen_kode', $request->dosen_kode)
+        $data = KeuanganPengeluaranDosen::where('pegawai_id', $request->pegawai_id)
             ->whereDate('tanggal', $request->tanggal)
             ->latest('id')
             ->first();
+
+        if ($data) {
+            $data = $this->findWithDosen($data->id) ?? $data;
+        }
 
         return response()->json([
             'status' => (bool) $data,
@@ -203,11 +214,13 @@ class DosenTatapMukaController extends Controller
             ], 422);
         }
 
-        $dosenKode = $request->input('dosen_kode', $data->dosen_kode);
-        $duplicate = KeuanganPengeluaranDosen::where('dosen_kode', $dosenKode)
-            ->whereDate('tanggal', $request->tanggal)
-            ->where('id', '!=', $data->id)
-            ->first();
+        $pegawaiId = $request->input('pegawai_id', $data->pegawai_id);
+        $duplicate = $pegawaiId
+            ? KeuanganPengeluaranDosen::where('pegawai_id', $pegawaiId)
+                ->whereDate('tanggal', $request->tanggal)
+                ->where('id', '!=', $data->id)
+                ->first()
+            : null;
 
         if ($duplicate) {
             return response()->json([
@@ -227,7 +240,7 @@ class DosenTatapMukaController extends Controller
 
         return response()->json([
             'status' => true,
-            'data' => $this->appendBuktiTransferUrl($data),
+            'data' => $this->appendBuktiTransferUrl($this->findWithDosen($data->id) ?? $data),
             'message' => 'Barokah Dosen Tatapmuka updated successfully',
         ]);
     }
@@ -254,23 +267,29 @@ class DosenTatapMukaController extends Controller
 
     public function printSlip($id)
     {
-        $data = KeuanganPengeluaranDosen::findOrFail($id);
-        $data->dosen = Dosen::kode($data->dosen_kode);
+        $data = $this->findWithDosen($id) ?? KeuanganPengeluaranDosen::findOrFail($id);
+        $data->dosen = (object) [
+            'id' => $data->pegawai_id,
+            'kode' => $data->kode_dosen,
+            'nama' => $data->nama_dosen,
+            'prodi' => (object) [
+                'nama' => $data->nama_prodi_dosen,
+                'alias' => $data->alias_prodi_dosen ?? $data->nama_prodi_dosen,
+            ],
+        ];
 
         return SlipGajiPdf::pdf($data);
     }
 
     public function exportExcel(Request $request)
     {
-        $this->syncTempDosen();
-
         $query = KeuanganPengeluaranDosen::query();
 
         $query->select([
             'keuangan_pengeluaran_dosen.tanggal',
-            'temp_dosen.nama as dosen',
-            'temp_dosen.kode as niy',
-            'temp_dosen.nama_prodi as prodi',
+            'pegawai.nama as dosen',
+            'pegawai.kode as niy',
+            'prodi.nama as prodi',
             'keuangan_pengeluaran_dosen.jam',
             'keuangan_pengeluaran_dosen.jam_mengajar_double_degree',
             'keuangan_pengeluaran_dosen.hari',
@@ -293,7 +312,7 @@ class DosenTatapMukaController extends Controller
             'keuangan_pengeluaran_dosen.keterangan',
         ]);
 
-        $query->join('temp_dosen', 'temp_dosen.kode', '=', 'keuangan_pengeluaran_dosen.dosen_kode');
+        $this->joinPegawaiDosen($query);
 
         if ($request->filled('search')) {
             $query->where(function ($q) use ($request) {
@@ -316,15 +335,20 @@ class DosenTatapMukaController extends Controller
                     ->orWhere('keuangan_pengeluaran_dosen.total', 'LIKE', "%$request->search%")
                     ->orWhere('keuangan_pengeluaran_dosen.jenis_pembayaran', 'LIKE', "%$request->search%")
                     ->orWhere('keuangan_pengeluaran_dosen.keterangan', 'LIKE', "%$request->search%")
-                    ->orWhere('temp_dosen.nama', 'LIKE', "%$request->search%")
-                    ->orWhere('temp_dosen.nama_prodi', 'LIKE', "%$request->search%");
+                    ->orWhere('pegawai.nama', 'LIKE', "%$request->search%")
+                    ->orWhere('pegawai.kode', 'LIKE', "%$request->search%")
+                    ->orWhere('prodi.nama', 'LIKE', "%$request->search%");
             });
         }
 
         $this->applyDateFilter($query, $request);
 
         if ($request->filled('kode')) {
-            $query->where('temp_dosen.kode', $request->kode);
+            $query->where('pegawai.kode', $request->kode);
+        }
+
+        if ($request->filled('pegawai_id')) {
+            $query->where('keuangan_pengeluaran_dosen.pegawai_id', $request->pegawai_id);
         }
 
         $data = $query->get();
@@ -332,29 +356,28 @@ class DosenTatapMukaController extends Controller
         return Excel::download(new ExcelExport($data), 'Laporan Barokah Dosen Tatapmuka.xlsx');
     }
 
-    private function syncTempDosen(): void
+    private function joinPegawaiDosen($query): void
     {
-        $dosenApi = Dosen::all();
+        $query->leftJoin('pegawai', 'pegawai.id', '=', 'keuangan_pengeluaran_dosen.pegawai_id')
+            ->leftJoin('dosen', 'dosen.pegawai_id', '=', 'pegawai.id')
+            ->leftJoin('prodi', 'prodi.id', '=', 'dosen.prodi_id');
+    }
 
-        DB::statement('DROP TEMPORARY TABLE IF EXISTS temp_dosen');
+    private function findWithDosen($id)
+    {
+        $query = KeuanganPengeluaranDosen::query();
 
-        DB::statement("
-            CREATE TEMPORARY TABLE temp_dosen (
-                id INT PRIMARY KEY,
-                nama VARCHAR(255),
-                kode VARCHAR(255),
-                nama_prodi VARCHAR(255)
-            )
-        ");
+        $query->select([
+            'keuangan_pengeluaran_dosen.*',
+            'pegawai.nama as nama_dosen',
+            'pegawai.kode as kode_dosen',
+            'prodi.nama as nama_prodi_dosen',
+            'prodi.alias as alias_prodi_dosen',
+        ]);
 
-        foreach ($dosenApi as $d) {
-            DB::table('temp_dosen')->insert([
-                'id' => $d->id,
-                'nama' => $d->nama,
-                'kode' => $d->kode,
-                'nama_prodi' => $d->nama_prodi,
-            ]);
-        }
+        $this->joinPegawaiDosen($query);
+
+        return $query->where('keuangan_pengeluaran_dosen.id', $id)->first();
     }
 
     private function applyDateFilter($query, Request $request): void
@@ -378,7 +401,10 @@ class DosenTatapMukaController extends Controller
     {
         return [
             'tanggal' => 'required|date',
-            'dosen_kode' => $isUpdate ? 'nullable' : 'required',
+            'pegawai_id' => [
+                $isUpdate ? 'nullable' : 'required',
+                Rule::exists('pegawai', 'id')->where(fn ($query) => $query->where('tipe', 'dosen')),
+            ],
             'hari' => 'nullable|numeric|min:0',
             'hari_transport_motor' => 'nullable|numeric|min:0',
             'hari_transport_mobil' => 'nullable|numeric|min:0',
@@ -449,8 +475,8 @@ class DosenTatapMukaController extends Controller
         $hari = $hariTransportMotor + $hariTransportMobil;
 
         $data->tanggal = $request->tanggal;
-        if ($request->filled('dosen_kode')) {
-            $data->dosen_kode = $request->dosen_kode;
+        if ($request->filled('pegawai_id')) {
+            $data->pegawai_id = $request->pegawai_id;
         }
         $data->hari = $hari;
         $data->hari_transport_motor = $hariTransportMotor;

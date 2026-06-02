@@ -7,6 +7,7 @@ use App\Models\KeuanganPengeluaranDosenKegiatan;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 
 class DosenKegiatanController extends Controller
 {
@@ -17,30 +18,55 @@ class DosenKegiatanController extends Controller
     {
         $query = KeuanganPengeluaranDosenKegiatan::query();
 
+        $query->select([
+            'keuangan_pengeluaran_dosen_kegiatan.*',
+            'pegawai.nama as nama_dosen',
+            'pegawai.kode as kode_dosen',
+            'prodi.nama as nama_prodi_dosen',
+        ]);
+
+        $this->joinPegawaiDosen($query);
+
         if ($request->filled('search')) {
             $query->where(function ($q) use ($request) {
-                $q->orWhere('nama_kegiatan', 'LIKE', "%$request->search%")
-                    ->orWhere('transport', 'LIKE', "%$request->search%")
-                    ->orWhere('barokah', 'LIKE', "%$request->search%")
-                    ->orWhere('total', 'LIKE', "%$request->search%")
-                    ->orWhere('jenis_pembayaran', 'LIKE', "%$request->search%")
-                    ->orWhere('keterangan', 'LIKE', "%$request->search%");
+                $q->orWhere('keuangan_pengeluaran_dosen_kegiatan.tanggal', 'LIKE', "%$request->search%")
+                    ->orWhere('keuangan_pengeluaran_dosen_kegiatan.nama_kegiatan', 'LIKE', "%$request->search%")
+                    ->orWhere('keuangan_pengeluaran_dosen_kegiatan.transport', 'LIKE', "%$request->search%")
+                    ->orWhere('keuangan_pengeluaran_dosen_kegiatan.barokah', 'LIKE', "%$request->search%")
+                    ->orWhere('keuangan_pengeluaran_dosen_kegiatan.total', 'LIKE', "%$request->search%")
+                    ->orWhere('keuangan_pengeluaran_dosen_kegiatan.jenis_pembayaran', 'LIKE', "%$request->search%")
+                    ->orWhere('keuangan_pengeluaran_dosen_kegiatan.keterangan', 'LIKE', "%$request->search%")
+                    ->orWhere('pegawai.nama', 'LIKE', "%$request->search%")
+                    ->orWhere('pegawai.kode', 'LIKE', "%$request->search%")
+                    ->orWhere('prodi.nama', 'LIKE', "%$request->search%");
             });
         }
 
+        if ($request->filled('kode')) {
+            $query->where('pegawai.kode', $request->kode);
+        }
+
+        if ($request->filled('pegawai_id')) {
+            $query->where('keuangan_pengeluaran_dosen_kegiatan.pegawai_id', $request->pegawai_id);
+        }
+
         $sortColumns = [
-            'id' => 'id',
-            'nama_kegiatan' => 'nama_kegiatan',
-            'transport' => 'transport',
-            'barokah' => 'barokah',
-            'total' => 'total',
-            'jenis_pembayaran' => 'jenis_pembayaran',
-            'created_at' => 'created_at',
+            'id' => 'keuangan_pengeluaran_dosen_kegiatan.id',
+            'tanggal' => 'keuangan_pengeluaran_dosen_kegiatan.tanggal',
+            'pegawai_id' => 'keuangan_pengeluaran_dosen_kegiatan.pegawai_id',
+            'kode_dosen' => 'pegawai.kode',
+            'nama_dosen' => 'pegawai.nama',
+            'nama_kegiatan' => 'keuangan_pengeluaran_dosen_kegiatan.nama_kegiatan',
+            'transport' => 'keuangan_pengeluaran_dosen_kegiatan.transport',
+            'barokah' => 'keuangan_pengeluaran_dosen_kegiatan.barokah',
+            'total' => 'keuangan_pengeluaran_dosen_kegiatan.total',
+            'jenis_pembayaran' => 'keuangan_pengeluaran_dosen_kegiatan.jenis_pembayaran',
+            'created_at' => 'keuangan_pengeluaran_dosen_kegiatan.created_at',
         ];
 
         $sortKey = $request->input('sort_key', 'id');
         $sortOrder = $request->input('sort_order', 'desc') === 'asc' ? 'asc' : 'desc';
-        $query->orderBy($sortColumns[$sortKey] ?? 'id', $sortOrder);
+        $query->orderBy($sortColumns[$sortKey] ?? 'keuangan_pengeluaran_dosen_kegiatan.id', $sortOrder);
 
         $data = $query->paginate($request->get('limit', 10));
         $data->getCollection()->transform(fn ($item) => $this->appendBuktiTransferUrl($item));
@@ -54,7 +80,7 @@ class DosenKegiatanController extends Controller
 
     public function store(Request $request)
     {
-        $validator = Validator::make($request->all(), $this->rules());
+        $validator = Validator::make($request->all(), $this->rules(false));
 
         if ($validator->fails()) {
             return response()->json([
@@ -63,24 +89,31 @@ class DosenKegiatanController extends Controller
             ], 422);
         }
 
-        if ($this->needsBuktiTransfer($request, null)) {
+        $data = KeuanganPengeluaranDosenKegiatan::where('pegawai_id', $request->pegawai_id)
+            ->whereDate('tanggal', $request->tanggal)
+            ->first();
+
+        if ($this->needsBuktiTransfer($request, $data)) {
             return $this->buktiTransferRequiredResponse();
         }
 
-        $data = new KeuanganPengeluaranDosenKegiatan();
+        $isExistingData = (bool) $data;
+        $data ??= new KeuanganPengeluaranDosenKegiatan();
         $this->fillData($data, $request);
         $data->save();
 
         return response()->json([
             'status' => true,
-            'data' => $this->appendBuktiTransferUrl($data),
-            'message' => 'Barokah Dosen Kegiatan created successfully',
-        ], 201);
+            'data' => $this->appendBuktiTransferUrl($this->findWithDosen($data->id) ?? $data),
+            'message' => $isExistingData
+                ? 'Barokah Dosen Kegiatan updated successfully'
+                : 'Barokah Dosen Kegiatan created successfully',
+        ], $isExistingData ? 200 : 201);
     }
 
     public function show($id)
     {
-        $data = KeuanganPengeluaranDosenKegiatan::find($id);
+        $data = $this->findWithDosen($id);
 
         if (! $data) {
             return response()->json([
@@ -96,6 +129,41 @@ class DosenKegiatanController extends Controller
         ], 200);
     }
 
+    public function byDate(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'pegawai_id' => [
+                'required',
+                Rule::exists('pegawai', 'id')->where(fn ($query) => $query->where('tipe', 'dosen')),
+            ],
+            'tanggal' => 'required|date',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'message' => $validator->errors(),
+            ], 422);
+        }
+
+        $data = KeuanganPengeluaranDosenKegiatan::where('pegawai_id', $request->pegawai_id)
+            ->whereDate('tanggal', $request->tanggal)
+            ->latest('id')
+            ->first();
+
+        if ($data) {
+            $data = $this->findWithDosen($data->id) ?? $data;
+        }
+
+        return response()->json([
+            'status' => (bool) $data,
+            'data' => $data ? $this->appendBuktiTransferUrl($data) : null,
+            'message' => $data
+                ? 'Barokah Dosen Kegiatan retrieved successfully'
+                : 'Barokah Dosen Kegiatan not found for selected date',
+        ]);
+    }
+
     public function update(Request $request, $id)
     {
         $data = KeuanganPengeluaranDosenKegiatan::find($id);
@@ -106,12 +174,29 @@ class DosenKegiatanController extends Controller
             ], 404);
         }
 
-        $validator = Validator::make($request->all(), $this->rules());
+        $validator = Validator::make($request->all(), $this->rules(true));
 
         if ($validator->fails()) {
             return response()->json([
                 'status' => false,
                 'message' => $validator->errors(),
+            ], 422);
+        }
+
+        $pegawaiId = $request->input('pegawai_id', $data->pegawai_id);
+        $duplicate = $pegawaiId
+            ? KeuanganPengeluaranDosenKegiatan::where('pegawai_id', $pegawaiId)
+                ->whereDate('tanggal', $request->tanggal)
+                ->where('id', '!=', $data->id)
+                ->first()
+            : null;
+
+        if ($duplicate) {
+            return response()->json([
+                'status' => false,
+                'message' => [
+                    'tanggal' => ['Data barokah dosen kegiatan untuk tanggal ini sudah ada. Gunakan data tersebut untuk memperbarui data.'],
+                ],
             ], 422);
         }
 
@@ -124,7 +209,7 @@ class DosenKegiatanController extends Controller
 
         return response()->json([
             'status' => true,
-            'data' => $this->appendBuktiTransferUrl($data),
+            'data' => $this->appendBuktiTransferUrl($this->findWithDosen($data->id) ?? $data),
             'message' => 'Barokah Dosen Kegiatan updated successfully',
         ]);
     }
@@ -149,9 +234,37 @@ class DosenKegiatanController extends Controller
         ]);
     }
 
-    private function rules(): array
+    private function joinPegawaiDosen($query): void
+    {
+        $query->leftJoin('pegawai', 'pegawai.id', '=', 'keuangan_pengeluaran_dosen_kegiatan.pegawai_id')
+            ->leftJoin('dosen', 'dosen.pegawai_id', '=', 'pegawai.id')
+            ->leftJoin('prodi', 'prodi.id', '=', 'dosen.prodi_id');
+    }
+
+    private function findWithDosen($id)
+    {
+        $query = KeuanganPengeluaranDosenKegiatan::query();
+
+        $query->select([
+            'keuangan_pengeluaran_dosen_kegiatan.*',
+            'pegawai.nama as nama_dosen',
+            'pegawai.kode as kode_dosen',
+            'prodi.nama as nama_prodi_dosen',
+        ]);
+
+        $this->joinPegawaiDosen($query);
+
+        return $query->where('keuangan_pengeluaran_dosen_kegiatan.id', $id)->first();
+    }
+
+    private function rules(bool $isUpdate): array
     {
         return [
+            'tanggal' => 'required|date',
+            'pegawai_id' => [
+                $isUpdate ? 'nullable' : 'required',
+                Rule::exists('pegawai', 'id')->where(fn ($query) => $query->where('tipe', 'dosen')),
+            ],
             'nama_kegiatan' => 'required|string|max:255',
             'transport' => 'nullable|numeric|min:0',
             'barokah' => 'nullable|numeric|min:0',
@@ -167,6 +280,10 @@ class DosenKegiatanController extends Controller
         $transport = $this->number($request->transport);
         $barokah = $this->number($request->barokah);
 
+        $data->tanggal = $request->tanggal;
+        if ($request->filled('pegawai_id')) {
+            $data->pegawai_id = $request->pegawai_id;
+        }
         $data->nama_kegiatan = $request->nama_kegiatan;
         $data->transport = $transport;
         $data->barokah = $barokah;

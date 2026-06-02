@@ -4,13 +4,18 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 
-class KeuanganPengeluaranDosenKegiatan extends Model
+class Dosen extends Model
 {
-    protected $table = 'keuangan_pengeluaran_dosen_kegiatan';
+    protected $table = 'dosen';
     protected $guarded = [];
 
     public function pegawai()
     {
         return $this->belongsTo(Pegawai::class, 'pegawai_id');
+    }
+
+    public function prodi()
+    {
+        return $this->belongsTo(Prodi::class, 'prodi_id');
     }
 }

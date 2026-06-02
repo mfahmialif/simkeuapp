@@ -7,4 +7,9 @@ class KeuanganPengeluaranDosen extends Model
 {
     protected $table = 'keuangan_pengeluaran_dosen';
     protected $guarded = [];
+
+    public function pegawai()
+    {
+        return $this->belongsTo(Pegawai::class, 'pegawai_id');
+    }
 }
