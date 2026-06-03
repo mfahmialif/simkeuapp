@@ -56,6 +56,8 @@ class DosenKegiatanController extends Controller
             $query->where('keuangan_pengeluaran_dosen_kegiatan.pegawai_id', $request->pegawai_id);
         }
 
+        $stats = $this->stats($query);
+
         $sortColumns = [
             'id' => 'keuangan_pengeluaran_dosen_kegiatan.id',
             'tanggal' => 'keuangan_pengeluaran_dosen_kegiatan.tanggal',
@@ -82,6 +84,7 @@ class DosenKegiatanController extends Controller
         return response()->json([
             'status' => true,
             'data' => $data,
+            'stats' => $stats,
             'message' => 'Barokah Pegawai Kegiatan retrieved successfully',
         ]);
     }
@@ -153,7 +156,7 @@ class DosenKegiatanController extends Controller
             ->first();
 
         if ($data) {
-            $data = $this->findWithDosen($data->id) ?? $data;
+            $data = $this->findWithDosen($data->id);
         }
 
         return response()->json([
@@ -168,7 +171,7 @@ class DosenKegiatanController extends Controller
     public function update(Request $request, $id)
     {
         $data = KeuanganPengeluaranDosenKegiatan::find($id);
-        if (! $data) {
+        if (! $data || ! $this->findWithDosen($id)) {
             return response()->json([
                 'status' => false,
                 'message' => 'Barokah Pegawai Kegiatan not found',
@@ -202,7 +205,7 @@ class DosenKegiatanController extends Controller
     {
         $data = KeuanganPengeluaranDosenKegiatan::find($id);
 
-        if (! $data) {
+        if (! $data || ! $this->findWithDosen($id)) {
             return response()->json([
                 'status' => false,
                 'message' => 'Barokah Pegawai Kegiatan not found',
@@ -244,6 +247,47 @@ class DosenKegiatanController extends Controller
         $this->joinPegawaiDetail($query);
 
         return $query->where('keuangan_pengeluaran_dosen_kegiatan.id', $id)->first();
+    }
+
+    private function stats($query): array
+    {
+        $dateColumn = 'keuangan_pengeluaran_dosen_kegiatan.tanggal';
+        $today = now();
+        $todayDate = $today->toDateString();
+        $weekStart = $today->copy()->startOfWeek()->toDateString();
+        $weekEnd = $today->copy()->endOfWeek()->toDateString();
+        $monthStart = $today->copy()->startOfMonth()->toDateString();
+        $monthEnd = $today->copy()->endOfMonth()->toDateString();
+
+        return [
+            'hari_ini' => $this->periodStats(
+                $query,
+                fn ($periodQuery) => $periodQuery->whereDate($dateColumn, $todayDate)
+            ),
+            'mingguan' => $this->periodStats(
+                $query,
+                fn ($periodQuery) => $periodQuery->whereBetween($dateColumn, [$weekStart, $weekEnd])
+            ),
+            'bulanan' => $this->periodStats(
+                $query,
+                fn ($periodQuery) => $periodQuery->whereBetween($dateColumn, [$monthStart, $monthEnd])
+            ),
+            'keseluruhan' => $this->periodStats($query),
+        ];
+    }
+
+    private function periodStats($baseQuery, ?callable $period = null): array
+    {
+        $query = clone $baseQuery;
+
+        if ($period) {
+            $period($query);
+        }
+
+        return [
+            'total' => (int) (clone $query)->sum('keuangan_pengeluaran_dosen_kegiatan.total'),
+            'jumlah' => (int) $query->count(),
+        ];
     }
 
     private function rules(bool $isUpdate): array

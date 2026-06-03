@@ -39,6 +39,8 @@ use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\PembayaranTambahanControl
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\PemasukanPengeluaranController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\SemesterPendekController;
 use App\Http\Controllers\Api\Admin\Pengeluaran\DosenTatapMukaController;
+use App\Http\Controllers\Api\Admin\Pengeluaran\DosenBulananController;
+use App\Http\Controllers\Api\Admin\Pengeluaran\StaffBulananController;
 use App\Http\Controllers\Api\Admin\Pengeluaran\DosenKegiatanController as PengeluaranDosenKegiatanController;
 
 Route::prefix('auth')->group(function () {
@@ -165,6 +167,8 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
         Route::apiResource('dosen', DosenTatapMukaController::class);
         Route::get('/dosen-kegiatan/by-date', [PengeluaranDosenKegiatanController::class, 'byDate']);
         Route::apiResource('dosen-kegiatan', PengeluaranDosenKegiatanController::class);
+        Route::apiResource('dosen-bulanan', DosenBulananController::class)->middleware('role:admin,barokahdosen_bulanan');
+        Route::apiResource('staff-bulanan', StaffBulananController::class)->middleware('role:admin,barokahdosen_kegiatan');
     });
     Route::apiResource('pengeluaran', PengeluaranController::class);
 

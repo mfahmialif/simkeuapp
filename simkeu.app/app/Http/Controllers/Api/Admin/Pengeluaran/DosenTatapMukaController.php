@@ -61,8 +61,6 @@ class DosenTatapMukaController extends Controller
             });
         }
 
-        $this->applyDateFilter($query, $request);
-
         if ($request->filled('kode')) {
             $query->where('pegawai.kode', $request->kode);
         }
@@ -70,6 +68,10 @@ class DosenTatapMukaController extends Controller
         if ($request->filled('pegawai_id')) {
             $query->where('keuangan_pengeluaran_dosen.pegawai_id', $request->pegawai_id);
         }
+
+        $stats = $this->stats($query);
+
+        $this->applyDateFilter($query, $request);
 
         $sortColumns = [
             'id' => 'keuangan_pengeluaran_dosen.id',
@@ -108,6 +110,7 @@ class DosenTatapMukaController extends Controller
         return response()->json([
             'status' => true,
             'data' => $data,
+            'stats' => $stats,
             'message' => 'Barokah Dosen Tatapmuka retrieved successfully',
         ]);
     }
@@ -186,7 +189,7 @@ class DosenTatapMukaController extends Controller
             ->first();
 
         if ($data) {
-            $data = $this->findWithDosen($data->id) ?? $data;
+            $data = $this->findWithDosen($data->id);
         }
 
         return response()->json([
@@ -201,7 +204,7 @@ class DosenTatapMukaController extends Controller
     public function update(Request $request, $id)
     {
         $data = KeuanganPengeluaranDosen::find($id);
-        if (! $data) {
+        if (! $data || ! $this->findWithDosen($id)) {
             return response()->json([
                 'status' => false,
                 'message' => 'Barokah Dosen Tatapmuka not found',
@@ -252,7 +255,7 @@ class DosenTatapMukaController extends Controller
     {
         $data = KeuanganPengeluaranDosen::find($id);
 
-        if (! $data) {
+        if (! $data || ! $this->findWithDosen($id)) {
             return response()->json([
                 'status' => false,
                 'message' => 'Barokah Dosen Tatapmuka not found',
@@ -270,7 +273,9 @@ class DosenTatapMukaController extends Controller
 
     public function printSlip($id)
     {
-        $data = $this->findWithDosen($id) ?? KeuanganPengeluaranDosen::findOrFail($id);
+        $data = $this->findWithDosen($id);
+        abort_if(! $data, 404, 'Barokah Dosen Tatapmuka not found');
+
         $data->dosen = (object) [
             'id' => $data->pegawai_id,
             'kode' => $data->kode_dosen,
@@ -398,6 +403,47 @@ class DosenTatapMukaController extends Controller
         } elseif (! $tanggalMulai && $tanggalAkhir) {
             $query->where('keuangan_pengeluaran_dosen.tanggal', '<=', $tanggalAkhir);
         }
+    }
+
+    private function stats($query): array
+    {
+        $dateColumn = 'keuangan_pengeluaran_dosen.tanggal';
+        $today = now();
+        $todayDate = $today->toDateString();
+        $weekStart = $today->copy()->startOfWeek()->toDateString();
+        $weekEnd = $today->copy()->endOfWeek()->toDateString();
+        $monthStart = $today->copy()->startOfMonth()->toDateString();
+        $monthEnd = $today->copy()->endOfMonth()->toDateString();
+
+        return [
+            'hari_ini' => $this->periodStats(
+                $query,
+                fn ($periodQuery) => $periodQuery->whereDate($dateColumn, $todayDate)
+            ),
+            'mingguan' => $this->periodStats(
+                $query,
+                fn ($periodQuery) => $periodQuery->whereBetween($dateColumn, [$weekStart, $weekEnd])
+            ),
+            'bulanan' => $this->periodStats(
+                $query,
+                fn ($periodQuery) => $periodQuery->whereBetween($dateColumn, [$monthStart, $monthEnd])
+            ),
+            'keseluruhan' => $this->periodStats($query),
+        ];
+    }
+
+    private function periodStats($baseQuery, ?callable $period = null): array
+    {
+        $query = clone $baseQuery;
+
+        if ($period) {
+            $period($query);
+        }
+
+        return [
+            'total' => (int) (clone $query)->sum('keuangan_pengeluaran_dosen.total'),
+            'jumlah' => (int) $query->count(),
+        ];
     }
 
     private function rules(bool $isUpdate): array
