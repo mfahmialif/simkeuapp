@@ -545,6 +545,213 @@ class DashboardController extends Controller
         }
     }
 
+    public function barokahSummary(Request $request)
+    {
+        try {
+            $roleName = auth()->user()?->role?->name;
+            $sources = $this->barokahSourcesForRole($roleName);
+
+            $result = Cache::remember(
+                'dashboard_barokah_summary_v1_' . md5(($roleName ?? 'none') . Carbon::now()->format('Y-m-d')),
+                300,
+                function () use ($sources, $roleName) {
+                    $now = Carbon::now();
+                    $today = $now->copy()->toDateString();
+                    $startOfMonth = $now->copy()->startOfMonth();
+                    $endOfMonth = $now->copy()->endOfMonth();
+                    $year = (int) $now->year;
+                    $month = (int) $now->month;
+                    $startYear = $year - 4;
+
+                    $stats = [
+                        'hari_ini' => ['total' => 0, 'jumlah' => 0],
+                        'bulan_ini' => ['total' => 0, 'jumlah' => 0],
+                        'tahun_ini' => ['total' => 0, 'jumlah' => 0],
+                        'keseluruhan' => ['total' => 0, 'jumlah' => 0],
+                    ];
+
+                    $dailyTotals = [];
+                    for ($day = 1; $day <= $now->daysInMonth; $day++) {
+                        $key = Carbon::create($year, $month, $day)->format('Y-m-d');
+                        $dailyTotals[$key] = 0;
+                    }
+
+                    $monthlyTotals = array_fill(1, 12, 0);
+                    $yearlyTotals = [];
+                    for ($currentYear = $startYear; $currentYear <= $year; $currentYear++) {
+                        $yearlyTotals[$currentYear] = 0;
+                    }
+
+                    $modules = [];
+                    $topPegawai = [];
+
+                    foreach ($sources as $source) {
+                        $table = $source['table'];
+                        $dateColumn = "{$table}.tanggal";
+                        $totalColumn = "{$table}.total";
+                        $baseQuery = $this->barokahSourceQuery($source);
+
+                        $moduleTotal = (clone $baseQuery)
+                            ->selectRaw("COALESCE(SUM({$totalColumn}), 0) as total, COUNT({$table}.id) as jumlah")
+                            ->first();
+
+                        $modules[] = [
+                            'key' => $source['key'],
+                            'label' => $source['label'],
+                            'path' => $source['path'],
+                            'icon' => $source['icon'],
+                            'color' => $source['color'],
+                            'total' => (float) ($moduleTotal->total ?? 0),
+                            'jumlah' => (int) ($moduleTotal->jumlah ?? 0),
+                        ];
+
+                        $this->addBarokahStat(
+                            $stats['hari_ini'],
+                            (clone $baseQuery)->whereDate($dateColumn, $today),
+                            $table,
+                            $totalColumn
+                        );
+
+                        $this->addBarokahStat(
+                            $stats['bulan_ini'],
+                            $this->applyBarokahMonthScope((clone $baseQuery), $source, $year, $month),
+                            $table,
+                            $totalColumn
+                        );
+
+                        $this->addBarokahStat(
+                            $stats['tahun_ini'],
+                            $this->applyBarokahYearScope((clone $baseQuery), $source, $year),
+                            $table,
+                            $totalColumn
+                        );
+
+                        $this->addBarokahStat(
+                            $stats['keseluruhan'],
+                            (clone $baseQuery),
+                            $table,
+                            $totalColumn
+                        );
+
+                        $dailyRows = (clone $baseQuery)
+                            ->whereBetween($dateColumn, [$startOfMonth, $endOfMonth])
+                            ->selectRaw("DATE({$dateColumn}) as period, COALESCE(SUM({$totalColumn}), 0) as total")
+                            ->groupBy(DB::raw("DATE({$dateColumn})"))
+                            ->get();
+
+                        foreach ($dailyRows as $row) {
+                            if (array_key_exists($row->period, $dailyTotals)) {
+                                $dailyTotals[$row->period] += (float) $row->total;
+                            }
+                        }
+
+                        $monthlyRows = $this->barokahMonthlyRows((clone $baseQuery), $source, $year);
+                        foreach ($monthlyRows as $row) {
+                            $period = (int) $row->period;
+                            if (isset($monthlyTotals[$period])) {
+                                $monthlyTotals[$period] += (float) $row->total;
+                            }
+                        }
+
+                        $yearlyRows = $this->barokahYearlyRows((clone $baseQuery), $source, $startYear, $year);
+                        foreach ($yearlyRows as $row) {
+                            $period = (int) $row->period;
+                            if (isset($yearlyTotals[$period])) {
+                                $yearlyTotals[$period] += (float) $row->total;
+                            }
+                        }
+
+                        $pegawaiRows = (clone $baseQuery)
+                            ->selectRaw("
+                                COALESCE(pegawai.id, 0) as pegawai_id,
+                                COALESCE(pegawai.kode, '-') as kode,
+                                COALESCE(pegawai.nama, 'Tanpa Pegawai') as nama,
+                                COALESCE(pegawai.tipe, '-') as tipe,
+                                COALESCE(SUM({$totalColumn}), 0) as total,
+                                COUNT({$table}.id) as jumlah
+                            ")
+                            ->groupBy('pegawai.id', 'pegawai.kode', 'pegawai.nama', 'pegawai.tipe')
+                            ->orderByDesc('total')
+                            ->limit(10)
+                            ->get();
+
+                        foreach ($pegawaiRows as $row) {
+                            $key = (string) ($row->pegawai_id ?: 'unknown');
+                            if (! isset($topPegawai[$key])) {
+                                $topPegawai[$key] = [
+                                    'pegawai_id' => (int) $row->pegawai_id,
+                                    'kode' => $row->kode,
+                                    'nama' => $row->nama,
+                                    'tipe' => $row->tipe,
+                                    'total' => 0,
+                                    'jumlah' => 0,
+                                    'modules' => [],
+                                ];
+                            }
+
+                            $topPegawai[$key]['total'] += (float) $row->total;
+                            $topPegawai[$key]['jumlah'] += (int) $row->jumlah;
+                            $topPegawai[$key]['modules'][] = $source['label'];
+                        }
+                    }
+
+                    $topPegawai = collect($topPegawai)
+                        ->map(function ($item) {
+                            $item['modules'] = array_values(array_unique($item['modules']));
+                            return $item;
+                        })
+                        ->sortByDesc('total')
+                        ->take(10)
+                        ->values()
+                        ->all();
+
+                    $dailyCategories = array_map(
+                        fn ($date) => Carbon::parse($date)->format('d M'),
+                        array_keys($dailyTotals)
+                    );
+
+                    return [
+                        'role' => $roleName,
+                        'modules' => $modules,
+                        'stats' => $stats,
+                        'charts' => [
+                            'harian' => [
+                                'categories' => $dailyCategories,
+                                'series' => [
+                                    ['name' => 'Pengeluaran', 'data' => array_values($dailyTotals)],
+                                ],
+                            ],
+                            'bulanan' => [
+                                'categories' => ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'],
+                                'series' => [
+                                    ['name' => 'Pengeluaran', 'data' => array_values($monthlyTotals)],
+                                ],
+                            ],
+                            'tahunan' => [
+                                'categories' => array_map('strval', array_keys($yearlyTotals)),
+                                'series' => [
+                                    ['name' => 'Pengeluaran', 'data' => array_values($yearlyTotals)],
+                                ],
+                            ],
+                        ],
+                        'top_pegawai' => $topPegawai,
+                    ];
+                }
+            );
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Data berhasil diambil',
+                'data' => $result,
+            ]);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status' => false,
+                'message' => $th->getMessage(),
+            ]);
+        }
+    }
+
     /**
      * KRS Report - proxy ke external API krs/getDataInfo
      */
@@ -940,5 +1147,177 @@ class DashboardController extends Controller
                 'message' => $th->getMessage(),
             ]);
         }
+    }
+
+    private function barokahSourcesForRole(?string $roleName): array
+    {
+        $allSources = [
+            'tatapmuka' => [
+                'key' => 'tatapmuka',
+                'label' => 'Barokah Tatapmuka',
+                'table' => 'keuangan_pengeluaran_dosen',
+                'path' => '/admin/pengeluaran/dosen-tatapmuka',
+                'icon' => 'ri-user-voice-line',
+                'color' => 'primary',
+            ],
+            'kegiatan' => [
+                'key' => 'kegiatan',
+                'label' => 'Barokah Kegiatan',
+                'table' => 'keuangan_pengeluaran_dosen_kegiatan',
+                'path' => '/admin/pengeluaran/dosen-kegiatan',
+                'icon' => 'ri-calendar-event-line',
+                'color' => 'info',
+            ],
+            'staff_bulanan' => [
+                'key' => 'staff_bulanan',
+                'label' => 'Staff Bulanan',
+                'table' => 'keuangan_pengeluaran_pegawai_bulanan',
+                'path' => '/admin/pengeluaran/staff-bulanan',
+                'icon' => 'ri-team-line',
+                'color' => 'success',
+                'pegawai_tipe' => 'staff',
+                'uses_periode' => true,
+            ],
+            'dosen_bulanan' => [
+                'key' => 'dosen_bulanan',
+                'label' => 'Dosen Bulanan',
+                'table' => 'keuangan_pengeluaran_pegawai_bulanan',
+                'path' => '/admin/pengeluaran/dosen-bulanan',
+                'icon' => 'ri-calendar-check-line',
+                'color' => 'warning',
+                'pegawai_tipe' => 'dosen',
+                'uses_periode' => true,
+            ],
+        ];
+
+        if (in_array($roleName, ['admin', 'pimpinan', 'keuangan', 'kabag'], true)) {
+            return array_values($allSources);
+        }
+
+        return match ($roleName) {
+            'barokahdosen_tatapmuka' => [$allSources['tatapmuka']],
+            'barokahdosen_kegiatan' => [$allSources['kegiatan'], $allSources['staff_bulanan']],
+            'barokahdosen_bulanan' => [$allSources['dosen_bulanan']],
+            default => [],
+        };
+    }
+
+    private function barokahSourceQuery(array $source)
+    {
+        $table = $source['table'];
+
+        $query = DB::table($table)
+            ->leftJoin('pegawai', 'pegawai.id', '=', "{$table}.pegawai_id");
+
+        if (! empty($source['pegawai_tipe'])) {
+            $query->where('pegawai.tipe', $source['pegawai_tipe']);
+        }
+
+        return $query;
+    }
+
+    private function addBarokahStat(array &$stat, $query, string $table, string $totalColumn): void
+    {
+        $row = $query
+            ->selectRaw("COALESCE(SUM({$totalColumn}), 0) as total, COUNT({$table}.id) as jumlah")
+            ->first();
+
+        $stat['total'] += (float) ($row->total ?? 0);
+        $stat['jumlah'] += (int) ($row->jumlah ?? 0);
+    }
+
+    private function applyBarokahMonthScope($query, array $source, int $year, int $month)
+    {
+        $table = $source['table'];
+
+        if (! empty($source['uses_periode'])) {
+            return $query->where(function ($q) use ($table, $year, $month) {
+                $q->where(function ($sq) use ($table, $year, $month) {
+                    $sq->where("{$table}.tahun", $year)
+                        ->where("{$table}.bulan", $month);
+                })->orWhere(function ($sq) use ($table, $year, $month) {
+                    $sq->whereNull("{$table}.tahun")
+                        ->whereYear("{$table}.tanggal", $year)
+                        ->whereMonth("{$table}.tanggal", $month);
+                });
+            });
+        }
+
+        return $query
+            ->whereYear("{$table}.tanggal", $year)
+            ->whereMonth("{$table}.tanggal", $month);
+    }
+
+    private function applyBarokahYearScope($query, array $source, int $year)
+    {
+        $table = $source['table'];
+
+        if (! empty($source['uses_periode'])) {
+            return $query->where(function ($q) use ($table, $year) {
+                $q->where("{$table}.tahun", $year)
+                    ->orWhere(function ($sq) use ($table, $year) {
+                        $sq->whereNull("{$table}.tahun")
+                            ->whereYear("{$table}.tanggal", $year);
+                    });
+            });
+        }
+
+        return $query->whereYear("{$table}.tanggal", $year);
+    }
+
+    private function barokahMonthlyRows($query, array $source, int $year)
+    {
+        $table = $source['table'];
+        $totalColumn = "{$table}.total";
+
+        if (! empty($source['uses_periode'])) {
+            $periodExpr = "COALESCE({$table}.bulan, MONTH({$table}.tanggal))";
+
+            return $query
+                ->where(function ($q) use ($table, $year) {
+                    $q->where("{$table}.tahun", $year)
+                        ->orWhere(function ($sq) use ($table, $year) {
+                            $sq->whereNull("{$table}.tahun")
+                                ->whereYear("{$table}.tanggal", $year);
+                        });
+                })
+                ->selectRaw("{$periodExpr} as period, COALESCE(SUM({$totalColumn}), 0) as total")
+                ->groupBy(DB::raw($periodExpr))
+                ->get();
+        }
+
+        return $query
+            ->whereYear("{$table}.tanggal", $year)
+            ->selectRaw("MONTH({$table}.tanggal) as period, COALESCE(SUM({$totalColumn}), 0) as total")
+            ->groupBy(DB::raw("MONTH({$table}.tanggal)"))
+            ->get();
+    }
+
+    private function barokahYearlyRows($query, array $source, int $startYear, int $endYear)
+    {
+        $table = $source['table'];
+        $totalColumn = "{$table}.total";
+
+        if (! empty($source['uses_periode'])) {
+            $periodExpr = "COALESCE({$table}.tahun, YEAR({$table}.tanggal))";
+
+            return $query
+                ->where(function ($q) use ($table, $startYear, $endYear) {
+                    $q->whereBetween("{$table}.tahun", [$startYear, $endYear])
+                        ->orWhere(function ($sq) use ($table, $startYear, $endYear) {
+                            $sq->whereNull("{$table}.tahun")
+                                ->whereBetween(DB::raw("YEAR({$table}.tanggal)"), [$startYear, $endYear]);
+                        });
+                })
+                ->selectRaw("{$periodExpr} as period, COALESCE(SUM({$totalColumn}), 0) as total")
+                ->groupBy(DB::raw($periodExpr))
+                ->get();
+        }
+
+        return $query
+            ->whereBetween(DB::raw("YEAR({$table}.tanggal)"), [$startYear, $endYear])
+            ->selectRaw("YEAR({$table}.tanggal) as period, COALESCE(SUM({$totalColumn}), 0) as total")
+            ->groupBy(DB::raw("YEAR({$table}.tanggal)"))
+            ->get();
     }
 }

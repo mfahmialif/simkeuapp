@@ -2,12 +2,14 @@
 
 namespace App\Http\Controllers\Api\Admin\Pengeluaran;
 
+use App\Exports\ExcelExport;
 use App\Http\Controllers\Controller;
 use App\Models\KeuanganPengeluaranDosenKegiatan;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
+use Maatwebsite\Excel\Facades\Excel;
 
 class DosenKegiatanController extends Controller
 {
@@ -30,33 +32,11 @@ class DosenKegiatanController extends Controller
         ]);
 
         $this->joinPegawaiDetail($query);
-
-        if ($request->filled('search')) {
-            $query->where(function ($q) use ($request) {
-                $q->orWhere('keuangan_pengeluaran_dosen_kegiatan.tanggal', 'LIKE', "%$request->search%")
-                    ->orWhere('keuangan_pengeluaran_dosen_kegiatan.nama_kegiatan', 'LIKE', "%$request->search%")
-                    ->orWhere('keuangan_pengeluaran_dosen_kegiatan.transport', 'LIKE', "%$request->search%")
-                    ->orWhere('keuangan_pengeluaran_dosen_kegiatan.barokah', 'LIKE', "%$request->search%")
-                    ->orWhere('keuangan_pengeluaran_dosen_kegiatan.total', 'LIKE', "%$request->search%")
-                    ->orWhere('keuangan_pengeluaran_dosen_kegiatan.jenis_pembayaran', 'LIKE', "%$request->search%")
-                    ->orWhere('keuangan_pengeluaran_dosen_kegiatan.keterangan', 'LIKE', "%$request->search%")
-                    ->orWhere('pegawai.nama', 'LIKE', "%$request->search%")
-                    ->orWhere('pegawai.kode', 'LIKE', "%$request->search%")
-                    ->orWhere('pegawai.tipe', 'LIKE', "%$request->search%")
-                    ->orWhere('prodi.nama', 'LIKE', "%$request->search%")
-                    ->orWhere('staff.jabatan', 'LIKE', "%$request->search%");
-            });
-        }
-
-        if ($request->filled('kode')) {
-            $query->where('pegawai.kode', $request->kode);
-        }
-
-        if ($request->filled('pegawai_id')) {
-            $query->where('keuangan_pengeluaran_dosen_kegiatan.pegawai_id', $request->pegawai_id);
-        }
+        $this->applySearchFilter($query, $request);
+        $this->applyPegawaiFilter($query, $request);
 
         $stats = $this->stats($query);
+        $this->applyDateFilter($query, $request);
 
         $sortColumns = [
             'id' => 'keuangan_pengeluaran_dosen_kegiatan.id',
@@ -168,6 +148,38 @@ class DosenKegiatanController extends Controller
         ]);
     }
 
+    public function exportExcel(Request $request)
+    {
+        $query = KeuanganPengeluaranDosenKegiatan::query();
+
+        $query->select([
+            'keuangan_pengeluaran_dosen_kegiatan.tanggal',
+            'pegawai.kode as kode_pegawai',
+            'pegawai.nama as nama_pegawai',
+            'pegawai.tipe as tipe_pegawai',
+            'prodi.nama as prodi',
+            'staff.jabatan as jabatan',
+            'keuangan_pengeluaran_dosen_kegiatan.nama_kegiatan',
+            'keuangan_pengeluaran_dosen_kegiatan.transport',
+            'keuangan_pengeluaran_dosen_kegiatan.barokah',
+            'keuangan_pengeluaran_dosen_kegiatan.total',
+            'keuangan_pengeluaran_dosen_kegiatan.jenis_pembayaran',
+            'keuangan_pengeluaran_dosen_kegiatan.keterangan',
+        ]);
+
+        $this->joinPegawaiDetail($query);
+        $this->applySearchFilter($query, $request);
+        $this->applyPegawaiFilter($query, $request);
+        $this->applyDateFilter($query, $request);
+
+        $data = $query
+            ->orderBy('keuangan_pengeluaran_dosen_kegiatan.tanggal', 'desc')
+            ->orderBy('keuangan_pengeluaran_dosen_kegiatan.id', 'desc')
+            ->get();
+
+        return Excel::download(new ExcelExport($data), 'Laporan Barokah Pegawai Kegiatan.xlsx');
+    }
+
     public function update(Request $request, $id)
     {
         $data = KeuanganPengeluaranDosenKegiatan::find($id);
@@ -227,6 +239,58 @@ class DosenKegiatanController extends Controller
             ->leftJoin('dosen', 'dosen.pegawai_id', '=', 'pegawai.id')
             ->leftJoin('staff', 'staff.pegawai_id', '=', 'pegawai.id')
             ->leftJoin('prodi', 'prodi.id', '=', 'dosen.prodi_id');
+    }
+
+    private function applySearchFilter($query, Request $request): void
+    {
+        if (! $request->filled('search')) {
+            return;
+        }
+
+        $search = $request->search;
+
+        $query->where(function ($q) use ($search) {
+            $q->orWhere('keuangan_pengeluaran_dosen_kegiatan.tanggal', 'LIKE', "%{$search}%")
+                ->orWhere('keuangan_pengeluaran_dosen_kegiatan.nama_kegiatan', 'LIKE', "%{$search}%")
+                ->orWhere('keuangan_pengeluaran_dosen_kegiatan.transport', 'LIKE', "%{$search}%")
+                ->orWhere('keuangan_pengeluaran_dosen_kegiatan.barokah', 'LIKE', "%{$search}%")
+                ->orWhere('keuangan_pengeluaran_dosen_kegiatan.total', 'LIKE', "%{$search}%")
+                ->orWhere('keuangan_pengeluaran_dosen_kegiatan.jenis_pembayaran', 'LIKE', "%{$search}%")
+                ->orWhere('keuangan_pengeluaran_dosen_kegiatan.keterangan', 'LIKE', "%{$search}%")
+                ->orWhere('pegawai.nama', 'LIKE', "%{$search}%")
+                ->orWhere('pegawai.kode', 'LIKE', "%{$search}%")
+                ->orWhere('pegawai.tipe', 'LIKE', "%{$search}%")
+                ->orWhere('prodi.nama', 'LIKE', "%{$search}%")
+                ->orWhere('staff.jabatan', 'LIKE', "%{$search}%");
+        });
+    }
+
+    private function applyPegawaiFilter($query, Request $request): void
+    {
+        if ($request->filled('kode')) {
+            $query->where('pegawai.kode', $request->kode);
+        }
+
+        if ($request->filled('pegawai_id')) {
+            $query->where('keuangan_pengeluaran_dosen_kegiatan.pegawai_id', $request->pegawai_id);
+        }
+    }
+
+    private function applyDateFilter($query, Request $request): void
+    {
+        $tanggalMulai = $request->tanggal_mulai ?? null;
+        $tanggalAkhir = $request->tanggal_akhir ?? null;
+
+        if ($tanggalMulai && $tanggalAkhir) {
+            $query->whereBetween('keuangan_pengeluaran_dosen_kegiatan.tanggal', [
+                $tanggalMulai,
+                $tanggalAkhir,
+            ]);
+        } elseif ($tanggalMulai) {
+            $query->where('keuangan_pengeluaran_dosen_kegiatan.tanggal', '>=', $tanggalMulai);
+        } elseif ($tanggalAkhir) {
+            $query->where('keuangan_pengeluaran_dosen_kegiatan.tanggal', '<=', $tanggalAkhir);
+        }
     }
 
     private function findWithDosen($id)

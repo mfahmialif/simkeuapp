@@ -2,11 +2,14 @@
 
 namespace App\Http\Controllers\Api\Admin\Pengeluaran;
 
+use App\Exports\ExcelExport;
 use App\Http\Controllers\Controller;
 use App\Models\KeuanganPengeluaranPegawaiBulanan;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use Maatwebsite\Excel\Facades\Excel;
 
 class DosenBulananController extends Controller
 {
@@ -37,6 +40,7 @@ class DosenBulananController extends Controller
 
         $stats = $this->stats($query);
 
+        $this->applyPeriodFilter($query, $request);
         $this->applyDateFilter($query, $request);
         $this->applySorting($query, $request);
 
@@ -139,6 +143,44 @@ class DosenBulananController extends Controller
         ]);
     }
 
+    public function exportExcel(Request $request)
+    {
+        $query = KeuanganPengeluaranPegawaiBulanan::query();
+
+        $query->select([
+            'keuangan_pengeluaran_pegawai_bulanan.tanggal',
+            'keuangan_pengeluaran_pegawai_bulanan.bulan',
+            'keuangan_pengeluaran_pegawai_bulanan.tahun',
+            'pegawai.kode as kode_pegawai',
+            'pegawai.nama as nama_pegawai',
+            'pegawai.tipe as tipe_pegawai',
+            'pegawai.jenis_kelamin as jenis_kelamin',
+            'prodi.nama as prodi',
+            'staff.jabatan as jabatan',
+            'keuangan_pengeluaran_pegawai_bulanan.hari',
+            'keuangan_pengeluaran_pegawai_bulanan.barokah_harian',
+            DB::raw('(keuangan_pengeluaran_pegawai_bulanan.barokah_harian * keuangan_pengeluaran_pegawai_bulanan.hari) as subtotal_harian'),
+            'keuangan_pengeluaran_pegawai_bulanan.barokah_bulanan',
+            'keuangan_pengeluaran_pegawai_bulanan.total',
+            'keuangan_pengeluaran_pegawai_bulanan.jenis_pembayaran',
+            'keuangan_pengeluaran_pegawai_bulanan.keterangan',
+        ]);
+
+        $this->joinPegawaiDetail($query);
+        $query->where('pegawai.tipe', static::PEGAWAI_TIPE);
+        $this->applySearchFilter($query, $request);
+        $this->applyPegawaiFilter($query, $request);
+        $this->applyPeriodFilter($query, $request);
+        $this->applyDateFilter($query, $request);
+
+        $data = $query
+            ->orderBy('keuangan_pengeluaran_pegawai_bulanan.tanggal', 'desc')
+            ->orderBy('keuangan_pengeluaran_pegawai_bulanan.id', 'desc')
+            ->get();
+
+        return Excel::download(new ExcelExport($data), 'Laporan ' . static::MODULE_NAME . '.xlsx');
+    }
+
     protected function joinPegawaiDetail($query): void
     {
         $query->leftJoin('pegawai', 'pegawai.id', '=', 'keuangan_pengeluaran_pegawai_bulanan.pegawai_id')
@@ -218,6 +260,17 @@ class DosenBulananController extends Controller
             $query->where('keuangan_pengeluaran_pegawai_bulanan.tanggal', '>=', $tanggalMulai);
         } elseif ($tanggalAkhir) {
             $query->where('keuangan_pengeluaran_pegawai_bulanan.tanggal', '<=', $tanggalAkhir);
+        }
+    }
+
+    protected function applyPeriodFilter($query, Request $request): void
+    {
+        if ($request->filled('bulan')) {
+            $query->where('keuangan_pengeluaran_pegawai_bulanan.bulan', (int) $request->bulan);
+        }
+
+        if ($request->filled('tahun')) {
+            $query->where('keuangan_pengeluaran_pegawai_bulanan.tahun', (int) $request->tahun);
         }
     }
 

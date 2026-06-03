@@ -65,6 +65,7 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
         Route::get('/finance-overview', [DashboardController::class, 'financeOverview'])->name('admin.dashboard.finance-overview');
         Route::get('/finance-overview-detail', [DashboardController::class, 'financeOverviewDetail'])->name('admin.dashboard.finance-overview-detail');
         Route::get('/statistic', [DashboardController::class, 'statistic'])->name('admin.dashboard.statistic');
+        Route::get('/barokah-summary', [DashboardController::class, 'barokahSummary'])->name('admin.dashboard.barokah-summary');
         Route::get('/krs-report', [DashboardController::class, 'krsReport'])->name('admin.dashboard.krs-report');
         Route::get('/krs-report-detail', [DashboardController::class, 'krsReportDetail'])->name('admin.dashboard.krs-report-detail');
         Route::get('/krs-report-local', [DashboardController::class, 'krsReportLocal'])->name('admin.dashboard.krs-report-local');
@@ -166,8 +167,10 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
         Route::get('/dosen/export-excel', [DosenTatapMukaController::class, 'exportExcel']);
         Route::apiResource('dosen', DosenTatapMukaController::class);
         Route::get('/dosen-kegiatan/by-date', [PengeluaranDosenKegiatanController::class, 'byDate']);
+        Route::get('/dosen-kegiatan/export-excel', [PengeluaranDosenKegiatanController::class, 'exportExcel']);
         Route::apiResource('dosen-kegiatan', PengeluaranDosenKegiatanController::class);
         Route::apiResource('dosen-bulanan', DosenBulananController::class)->middleware('role:admin,barokahdosen_bulanan');
+        Route::get('staff-bulanan/export-excel', [StaffBulananController::class, 'exportExcel'])->middleware('role:admin,barokahdosen_kegiatan');
         Route::apiResource('staff-bulanan', StaffBulananController::class)->middleware('role:admin,barokahdosen_kegiatan');
     });
     Route::apiResource('pengeluaran', PengeluaranController::class);
