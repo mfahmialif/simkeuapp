@@ -2,10 +2,13 @@
 
 namespace App\Http\Controllers\Api\Admin\Pengeluaran;
 
+use App\Exports\BsiPayrollExport;
 use App\Exports\ExcelExport;
 use App\Http\Controllers\Controller;
 use App\Models\KeuanganPengeluaranDosenKegiatan;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
@@ -180,6 +183,50 @@ class DosenKegiatanController extends Controller
         return Excel::download(new ExcelExport($data), 'Laporan Barokah Pegawai Kegiatan.xlsx');
     }
 
+    public function exportBsi(Request $request)
+    {
+        $data = $this->bsiRows($request);
+
+        return Excel::download(new BsiPayrollExport($data, 'barokah kegiatan'), 'CUS BSI Barokah Pegawai Kegiatan.xlsx');
+    }
+
+    public function copyBsi(Request $request)
+    {
+        $data = $this->bsiRows($request);
+        $export = new BsiPayrollExport($data, 'barokah kegiatan');
+
+        return response()->json([
+            'status' => true,
+            'data' => [
+                'text' => $export->clipboardText(),
+                'total' => $data->count(),
+            ],
+            'message' => 'Data CUS BSI berhasil disiapkan.',
+        ]);
+    }
+
+    private function bsiRows(Request $request)
+    {
+        $query = KeuanganPengeluaranDosenKegiatan::query();
+
+        $query->select([
+            'pegawai.nomer_rekening as beneficiary_acct',
+            $this->bsiBeneficiaryNameSelect(),
+            'keuangan_pengeluaran_dosen_kegiatan.total as amount',
+        ]);
+
+        $this->joinPegawaiDetail($query);
+        $this->applySearchFilter($query, $request);
+        $this->applyPegawaiFilter($query, $request);
+        $this->applyDateFilter($query, $request);
+
+        return $query
+            ->where('keuangan_pengeluaran_dosen_kegiatan.jenis_pembayaran', 'CUS BSI')
+            ->orderBy('keuangan_pengeluaran_dosen_kegiatan.tanggal')
+            ->orderBy('keuangan_pengeluaran_dosen_kegiatan.id')
+            ->get();
+    }
+
     public function update(Request $request, $id)
     {
         $data = KeuanganPengeluaranDosenKegiatan::find($id);
@@ -239,6 +286,20 @@ class DosenKegiatanController extends Controller
             ->leftJoin('dosen', 'dosen.pegawai_id', '=', 'pegawai.id')
             ->leftJoin('staff', 'staff.pegawai_id', '=', 'pegawai.id')
             ->leftJoin('prodi', 'prodi.id', '=', 'dosen.prodi_id');
+    }
+
+    private function bsiBeneficiaryNameSelect()
+    {
+        if ($this->hasNamaPemilikRekeningColumn()) {
+            return DB::raw("COALESCE(NULLIF(TRIM(pegawai.nama_pemilik_rekening), ''), pegawai.nama) as beneficiary_acct_name");
+        }
+
+        return 'pegawai.nama as beneficiary_acct_name';
+    }
+
+    private function hasNamaPemilikRekeningColumn(): bool
+    {
+        return Schema::hasColumn('pegawai', 'nama_pemilik_rekening');
     }
 
     private function applySearchFilter($query, Request $request): void

@@ -55,6 +55,8 @@ Route::prefix('auth')->group(function () {
 
 Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
     Route::get('pegawai', [PegawaiController::class, 'index']);
+    Route::get('pegawai/export-excel', [PegawaiController::class, 'exportExcel']);
+    Route::post('pegawai/import-excel', [PegawaiController::class, 'importExcel'])->middleware('role:admin');
     Route::get('pegawai/{pegawai}', [PegawaiController::class, 'show']);
 });
 
@@ -165,12 +167,20 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
         Route::get('/dosen/by-date', [DosenTatapMukaController::class, 'byDate']);
         Route::get('/dosen/print-slip/{id}', [DosenTatapMukaController::class, 'printSlip']);
         Route::get('/dosen/export-excel', [DosenTatapMukaController::class, 'exportExcel']);
+        Route::get('/dosen/export-bsi', [DosenTatapMukaController::class, 'exportBsi']);
+        Route::get('/dosen/copy-bsi', [DosenTatapMukaController::class, 'copyBsi']);
         Route::apiResource('dosen', DosenTatapMukaController::class);
         Route::get('/dosen-kegiatan/by-date', [PengeluaranDosenKegiatanController::class, 'byDate']);
         Route::get('/dosen-kegiatan/export-excel', [PengeluaranDosenKegiatanController::class, 'exportExcel']);
+        Route::get('/dosen-kegiatan/export-bsi', [PengeluaranDosenKegiatanController::class, 'exportBsi']);
+        Route::get('/dosen-kegiatan/copy-bsi', [PengeluaranDosenKegiatanController::class, 'copyBsi']);
         Route::apiResource('dosen-kegiatan', PengeluaranDosenKegiatanController::class);
+        Route::get('dosen-bulanan/export-bsi', [DosenBulananController::class, 'exportBsi'])->middleware('role:admin,barokahdosen_bulanan');
+        Route::get('dosen-bulanan/copy-bsi', [DosenBulananController::class, 'copyBsi'])->middleware('role:admin,barokahdosen_bulanan');
         Route::apiResource('dosen-bulanan', DosenBulananController::class)->middleware('role:admin,barokahdosen_bulanan');
         Route::get('staff-bulanan/export-excel', [StaffBulananController::class, 'exportExcel'])->middleware('role:admin,barokahdosen_kegiatan');
+        Route::get('staff-bulanan/export-bsi', [StaffBulananController::class, 'exportBsi'])->middleware('role:admin,barokahdosen_kegiatan');
+        Route::get('staff-bulanan/copy-bsi', [StaffBulananController::class, 'copyBsi'])->middleware('role:admin,barokahdosen_kegiatan');
         Route::apiResource('staff-bulanan', StaffBulananController::class)->middleware('role:admin,barokahdosen_kegiatan');
     });
     Route::apiResource('pengeluaran', PengeluaranController::class);

@@ -2,12 +2,14 @@
 
 namespace App\Http\Controllers\Api\Admin\Pengeluaran;
 
+use App\Exports\BsiPayrollExport;
 use App\Exports\ExcelExport;
 use App\Exports\pdf\SlipGajiPdf;
 use App\Http\Controllers\Controller;
 use App\Models\KeuanganPengeluaranDosen;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
@@ -364,11 +366,112 @@ class DosenTatapMukaController extends Controller
         return Excel::download(new ExcelExport($data), 'Laporan Barokah Dosen Tatapmuka.xlsx');
     }
 
+    public function exportBsi(Request $request)
+    {
+        $data = $this->bsiRows($request);
+
+        return Excel::download(new BsiPayrollExport($data, 'barokah mengajar'), 'CUS BSI Barokah Dosen Tatapmuka.xlsx');
+    }
+
+    public function copyBsi(Request $request)
+    {
+        $data = $this->bsiRows($request);
+        $export = new BsiPayrollExport($data, 'barokah mengajar');
+
+        return response()->json([
+            'status' => true,
+            'data' => [
+                'text' => $export->clipboardText(),
+                'total' => $data->count(),
+            ],
+            'message' => 'Data CUS BSI berhasil disiapkan.',
+        ]);
+    }
+
+    private function bsiRows(Request $request)
+    {
+        $query = KeuanganPengeluaranDosen::query();
+
+        $query->select([
+            'pegawai.nomer_rekening as beneficiary_acct',
+            $this->bsiBeneficiaryNameSelect(),
+            'keuangan_pengeluaran_dosen.total as amount',
+        ]);
+
+        $this->joinPegawaiDosen($query);
+
+        $hasNamaPemilikRekening = $this->hasNamaPemilikRekeningColumn();
+
+        if ($request->filled('search')) {
+            $query->where(function ($q) use ($request, $hasNamaPemilikRekening) {
+                $q->orWhere('keuangan_pengeluaran_dosen.transport', 'LIKE', "%$request->search%")
+                    ->orWhere('keuangan_pengeluaran_dosen.transport_motor', 'LIKE', "%$request->search%")
+                    ->orWhere('keuangan_pengeluaran_dosen.transport_mobil', 'LIKE', "%$request->search%")
+                    ->orWhere('keuangan_pengeluaran_dosen.transport_mobil_tol', 'LIKE', "%$request->search%")
+                    ->orWhere('keuangan_pengeluaran_dosen.transport_mobil_tanpa_tol', 'LIKE', "%$request->search%")
+                    ->orWhere('keuangan_pengeluaran_dosen.hari_transport_motor', 'LIKE', "%$request->search%")
+                    ->orWhere('keuangan_pengeluaran_dosen.hari_transport_mobil', 'LIKE', "%$request->search%")
+                    ->orWhere('keuangan_pengeluaran_dosen.hari_transport_mobil_tol', 'LIKE', "%$request->search%")
+                    ->orWhere('keuangan_pengeluaran_dosen.hari_transport_mobil_tanpa_tol', 'LIKE', "%$request->search%")
+                    ->orWhere('keuangan_pengeluaran_dosen.barokah', 'LIKE', "%$request->search%")
+                    ->orWhere('keuangan_pengeluaran_dosen.barokah_mengajar_biasa', 'LIKE', "%$request->search%")
+                    ->orWhere('keuangan_pengeluaran_dosen.barokah_mengajar_double_degree', 'LIKE', "%$request->search%")
+                    ->orWhere('keuangan_pengeluaran_dosen.jam_mengajar_double_degree', 'LIKE', "%$request->search%")
+                    ->orWhere('keuangan_pengeluaran_dosen.barokah_uas', 'LIKE', "%$request->search%")
+                    ->orWhere('keuangan_pengeluaran_dosen.jumlah_mahasiswa_uas', 'LIKE', "%$request->search%")
+                    ->orWhere('keuangan_pengeluaran_dosen.barokah_sempro', 'LIKE', "%$request->search%")
+                    ->orWhere('keuangan_pengeluaran_dosen.jam_sempro', 'LIKE', "%$request->search%")
+                    ->orWhere('keuangan_pengeluaran_dosen.keterangan_sempro', 'LIKE', "%$request->search%")
+                    ->orWhere('keuangan_pengeluaran_dosen.total', 'LIKE', "%$request->search%")
+                    ->orWhere('keuangan_pengeluaran_dosen.jenis_pembayaran', 'LIKE', "%$request->search%")
+                    ->orWhere('keuangan_pengeluaran_dosen.keterangan', 'LIKE', "%$request->search%")
+                    ->orWhere('pegawai.nama', 'LIKE', "%$request->search%")
+                    ->orWhere('pegawai.kode', 'LIKE', "%$request->search%")
+                    ->orWhere('pegawai.nomer_rekening', 'LIKE', "%$request->search%")
+                    ->orWhere('prodi.nama', 'LIKE', "%$request->search%");
+
+                if ($hasNamaPemilikRekening) {
+                    $q->orWhere('pegawai.nama_pemilik_rekening', 'LIKE', "%$request->search%");
+                }
+            });
+        }
+
+        $this->applyDateFilter($query, $request);
+
+        if ($request->filled('kode')) {
+            $query->where('pegawai.kode', $request->kode);
+        }
+
+        if ($request->filled('pegawai_id')) {
+            $query->where('keuangan_pengeluaran_dosen.pegawai_id', $request->pegawai_id);
+        }
+
+        return $query
+            ->where('keuangan_pengeluaran_dosen.jenis_pembayaran', 'CUS BSI')
+            ->orderBy('keuangan_pengeluaran_dosen.tanggal')
+            ->orderBy('keuangan_pengeluaran_dosen.id')
+            ->get();
+    }
+
     private function joinPegawaiDosen($query): void
     {
         $query->leftJoin('pegawai', 'pegawai.id', '=', 'keuangan_pengeluaran_dosen.pegawai_id')
             ->leftJoin('dosen', 'dosen.pegawai_id', '=', 'pegawai.id')
             ->leftJoin('prodi', 'prodi.id', '=', 'dosen.prodi_id');
+    }
+
+    private function bsiBeneficiaryNameSelect()
+    {
+        if ($this->hasNamaPemilikRekeningColumn()) {
+            return DB::raw("COALESCE(NULLIF(TRIM(pegawai.nama_pemilik_rekening), ''), pegawai.nama) as beneficiary_acct_name");
+        }
+
+        return 'pegawai.nama as beneficiary_acct_name';
+    }
+
+    private function hasNamaPemilikRekeningColumn(): bool
+    {
+        return Schema::hasColumn('pegawai', 'nama_pemilik_rekening');
     }
 
     private function findWithDosen($id)

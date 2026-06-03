@@ -2,13 +2,15 @@
 
 namespace App\Http\Controllers\Api\Admin\Pengeluaran;
 
+use App\Exports\BsiPayrollExport;
 use App\Exports\ExcelExport;
 use App\Http\Controllers\Controller;
 use App\Models\KeuanganPengeluaranPegawaiBulanan;
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 use Maatwebsite\Excel\Facades\Excel;
 
 class DosenBulananController extends Controller
@@ -181,12 +183,79 @@ class DosenBulananController extends Controller
         return Excel::download(new ExcelExport($data), 'Laporan ' . static::MODULE_NAME . '.xlsx');
     }
 
+    public function exportBsi(Request $request)
+    {
+        $data = $this->bsiRows($request);
+
+        return Excel::download(new BsiPayrollExport($data, $this->bsiMessage()), 'CUS BSI ' . static::MODULE_NAME . '.xlsx');
+    }
+
+    public function copyBsi(Request $request)
+    {
+        $data = $this->bsiRows($request);
+        $export = new BsiPayrollExport($data, $this->bsiMessage());
+
+        return response()->json([
+            'status' => true,
+            'data' => [
+                'text' => $export->clipboardText(),
+                'total' => $data->count(),
+            ],
+            'message' => 'Data CUS BSI berhasil disiapkan.',
+        ]);
+    }
+
+    protected function bsiRows(Request $request)
+    {
+        $query = KeuanganPengeluaranPegawaiBulanan::query();
+
+        $query->select([
+            'pegawai.nomer_rekening as beneficiary_acct',
+            $this->bsiBeneficiaryNameSelect(),
+            'keuangan_pengeluaran_pegawai_bulanan.total as amount',
+        ]);
+
+        $this->joinPegawaiDetail($query);
+        $query->where('pegawai.tipe', static::PEGAWAI_TIPE);
+        $this->applySearchFilter($query, $request);
+        $this->applyPegawaiFilter($query, $request);
+        $this->applyPeriodFilter($query, $request);
+        $this->applyDateFilter($query, $request);
+
+        return $query
+            ->where('keuangan_pengeluaran_pegawai_bulanan.jenis_pembayaran', 'CUS BSI')
+            ->orderBy('keuangan_pengeluaran_pegawai_bulanan.tanggal')
+            ->orderBy('keuangan_pengeluaran_pegawai_bulanan.id')
+            ->get();
+    }
+
+    protected function bsiMessage(): string
+    {
+        return static::PEGAWAI_TIPE === 'staff'
+            ? 'barokah staff bulanan'
+            : 'barokah dosen bulanan';
+    }
+
     protected function joinPegawaiDetail($query): void
     {
         $query->leftJoin('pegawai', 'pegawai.id', '=', 'keuangan_pengeluaran_pegawai_bulanan.pegawai_id')
             ->leftJoin('dosen', 'dosen.pegawai_id', '=', 'pegawai.id')
             ->leftJoin('staff', 'staff.pegawai_id', '=', 'pegawai.id')
             ->leftJoin('prodi', 'prodi.id', '=', 'dosen.prodi_id');
+    }
+
+    protected function bsiBeneficiaryNameSelect()
+    {
+        if ($this->hasNamaPemilikRekeningColumn()) {
+            return DB::raw("COALESCE(NULLIF(TRIM(pegawai.nama_pemilik_rekening), ''), pegawai.nama) as beneficiary_acct_name");
+        }
+
+        return 'pegawai.nama as beneficiary_acct_name';
+    }
+
+    protected function hasNamaPemilikRekeningColumn(): bool
+    {
+        return Schema::hasColumn('pegawai', 'nama_pemilik_rekening');
     }
 
     private function findWithPegawai($id)

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\Admin;
 
+use App\Exports\PegawaiExport;
 use App\Http\Controllers\Controller;
 use App\Models\Dosen as DosenModel;
 use App\Models\Pegawai;
@@ -13,8 +14,12 @@ use Illuminate\Support\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
+use Maatwebsite\Excel\Facades\Excel;
+use PhpOffice\PhpSpreadsheet\IOFactory;
+use PhpOffice\PhpSpreadsheet\Shared\Date as SpreadsheetDate;
 
 class PegawaiController extends Controller
 {
@@ -162,6 +167,115 @@ class PegawaiController extends Controller
         ]);
     }
 
+    public function exportExcel(Request $request)
+    {
+        $query = Pegawai::with(['dosen.prodi', 'staff']);
+        $this->applyFilters($query, $request);
+
+        $sortable = ['id', 'nama', 'kode', 'tipe', 'jenis_kelamin', 'status', 'created_at', 'updated_at'];
+        $sortKey = in_array($request->input('sort_key'), $sortable, true) ? $request->input('sort_key') : 'id';
+        $sortOrder = $request->input('sort_order') === 'asc' ? 'asc' : 'desc';
+        $data = $query->orderBy($sortKey, $sortOrder)->get();
+
+        return Excel::download(new PegawaiExport($data, $request->input('tipe')), $this->pegawaiExportFileName($request));
+    }
+
+    public function importExcel(Request $request)
+    {
+        if (function_exists('set_time_limit')) {
+            @set_time_limit(0);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'file' => ['required', 'file', 'mimes:xlsx,xls,csv'],
+            'tipe' => ['nullable', Rule::in(['dosen', 'staff'])],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'message' => $validator->errors(),
+            ], 422);
+        }
+
+        $fixedTipe = $request->input('tipe');
+        $rows = $this->pegawaiImportRows($request->file('file'));
+
+        if (! $rows) {
+            return response()->json([
+                'status' => false,
+                'message' => 'File import tidak memiliki data.',
+            ], 422);
+        }
+
+        $created = 0;
+        $updated = 0;
+        $skipped = 0;
+        $errors = [];
+
+        foreach ($rows as $row) {
+            $payload = $this->pegawaiImportPayload($row['data'], $fixedTipe);
+
+            if (! $payload) {
+                $skipped++;
+                $errors[] = "Baris {$row['number']}: kolom nama, kode, dan tipe wajib diisi.";
+                continue;
+            }
+
+            if ($fixedTipe && $payload['tipe'] !== $fixedTipe) {
+                $skipped++;
+                $errors[] = "Baris {$row['number']}: tipe harus {$fixedTipe}.";
+                continue;
+            }
+
+            $pegawai = $this->findPegawaiForImport($row['data'], $payload['kode']);
+            [$rowValidator] = $this->validator(new Request($payload), $pegawai);
+
+            if ($rowValidator->fails()) {
+                $skipped++;
+                $errors[] = "Baris {$row['number']}: " . collect($rowValidator->errors()->all())->implode('; ');
+                continue;
+            }
+
+            $payload = $rowValidator->validated();
+            $wasUpdate = (bool) $pegawai;
+
+            try {
+                DB::transaction(function () use ($pegawai, $payload) {
+                    if ($pegawai) {
+                        $pegawai->fill($this->pegawaiPayload($payload));
+                        $pegawai->save();
+                    } else {
+                        $pegawai = Pegawai::create($this->pegawaiPayload($payload));
+                    }
+
+                    $this->syncDetail($pegawai, $payload);
+                });
+
+                if ($wasUpdate) {
+                    $updated++;
+                } else {
+                    $created++;
+                }
+            } catch (\Throwable $exception) {
+                $skipped++;
+                $errors[] = "Baris {$row['number']}: gagal disimpan ({$exception->getMessage()}).";
+            }
+        }
+
+        return response()->json([
+            'status' => true,
+            'data' => [
+                'created' => $created,
+                'updated' => $updated,
+                'skipped' => $skipped,
+                'errors' => array_slice($errors, 0, 20),
+                'error_count' => count($errors),
+            ],
+            'message' => "Import selesai. {$created} data baru, {$updated} data diperbarui, {$skipped} dilewati.",
+        ]);
+    }
+
     public function syncDosenSiakad(Request $request)
     {
         if (function_exists('set_time_limit')) {
@@ -256,7 +370,7 @@ class PegawaiController extends Controller
                 $existingPegawai = Pegawai::whereIn('kode', $codes)->pluck('id', 'kode');
 
                 $pegawaiRows = array_map(function ($row) use ($now) {
-                    return array_merge($row['pegawai'], [
+                    return array_merge($this->pegawaiPayload($row['pegawai']), [
                         'created_at' => $now,
                         'updated_at' => $now,
                     ]);
@@ -265,20 +379,7 @@ class PegawaiController extends Controller
                 Pegawai::upsert(
                     $pegawaiRows,
                     ['kode'],
-                    [
-                        'nama',
-                        'jenis_kelamin',
-                        'tipe',
-                        'tempat_lahir',
-                        'tanggal_lahir',
-                        'alamat',
-                        'email',
-                        'hp',
-                        'nomer_rekening',
-                        'bank',
-                        'status',
-                        'updated_at',
-                    ]
+                    $this->pegawaiUpsertUpdateColumns()
                 );
 
                 $pegawaiIds = Pegawai::whereIn('kode', $codes)->pluck('id', 'kode');
@@ -647,7 +748,7 @@ class PegawaiController extends Controller
                 $existingPegawai = Pegawai::whereIn('kode', $codes)->pluck('id', 'kode');
 
                 $pegawaiRows = array_map(function ($row) use ($now) {
-                    return array_merge($row['pegawai'], [
+                    return array_merge($this->pegawaiPayload($row['pegawai']), [
                         'created_at' => $now,
                         'updated_at' => $now,
                     ]);
@@ -656,20 +757,7 @@ class PegawaiController extends Controller
                 Pegawai::upsert(
                     $pegawaiRows,
                     ['kode'],
-                    [
-                        'nama',
-                        'jenis_kelamin',
-                        'tipe',
-                        'tempat_lahir',
-                        'tanggal_lahir',
-                        'alamat',
-                        'email',
-                        'hp',
-                        'nomer_rekening',
-                        'bank',
-                        'status',
-                        'updated_at',
-                    ]
+                    $this->pegawaiUpsertUpdateColumns()
                 );
 
                 $pegawaiIds = Pegawai::whereIn('kode', $codes)->pluck('id', 'kode');
@@ -721,6 +809,269 @@ class PegawaiController extends Controller
         ]);
     }
 
+    private function pegawaiExportFileName(Request $request): string
+    {
+        return match ($request->input('tipe')) {
+            'dosen' => 'Data Dosen.xlsx',
+            'staff' => 'Data Staff.xlsx',
+            default => 'Data Pegawai.xlsx',
+        };
+    }
+
+    private function pegawaiImportRows($file): array
+    {
+        $spreadsheet = IOFactory::load($file->getRealPath());
+        $sheet = $spreadsheet->getActiveSheet();
+        $rawRows = $sheet->toArray(null, true, true, true);
+
+        if (! $rawRows) {
+            return [];
+        }
+
+        $headings = array_shift($rawRows);
+        $columnKeys = [];
+
+        foreach ($headings as $column => $heading) {
+            $key = $this->normalizeImportHeading($heading);
+            if ($key) {
+                $columnKeys[$column] = $key;
+            }
+        }
+
+        if (! $columnKeys) {
+            return [];
+        }
+
+        $rows = [];
+        $rowNumber = 2;
+
+        foreach ($rawRows as $rawRow) {
+            $row = [];
+
+            foreach ($columnKeys as $column => $key) {
+                $row[$key] = $rawRow[$column] ?? null;
+            }
+
+            if (! $this->isImportRowEmpty($row)) {
+                $rows[] = [
+                    'number' => $rowNumber,
+                    'data' => $row,
+                ];
+            }
+
+            $rowNumber++;
+        }
+
+        return $rows;
+    }
+
+    private function pegawaiImportPayload(array $row, ?string $fixedTipe): ?array
+    {
+        $tipe = $this->normalizeTipe($this->importValue($row, ['tipe', 'type'])) ?: $fixedTipe;
+        $kode = $this->importValue($row, ['kode', 'kode_pegawai', 'niy', 'nip']);
+        $nama = $this->importValue($row, ['nama', 'nama_pegawai', 'name']);
+
+        if (! $tipe || ! $kode || ! $nama) {
+            return null;
+        }
+
+        $payload = [
+            'nama' => $nama,
+            'jenis_kelamin' => $this->normalizeJenisKelamin($this->importValue($row, ['jenis_kelamin', 'kelamin', 'jk', 'gender'])),
+            'tipe' => $tipe,
+            'kode' => $kode,
+            'tempat_lahir' => $this->nullableImportValue($row, ['tempat_lahir', 'tmp_lahir']),
+            'tanggal_lahir' => $this->normalizeImportDate($this->importValue($row, ['tanggal_lahir', 'tgl_lahir'])),
+            'alamat' => $this->nullableImportValue($row, ['alamat', 'alamat_lengkap']),
+            'email' => $this->normalizeEmail($this->importValue($row, ['email'])),
+            'hp' => $this->nullableImportValue($row, ['hp', 'no_hp', 'telepon', 'telp']),
+            'nomer_rekening' => $this->nullableImportValue($row, ['nomer_rekening', 'nomor_rekening', 'no_rekening', 'rekening']),
+            'nama_pemilik_rekening' => $this->nullableImportValue($row, ['nama_pemilik_rekening', 'nama_rekening', 'atas_nama_rekening', 'atas_nama']),
+            'bank' => $this->nullableImportValue($row, ['bank', 'nama_bank']),
+            'status' => $this->normalizeStatus($this->importValue($row, ['status', 'aktif'])),
+        ];
+
+        if ($tipe === 'dosen') {
+            $payload += [
+                'dosen_kode' => $this->nullableImportValue($row, ['dosen_kode', 'kode_dosen']) ?: $kode,
+                'nidn' => $this->nullableImportValue($row, ['nidn']),
+                'gelar_depan' => $this->nullableImportValue($row, ['gelar_depan', 'gelar_dpn']),
+                'gelar_belakang' => $this->nullableImportValue($row, ['gelar_belakang', 'gelar_blk', 'gelar']),
+                'prodi_id' => $this->resolveImportProdiId($row),
+            ];
+        }
+
+        if ($tipe === 'staff') {
+            $payload['jabatan'] = $this->nullableImportValue($row, ['jabatan', 'position', 'posisi']);
+        }
+
+        return $payload;
+    }
+
+    private function findPegawaiForImport(array $row, string $kode): ?Pegawai
+    {
+        $id = $this->importValue($row, ['id', 'pegawai_id', 'id_pegawai']);
+
+        if (is_numeric($id)) {
+            $pegawai = Pegawai::with(['dosen', 'staff'])->find((int) $id);
+            if ($pegawai) {
+                return $pegawai;
+            }
+        }
+
+        return Pegawai::with(['dosen', 'staff'])->where('kode', $kode)->first();
+    }
+
+    private function resolveImportProdiId(array $row): ?int
+    {
+        $prodiId = $this->importValue($row, ['prodi_id', 'id_prodi']);
+        if (is_numeric($prodiId)) {
+            return (int) $prodiId;
+        }
+
+        $lookup = $this->normalizeLookupKey($this->importValue($row, ['prodi_kode', 'kode_prodi', 'prodi_nama', 'nama_prodi', 'prodi']));
+        if (! $lookup) {
+            return null;
+        }
+
+        return $this->prodiMap()[$lookup] ?? null;
+    }
+
+    private function normalizeImportHeading($heading): ?string
+    {
+        $normalized = mb_strtolower(trim((string) $heading));
+        if ($normalized === '') {
+            return null;
+        }
+
+        $normalized = preg_replace('/[^a-z0-9]+/i', '_', $normalized);
+        $normalized = trim($normalized, '_');
+
+        $aliases = [
+            'pegawai_id' => 'id',
+            'id_pegawai' => 'id',
+            'pegawai_tipe' => 'tipe',
+            'pegawai_type' => 'tipe',
+            'pegawai_kode' => 'kode',
+            'kode_pegawai' => 'kode',
+            'pegawai_nama' => 'nama',
+            'nama_pegawai' => 'nama',
+            'pegawai_jenis_kelamin' => 'jenis_kelamin',
+            'pegawai_status' => 'status',
+            'pegawai_tempat_lahir' => 'tempat_lahir',
+            'pegawai_tanggal_lahir' => 'tanggal_lahir',
+            'pegawai_alamat' => 'alamat',
+            'pegawai_email' => 'email',
+            'pegawai_hp' => 'hp',
+            'pegawai_no_hp' => 'hp',
+            'pegawai_telepon' => 'hp',
+            'pegawai_telp' => 'hp',
+            'pegawai_nomer_rekening' => 'nomer_rekening',
+            'pegawai_nomor_rekening' => 'nomer_rekening',
+            'pegawai_no_rekening' => 'nomer_rekening',
+            'pegawai_rekening' => 'nomer_rekening',
+            'nomor_rekening' => 'nomer_rekening',
+            'no_rekening' => 'nomer_rekening',
+            'rekening' => 'nomer_rekening',
+            'pegawai_nama_pemilik_rekening' => 'nama_pemilik_rekening',
+            'pegawai_nama_rekening' => 'nama_pemilik_rekening',
+            'pegawai_atas_nama_rekening' => 'nama_pemilik_rekening',
+            'pegawai_atas_nama' => 'nama_pemilik_rekening',
+            'nama_rekening' => 'nama_pemilik_rekening',
+            'atas_nama_rekening' => 'nama_pemilik_rekening',
+            'atas_nama' => 'nama_pemilik_rekening',
+            'pegawai_bank' => 'bank',
+            'pegawai_nama_bank' => 'bank',
+            'kode_dosen' => 'dosen_kode',
+            'dosen_nidn' => 'nidn',
+            'dosen_gelar_depan' => 'gelar_depan',
+            'dosen_gelar_dpn' => 'gelar_depan',
+            'dosen_gelar_belakang' => 'gelar_belakang',
+            'dosen_gelar_blk' => 'gelar_belakang',
+            'dosen_gelar' => 'gelar_belakang',
+            'dosen_prodi_id' => 'prodi_id',
+            'dosen_id_prodi' => 'prodi_id',
+            'dosen_prodi_kode' => 'prodi_kode',
+            'dosen_kode_prodi' => 'prodi_kode',
+            'dosen_prodi_nama' => 'prodi_nama',
+            'dosen_nama_prodi' => 'prodi_nama',
+            'dosen_prodi' => 'prodi_nama',
+            'kode_prodi' => 'prodi_kode',
+            'nama_prodi' => 'prodi_nama',
+            'prodi' => 'prodi_nama',
+            'staff_jabatan' => 'jabatan',
+            'jabatan_staff' => 'jabatan',
+            'position' => 'jabatan',
+            'posisi' => 'jabatan',
+        ];
+
+        return $aliases[$normalized] ?? $normalized;
+    }
+
+    private function importValue(array $row, array $keys): ?string
+    {
+        foreach ($keys as $key) {
+            if (! array_key_exists($key, $row)) {
+                continue;
+            }
+
+            $value = $row[$key];
+            if ($value !== null && trim((string) $value) !== '') {
+                return trim((string) $value);
+            }
+        }
+
+        return null;
+    }
+
+    private function nullableImportValue(array $row, array $keys): ?string
+    {
+        return $this->importValue($row, $keys) ?: null;
+    }
+
+    private function normalizeTipe(?string $value): ?string
+    {
+        $normalized = mb_strtolower(trim((string) $value));
+
+        if (in_array($normalized, ['dosen', 'lecturer'], true)) {
+            return 'dosen';
+        }
+
+        if (in_array($normalized, ['staff', 'staf', 'pegawai'], true)) {
+            return 'staff';
+        }
+
+        return null;
+    }
+
+    private function normalizeImportDate(?string $value): ?string
+    {
+        if (! $value) {
+            return null;
+        }
+
+        if (is_numeric($value)) {
+            try {
+                return SpreadsheetDate::excelToDateTimeObject((float) $value)->format('Y-m-d');
+            } catch (\Throwable) {
+                return null;
+            }
+        }
+
+        return $this->normalizeDate($value);
+    }
+
+    private function isImportRowEmpty(array $row): bool
+    {
+        foreach ($row as $value) {
+            if ($value !== null && trim((string) $value) !== '') {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     private function applyFilters($query, Request $request): void
     {
         if ($request->filled('search')) {
@@ -748,6 +1099,10 @@ class PegawaiController extends Controller
                     ->orWhereHas('staff', function ($staff) use ($term) {
                         $staff->where('jabatan', 'LIKE', "%{$term}%");
                     });
+
+                if ($this->hasNamaPemilikRekeningColumn()) {
+                    $q->orWhere('nama_pemilik_rekening', 'LIKE', "%{$term}%");
+                }
             });
         }
 
@@ -806,6 +1161,7 @@ class PegawaiController extends Controller
             'email' => ['nullable', 'email', 'max:255', Rule::unique('pegawai', 'email')->ignore($pegawaiId)],
             'hp' => ['nullable', 'string', 'max:255'],
             'nomer_rekening' => ['nullable', 'string', 'max:255'],
+            'nama_pemilik_rekening' => ['nullable', 'string', 'max:255'],
             'bank' => ['nullable', 'string', 'max:255'],
             'status' => ['required', Rule::in(['aktif', 'tidak aktif'])],
             'dosen_kode' => [
@@ -836,7 +1192,7 @@ class PegawaiController extends Controller
 
     private function pegawaiPayload(array $payload): array
     {
-        return Arr::only($payload, [
+        $columns = [
             'nama',
             'jenis_kelamin',
             'tipe',
@@ -849,7 +1205,48 @@ class PegawaiController extends Controller
             'nomer_rekening',
             'bank',
             'status',
-        ]);
+        ];
+
+        if ($this->hasNamaPemilikRekeningColumn()) {
+            $columns[] = 'nama_pemilik_rekening';
+        }
+
+        return Arr::only($payload, $columns);
+    }
+
+    private function pegawaiUpsertUpdateColumns(): array
+    {
+        $columns = [
+            'nama',
+            'jenis_kelamin',
+            'tipe',
+            'tempat_lahir',
+            'tanggal_lahir',
+            'alamat',
+            'email',
+            'hp',
+            'nomer_rekening',
+            'bank',
+            'status',
+            'updated_at',
+        ];
+
+        if ($this->hasNamaPemilikRekeningColumn()) {
+            array_splice($columns, 9, 0, ['nama_pemilik_rekening']);
+        }
+
+        return $columns;
+    }
+
+    private function hasNamaPemilikRekeningColumn(): bool
+    {
+        static $hasColumn = null;
+
+        if ($hasColumn === null) {
+            $hasColumn = Schema::hasColumn('pegawai', 'nama_pemilik_rekening');
+        }
+
+        return $hasColumn;
     }
 
     private function syncDetail(Pegawai $pegawai, array $payload): void
@@ -910,6 +1307,7 @@ class PegawaiController extends Controller
                 'email' => $this->normalizeEmail($this->sourceValue($source, ['email', 'email_dosen'])),
                 'hp' => $this->sourceValue($source, ['hp', 'no_hp', 'telepon', 'telp']),
                 'nomer_rekening' => $this->sourceValue($source, ['nomer_rekening', 'nomor_rekening', 'no_rekening', 'rekening']),
+                'nama_pemilik_rekening' => $this->sourceValue($source, ['nama_pemilik_rekening', 'nama_rekening', 'atas_nama_rekening', 'atas_nama']),
                 'bank' => $this->sourceValue($source, ['bank', 'nama_bank']),
                 'status' => $this->normalizeStatus($this->sourceValue($source, ['status', 'aktif'])),
             ],
@@ -1369,6 +1767,7 @@ class PegawaiController extends Controller
                 'email' => $this->normalizeEmail($this->sourceValue($source, ['email', 'email_user'])),
                 'hp' => $this->sourceValue($source, ['hp', 'no_hp', 'phone', 'phone_number', 'telepon', 'telp']),
                 'nomer_rekening' => $this->sourceValue($source, ['nomer_rekening', 'nomor_rekening', 'no_rekening', 'rekening']),
+                'nama_pemilik_rekening' => $this->sourceValue($source, ['nama_pemilik_rekening', 'nama_rekening', 'atas_nama_rekening', 'atas_nama']),
                 'bank' => $this->sourceValue($source, ['bank', 'nama_bank']),
                 'status' => $this->normalizeStatus($this->sourceValue($source, ['status', 'aktif', 'is_active'])),
             ],
