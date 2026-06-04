@@ -331,19 +331,6 @@ class HelperController extends Controller
                 ], 404);
             }
 
-            $pembayaranExisting = KeuanganPembayaran::where('nim', $nim)
-                ->where(function ($query) use ($tagihan) {
-                    $query->where('tagihan_id', $tagihan->id)
-                        ->orWhereHas('tagihan', function ($tagihanQuery) {
-                            $tagihanQuery->where('nama', 'LIKE', '%wisuda%');
-                        });
-                })
-                ->where(function ($query) use ($tanggal, $createdAt) {
-                    $query->where('tanggal', $tanggal)
-                        ->orWhere('created_at', $createdAt->toDateTimeString());
-                })
-                ->get();
-
             $jenisPembayaran = $this->resolveJenisPembayaranWisuda(
                 $dataValidated['jenis_pembayaran'],
                 $jenisKelamin['kategori']
@@ -357,10 +344,19 @@ class HelperController extends Controller
                 ], 404);
             }
 
+            $jumlahInput = array_key_exists('jumlah', $dataValidated)
+                ? (float) $dataValidated['jumlah']
+                : null;
+
+            $pembayaranExisting = $this->resolvePembayaranWisudaExisting(
+                $nim,
+                $tagihan,
+                $tanggalTransaksi,
+                $jumlahInput
+            );
+
             if ($pembayaranExisting->isNotEmpty()) {
-                $jumlah = array_key_exists('jumlah', $dataValidated)
-                    ? (float) $dataValidated['jumlah']
-                    : (float) $pembayaranExisting->first()->jumlah;
+                $jumlah = $jumlahInput ?? (float) $pembayaranExisting->first()->jumlah;
 
                 if ($jumlah <= 0) {
                     return response()->json([
@@ -382,6 +378,10 @@ class HelperController extends Controller
                     $tanggal,
                     $createdAt
                 ) {
+                    $pembayaranIds = $pembayaranExisting->pluck('id');
+
+                    KeuanganJenisPembayaranDetail::whereIn('pembayaran_id', $pembayaranIds)->delete();
+
                     foreach ($pembayaranExisting as $pembayaran) {
                         $pembayaran->update([
                             'th_akademik_id' => $thAkademik->id,
@@ -394,8 +394,6 @@ class HelperController extends Controller
                             'jk_id'          => $jenisKelamin['id'],
                             'user_id'        => 8,
                         ]);
-
-                        KeuanganJenisPembayaranDetail::where('pembayaran_id', $pembayaran->id)->delete();
 
                         KeuanganJenisPembayaranDetail::create([
                             'jenis_pembayaran_id' => $jenisPembayaran->id,
@@ -638,6 +636,31 @@ class HelperController extends Controller
             ->first(function ($tagihan) {
                 return stripos((string) data_get($tagihan, 'nama'), 'wisuda') !== false;
             });
+    }
+
+    private function resolvePembayaranWisudaExisting(string $nim, KeuanganTagihan $tagihan, Carbon $tanggalTransaksi, ?float $jumlah)
+    {
+        $tanggal = $tanggalTransaksi->toDateTimeString();
+        $tanggalDate = $tanggalTransaksi->toDateString();
+
+        return KeuanganPembayaran::where('nim', $nim)
+            ->where(function ($query) use ($tagihan, $jumlah) {
+                $query->where('tagihan_id', $tagihan->id)
+                    ->orWhereHas('tagihan', function ($tagihanQuery) {
+                        $tagihanQuery->where('nama', 'LIKE', '%wisuda%');
+                    });
+
+                if ($jumlah !== null) {
+                    $query->orWhere('jumlah', $jumlah);
+                }
+            })
+            ->where(function ($query) use ($tanggal, $tanggalDate) {
+                $query->where('tanggal', $tanggal)
+                    ->orWhere('created_at', $tanggal)
+                    ->orWhereDate('tanggal', $tanggalDate)
+                    ->orWhereDate('created_at', $tanggalDate);
+            })
+            ->get();
     }
 
     private function resolveJenisPembayaranWisuda(string $nama, string $kategori): ?KeuanganJenisPembayaran
