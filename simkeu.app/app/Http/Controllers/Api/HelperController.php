@@ -270,6 +270,12 @@ class HelperController extends Controller
     public function createPembayaranWisuda(Request $request): JsonResponse
     {
         try {
+        return response()->json([
+            'status'  => true,
+            'code'    => 200,
+            'request' => $request->all(),
+
+        ], 200);
             $dataValidated = $request->validate([
                 'nim'              => 'required|string|max:255',
                 'jenis_pembayaran' => 'required|string|max:255',
