@@ -573,14 +573,57 @@ class HelperController extends Controller
     private function resolveJenisPembayaranWisuda(string $nama, string $kategori): ?KeuanganJenisPembayaran
     {
         $nama = trim($nama);
-        $namaLower = Str::lower($nama);
+        if ($nama === '') {
+            return null;
+        }
 
-        return KeuanganJenisPembayaran::whereRaw('LOWER(nama) = ?', [$namaLower])
-            ->where('kategori', 'LIKE', '%' . $kategori . '%')
-            ->first()
-            ?: KeuanganJenisPembayaran::where('nama', 'LIKE', '%' . $nama . '%')
-                ->where('kategori', 'LIKE', '%' . $kategori . '%')
+        $namaLower = Str::lower(preg_replace('/\s+/', ' ', $nama));
+        $queryByKategori = function () use ($kategori) {
+            return KeuanganJenisPembayaran::where('kategori', 'LIKE', '%' . $kategori . '%');
+        };
+
+        $jenisPembayaran = $queryByKategori()
+            ->whereRaw('LOWER(TRIM(nama)) = ?', [$namaLower])
+            ->first();
+
+        if ($jenisPembayaran) {
+            return $jenisPembayaran;
+        }
+
+        foreach ($this->resolveKeywordJenisPembayaranWisuda($namaLower) as $keyword) {
+            $jenisPembayaran = $queryByKategori()
+                ->whereRaw('LOWER(nama) LIKE ?', ['%' . $keyword . '%'])
                 ->first();
+
+            if ($jenisPembayaran) {
+                return $jenisPembayaran;
+            }
+        }
+
+        return $queryByKategori()
+            ->whereRaw('LOWER(nama) LIKE ?', ['%' . $namaLower . '%'])
+            ->first();
+    }
+
+    private function resolveKeywordJenisPembayaranWisuda(string $namaLower): array
+    {
+        if (str_contains($namaLower, 'transfer')) {
+            return ['transfer'];
+        }
+
+        if (str_contains($namaLower, 'tunai') || str_contains($namaLower, 'cash')) {
+            return ['cash', 'tunai'];
+        }
+
+        if (str_contains($namaLower, 'lain') || str_contains($namaLower, 'yayasan')) {
+            return ['yayasan'];
+        }
+
+        if (str_contains($namaLower, 'deposit')) {
+            return ['deposit'];
+        }
+
+        return [];
     }
 
     private function resolveSemesterMahasiswa(string $nim, string $thAkademikKode): ?int
