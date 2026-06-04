@@ -344,6 +344,14 @@ class HelperController extends Controller
                 ], 404);
             }
 
+            return response()->json([
+                'status'  => true,
+                'code'    => 200,
+                'jp' => $jenisPembayaran,
+               'kelamin' => $jenisKelamin,
+              'mhs' => $mahasiswa,
+            ], 200);
+
             $jumlahInput = array_key_exists('jumlah', $dataValidated)
                 ? (float) $dataValidated['jumlah']
                 : null;
