@@ -270,12 +270,6 @@ class HelperController extends Controller
     public function createPembayaranWisuda(Request $request): JsonResponse
     {
         try {
-        return response()->json([
-            'status'  => true,
-            'code'    => 200,
-            'request' => $request->all(),
-
-        ], 200);
             $dataValidated = $request->validate([
                 'nim'              => 'required|string|max:255',
                 'jenis_pembayaran' => 'required|string|max:255',
@@ -349,15 +343,6 @@ class HelperController extends Controller
                     'message' => 'Jenis pembayaran tidak ditemukan untuk kategori ' . $jenisKelamin['kategori'] . '.',
                 ], 404);
             }
-
-            return response()->json([
-                'status'  => true,
-                'code'    => 200,
-                'request' => $dataValidated,
-                'jp' => $jenisPembayaran,
-               'kelamin' => $jenisKelamin,
-              'mhs' => $mahasiswa,
-            ], 200);
 
             $jumlahInput = array_key_exists('jumlah', $dataValidated)
                 ? (float) $dataValidated['jumlah']
