@@ -395,7 +395,7 @@ class DosenTatapMukaController extends Controller
         $query->select([
             'pegawai.nomer_rekening as beneficiary_acct',
             $this->bsiBeneficiaryNameSelect(),
-            'keuangan_pengeluaran_dosen.total as amount',
+            DB::raw('SUM(keuangan_pengeluaran_dosen.total) as amount'),
         ]);
 
         $this->joinPegawaiDosen($query);
@@ -448,9 +448,24 @@ class DosenTatapMukaController extends Controller
 
         return $query
             ->where('keuangan_pengeluaran_dosen.jenis_pembayaran', 'CUS BSI')
-            ->orderBy('keuangan_pengeluaran_dosen.tanggal')
-            ->orderBy('keuangan_pengeluaran_dosen.id')
+            ->groupBy($this->bsiGroupColumns())
+            ->orderBy('pegawai.nama')
             ->get();
+    }
+
+    private function bsiGroupColumns(): array
+    {
+        $columns = [
+            'keuangan_pengeluaran_dosen.pegawai_id',
+            'pegawai.nomer_rekening',
+            'pegawai.nama',
+        ];
+
+        if ($this->hasNamaPemilikRekeningColumn()) {
+            $columns[] = 'pegawai.nama_pemilik_rekening';
+        }
+
+        return $columns;
     }
 
     private function joinPegawaiDosen($query): void
