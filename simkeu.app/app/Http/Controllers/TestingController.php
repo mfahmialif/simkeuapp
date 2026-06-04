@@ -620,12 +620,13 @@ class TestingController extends Controller
     public function testingBayarWisuda()
     {
         $payload = [
-            "nim" => "202085030112",
-            "jenis_pembayaran" => "cash",
-            "th_akademik_kode" => "20241",
-            "tanggal" => "2024-09-21 18:24:26",
+            "nim" => "202185200121",
+            "jenis_pembayaran" => "transfer",
+            "th_akademik_kode" => "20252",
+            "tanggal" => "2026-05-09 16:16:20",
             "jumlah" => 3000000,
         ];
+        // dd($payload);
 
         $request = Request::create("", "POST", $payload);
         $request->headers->set("Accept", "application/json");

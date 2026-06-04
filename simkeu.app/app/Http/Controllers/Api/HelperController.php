@@ -295,10 +295,6 @@ class HelperController extends Controller
                 ], 404);
             }
 
-            $pembayaranExisting = KeuanganPembayaran::where('nim', $nim)
-                ->where('created_at', $createdAt->toDateTimeString())
-                ->first();
-
             $thAkademik = ThAkademik::where('kode', trim($dataValidated['th_akademik_kode']))->first();
             if (! $thAkademik) {
                 return response()->json([
@@ -335,6 +331,19 @@ class HelperController extends Controller
                 ], 404);
             }
 
+            $pembayaranExisting = KeuanganPembayaran::where('nim', $nim)
+                ->where(function ($query) use ($tagihan) {
+                    $query->where('tagihan_id', $tagihan->id)
+                        ->orWhereHas('tagihan', function ($tagihanQuery) {
+                            $tagihanQuery->where('nama', 'LIKE', '%wisuda%');
+                        });
+                })
+                ->where(function ($query) use ($tanggal, $createdAt) {
+                    $query->where('tanggal', $tanggal)
+                        ->orWhere('created_at', $createdAt->toDateTimeString());
+                })
+                ->get();
+
             $jenisPembayaran = $this->resolveJenisPembayaranWisuda(
                 $dataValidated['jenis_pembayaran'],
                 $jenisKelamin['kategori']
@@ -348,10 +357,10 @@ class HelperController extends Controller
                 ], 404);
             }
 
-            if ($pembayaranExisting) {
+            if ($pembayaranExisting->isNotEmpty()) {
                 $jumlah = array_key_exists('jumlah', $dataValidated)
                     ? (float) $dataValidated['jumlah']
-                    : (float) $pembayaranExisting->jumlah;
+                    : (float) $pembayaranExisting->first()->jumlah;
 
                 if ($jumlah <= 0) {
                     return response()->json([
@@ -370,36 +379,33 @@ class HelperController extends Controller
                     $semester,
                     $tagihan,
                     $thAkademik,
-                    $tanggal
+                    $tanggal,
+                    $createdAt
                 ) {
-                    $pembayaranExisting->update([
-                        'th_akademik_id' => $thAkademik->id,
-                        'tanggal'        => $tanggal,
-                        'tagihan_id'     => $tagihan->id,
-                        'nim'            => $nim,
-                        'jumlah'         => $jumlah,
-                        'smt'            => $semester,
-                        'jml_sks'        => 1,
-                        'jk_id'          => $jenisKelamin['id'],
-                        'user_id'        => 8,
-                    ]);
+                    foreach ($pembayaranExisting as $pembayaran) {
+                        $pembayaran->update([
+                            'th_akademik_id' => $thAkademik->id,
+                            'tanggal'        => $tanggal,
+                            'tagihan_id'     => $tagihan->id,
+                            'nim'            => $nim,
+                            'jumlah'         => $jumlah,
+                            'smt'            => $semester,
+                            'jml_sks'        => 1,
+                            'jk_id'          => $jenisKelamin['id'],
+                            'user_id'        => 8,
+                        ]);
 
-                    $detailExists = KeuanganJenisPembayaranDetail::where('pembayaran_id', $pembayaranExisting->id)
-                        ->exists();
+                        KeuanganJenisPembayaranDetail::where('pembayaran_id', $pembayaran->id)->delete();
 
-                    if ($detailExists) {
-                        KeuanganJenisPembayaranDetail::where('pembayaran_id', $pembayaranExisting->id)
-                            ->update([
-                                'jenis_pembayaran_id' => $jenisPembayaran->id,
-                            ]);
-                    } else {
                         KeuanganJenisPembayaranDetail::create([
                             'jenis_pembayaran_id' => $jenisPembayaran->id,
-                            'pembayaran_id'       => $pembayaranExisting->id,
+                            'pembayaran_id'       => $pembayaran->id,
+                            'created_at'          => $createdAt,
+                            'updated_at'          => $createdAt,
                         ]);
                     }
 
-                    return $pembayaranExisting->refresh();
+                    return $pembayaranExisting->first()->refresh();
                 });
 
                 return response()->json([
@@ -409,6 +415,7 @@ class HelperController extends Controller
                     'message' => 'Pembayaran wisuda sudah ada, data berhasil diperbarui.',
                     'data'    => [
                         'id'                    => $pembayaran->id,
+                        'updated_count'         => $pembayaranExisting->count(),
                         'nim'                   => $nim,
                         'mahasiswa_nama'        => data_get($mahasiswa, 'nama'),
                         'th_akademik_id'        => $thAkademik->id,
