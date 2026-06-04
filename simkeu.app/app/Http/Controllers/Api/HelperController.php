@@ -347,6 +347,7 @@ class HelperController extends Controller
             return response()->json([
                 'status'  => true,
                 'code'    => 200,
+                'request' => $dataValidated,
                 'jp' => $jenisPembayaran,
                'kelamin' => $jenisKelamin,
               'mhs' => $mahasiswa,
