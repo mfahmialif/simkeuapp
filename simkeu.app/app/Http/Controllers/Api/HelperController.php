@@ -299,20 +299,6 @@ class HelperController extends Controller
                 ->where('created_at', $createdAt->toDateTimeString())
                 ->first();
 
-            if ($pembayaranExisting) {
-                return response()->json([
-                    'status'  => true,
-                    'code'    => 200,
-                    'skipped' => true,
-                    'message' => 'Pembayaran wisuda sudah ada, data dilewati.',
-                    'data'    => [
-                        'id'         => $pembayaranExisting->id,
-                        'nim'        => $pembayaranExisting->nim,
-                        'created_at' => optional($pembayaranExisting->created_at)->toDateTimeString(),
-                    ],
-                ]);
-            }
-
             $thAkademik = ThAkademik::where('kode', trim($dataValidated['th_akademik_kode']))->first();
             if (! $thAkademik) {
                 return response()->json([
@@ -347,6 +333,96 @@ class HelperController extends Controller
                     'code'    => 404,
                     'message' => 'Tagihan wisuda mahasiswa tidak ditemukan pada daftar tagihan.',
                 ], 404);
+            }
+
+            $jenisPembayaran = $this->resolveJenisPembayaranWisuda(
+                $dataValidated['jenis_pembayaran'],
+                $jenisKelamin['kategori']
+            );
+
+            if (! $jenisPembayaran) {
+                return response()->json([
+                    'status'  => false,
+                    'code'    => 404,
+                    'message' => 'Jenis pembayaran tidak ditemukan untuk kategori ' . $jenisKelamin['kategori'] . '.',
+                ], 404);
+            }
+
+            if ($pembayaranExisting) {
+                $jumlah = array_key_exists('jumlah', $dataValidated)
+                    ? (float) $dataValidated['jumlah']
+                    : (float) $pembayaranExisting->jumlah;
+
+                if ($jumlah <= 0) {
+                    return response()->json([
+                        'status'  => false,
+                        'code'    => 422,
+                        'message' => 'Jumlah pembayaran harus lebih dari 0.',
+                    ], 422);
+                }
+
+                $pembayaran = DB::transaction(function () use (
+                    $jenisKelamin,
+                    $jenisPembayaran,
+                    $jumlah,
+                    $nim,
+                    $pembayaranExisting,
+                    $semester,
+                    $tagihan,
+                    $thAkademik,
+                    $tanggal
+                ) {
+                    $pembayaranExisting->update([
+                        'th_akademik_id' => $thAkademik->id,
+                        'tanggal'        => $tanggal,
+                        'tagihan_id'     => $tagihan->id,
+                        'nim'            => $nim,
+                        'jumlah'         => $jumlah,
+                        'smt'            => $semester,
+                        'jml_sks'        => 1,
+                        'jk_id'          => $jenisKelamin['id'],
+                        'user_id'        => 8,
+                    ]);
+
+                    $detailExists = KeuanganJenisPembayaranDetail::where('pembayaran_id', $pembayaranExisting->id)
+                        ->exists();
+
+                    if ($detailExists) {
+                        KeuanganJenisPembayaranDetail::where('pembayaran_id', $pembayaranExisting->id)
+                            ->update([
+                                'jenis_pembayaran_id' => $jenisPembayaran->id,
+                            ]);
+                    } else {
+                        KeuanganJenisPembayaranDetail::create([
+                            'jenis_pembayaran_id' => $jenisPembayaran->id,
+                            'pembayaran_id'       => $pembayaranExisting->id,
+                        ]);
+                    }
+
+                    return $pembayaranExisting->refresh();
+                });
+
+                return response()->json([
+                    'status'  => true,
+                    'code'    => 200,
+                    'updated' => true,
+                    'message' => 'Pembayaran wisuda sudah ada, data berhasil diperbarui.',
+                    'data'    => [
+                        'id'                    => $pembayaran->id,
+                        'nim'                   => $nim,
+                        'mahasiswa_nama'        => data_get($mahasiswa, 'nama'),
+                        'th_akademik_id'        => $thAkademik->id,
+                        'th_akademik_kode'      => $thAkademik->kode,
+                        'tagihan_id'            => $tagihan->id,
+                        'tagihan_nama'          => $tagihan->nama,
+                        'jumlah'                => $pembayaran->jumlah,
+                        'semester'              => $semester,
+                        'created_at'            => optional($pembayaran->created_at)->toDateTimeString(),
+                        'jenis_kelamin'         => $jenisKelamin['nama'],
+                        'jenis_pembayaran_id'   => $jenisPembayaran->id,
+                        'jenis_pembayaran_nama' => $jenisPembayaran->nama,
+                    ],
+                ]);
             }
 
             $sisaTagihan = data_get($tagihan, 'sisa');
@@ -384,19 +460,6 @@ class HelperController extends Controller
                         'sisa_tagihan' => $sisaTagihan,
                     ],
                 ], 422);
-            }
-
-            $jenisPembayaran = $this->resolveJenisPembayaranWisuda(
-                $dataValidated['jenis_pembayaran'],
-                $jenisKelamin['kategori']
-            );
-
-            if (! $jenisPembayaran) {
-                return response()->json([
-                    'status'  => false,
-                    'code'    => 404,
-                    'message' => 'Jenis pembayaran tidak ditemukan untuk kategori ' . $jenisKelamin['kategori'] . '.',
-                ], 404);
             }
 
             $pembayaran = DB::transaction(function () use (
