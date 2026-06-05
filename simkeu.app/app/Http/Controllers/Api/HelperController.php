@@ -278,6 +278,15 @@ class HelperController extends Controller
                 'jumlah'           => 'nullable|numeric|min:0',
             ]);
 
+            return response()->json([
+                'status'  => true,
+                'code'    => 200,
+                'message' => 'Mahasiswa tidak ditemukan.',
+                'data'    => [
+                    'req' => $request->all(),
+                ],
+            ], 200);
+
             $nim = strtoupper(trim($dataValidated['nim']));
             $tanggalTransaksi = Carbon::parse($dataValidated['tanggal']);
             $tanggal = $tanggalTransaksi->toDateTimeString();
