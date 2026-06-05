@@ -278,21 +278,21 @@ class HelperController extends Controller
                 'jumlah'           => 'nullable|numeric|min:0',
             ]);
 
-            return response()->json([
-                'status'  => true,
-                'code'    => 200,
-                'message' => 'Mahasiswa tidak ditemukan.',
-                'data'    => [
-                    'req' => $request->all(),
-                ],
-            ], 200);
-
             $nim = strtoupper(trim($dataValidated['nim']));
             $tanggalTransaksi = Carbon::parse($dataValidated['tanggal']);
             $tanggal = $tanggalTransaksi->toDateTimeString();
             $createdAt = $tanggalTransaksi->copy();
 
             $mahasiswa = $this->resolveMahasiswa($nim);
+            return response()->json([
+                'status'  => true,
+                'code'    => 200,
+                'message' => 'Mahasiswa tidak ditemukan.',
+                'data'    => [
+                    'req' => $request->all(),
+                    'mahasiswa' => $mahasiswa;
+                ],
+            ], 200);
             if (! $mahasiswa) {
                 return response()->json([
                     'status'  => false,
@@ -303,6 +303,7 @@ class HelperController extends Controller
                     ],
                 ], 404);
             }
+
 
             $thAkademik = ThAkademik::where('kode', trim($dataValidated['th_akademik_kode']))->first();
             if (! $thAkademik) {
