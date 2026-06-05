@@ -634,6 +634,550 @@ class TestingController extends Controller
         return app(ApiHelperController::class)->createPembayaranWisuda($request);
     }
 
+    public function listPembayaranSP()
+    {
+        $result = [
+            "status" => true,
+            "message" => "List perbandingan pembayaran semester pendek.",
+            "summary" => [
+                "total_pembayaran_sp" => 0,
+                "total_sudah_terinput_nomor_sama" => 0,
+                "total_sudah_terinput_nomor_beda" => 0,
+                "total_belum_terinput_tanpa_where_jumlah" => 0,
+                "total_belum_terinput_pakai_where_jumlah" => 0,
+                "jumlah_pembayaran_sp" => 0,
+                "jumlah_sudah_terinput_nomor_sama_sp" => 0,
+                "jumlah_sudah_terinput_nomor_sama_baru" => 0,
+                "jumlah_sudah_terinput_nomor_beda_sp" => 0,
+                "jumlah_sudah_terinput_nomor_beda_baru" => 0,
+                "jumlah_belum_terinput_tanpa_where_jumlah_sp" => 0,
+                "jumlah_belum_terinput_pakai_where_jumlah_sp" => 0,
+            ],
+            "data" => [
+                "sudah_terinput_nomor_sama" => [],
+                "sudah_terinput_nomor_beda" => [],
+                "belum_terinput_tanpa_where_jumlah" => [],
+                "belum_terinput_pakai_where_jumlah" => [],
+            ],
+        ];
+
+        KeuanganPembayaranSemesterPendek::orderBy("id")->chunkById(
+            100,
+            function ($pembayaranSemesterPendek) use (&$result) {
+                foreach ($pembayaranSemesterPendek as $pembayaranSp) {
+                    $result["summary"]["total_pembayaran_sp"]++;
+                    $result["summary"]["jumlah_pembayaran_sp"] += (float) $pembayaranSp->jumlah;
+
+                    $tagihan = $this->findTagihanSemesterPendekByKrsId(
+                        (int) $pembayaranSp->krs_id,
+                    );
+
+                    $pembayaranBaruTanpaJumlah = collect();
+                    $pembayaranBaruPakaiJumlah = collect();
+                    if ($tagihan) {
+                        $pembayaranBaruTanpaJumlah = KeuanganPembayaran::where(
+                            "tagihan_id",
+                            $tagihan->id,
+                        )
+                            ->where(
+                                "nim",
+                                strtoupper(trim((string) $tagihan->nim)),
+                            )
+                            ->orderBy("id")
+                            ->get();
+
+                        $pembayaranBaruPakaiJumlah = $pembayaranBaruTanpaJumlah
+                            ->filter(function ($pembayaran) use (
+                                $pembayaranSp
+                            ) {
+                                return (float) $pembayaran->jumlah ===
+                                    (float) $pembayaranSp->jumlah;
+                            })
+                            ->values();
+                    }
+
+                    $nomorSama = $pembayaranBaruTanpaJumlah->first(function (
+                        $pembayaran
+                    ) use ($pembayaranSp) {
+                        return (string) $pembayaran->nomor ===
+                            (string) $pembayaranSp->nomor;
+                    });
+
+                    if ($nomorSama) {
+                        $result["data"]["sudah_terinput_nomor_sama"][] = $this
+                            ->formatListPembayaranSPItem(
+                                $pembayaranSp,
+                                $tagihan,
+                                $nomorSama,
+                            );
+                        $result["summary"][
+                            "total_sudah_terinput_nomor_sama"
+                        ]++;
+                        $result["summary"][
+                            "jumlah_sudah_terinput_nomor_sama_sp"
+                        ] += (float) $pembayaranSp->jumlah;
+                        $result["summary"][
+                            "jumlah_sudah_terinput_nomor_sama_baru"
+                        ] += (float) $nomorSama->jumlah;
+                        continue;
+                    }
+
+                    $nomorBeda = $pembayaranBaruTanpaJumlah->first();
+                    if ($nomorBeda) {
+                        $result["data"]["sudah_terinput_nomor_beda"][] = $this
+                            ->formatListPembayaranSPItem(
+                                $pembayaranSp,
+                                $tagihan,
+                                $nomorBeda,
+                            );
+                        $result["summary"][
+                            "total_sudah_terinput_nomor_beda"
+                        ]++;
+                        $result["summary"][
+                            "jumlah_sudah_terinput_nomor_beda_sp"
+                        ] += (float) $pembayaranSp->jumlah;
+                        $result["summary"][
+                            "jumlah_sudah_terinput_nomor_beda_baru"
+                        ] += (float) $nomorBeda->jumlah;
+                    }
+
+                    if ($pembayaranBaruTanpaJumlah->isEmpty()) {
+                        $result["data"][
+                            "belum_terinput_tanpa_where_jumlah"
+                        ][] = $this->formatListPembayaranSPItem(
+                            $pembayaranSp,
+                            $tagihan,
+                            null,
+                        );
+                        $result["summary"][
+                            "total_belum_terinput_tanpa_where_jumlah"
+                        ]++;
+                        $result["summary"][
+                            "jumlah_belum_terinput_tanpa_where_jumlah_sp"
+                        ] += (float) $pembayaranSp->jumlah;
+                    }
+
+                    if ($pembayaranBaruPakaiJumlah->isEmpty()) {
+                        $result["data"][
+                            "belum_terinput_pakai_where_jumlah"
+                        ][] = $this->formatListPembayaranSPItem(
+                            $pembayaranSp,
+                            $tagihan,
+                            $pembayaranBaruTanpaJumlah->first(),
+                        );
+                        $result["summary"][
+                            "total_belum_terinput_pakai_where_jumlah"
+                        ]++;
+                        $result["summary"][
+                            "jumlah_belum_terinput_pakai_where_jumlah_sp"
+                        ] += (float) $pembayaranSp->jumlah;
+                    }
+                }
+            },
+        );
+
+        dd($result);
+        return response()->json($result);
+    }
+
+    public function spBelumTerinput()
+    {
+        $listPembayaranSp = $this->listPembayaranSP()->getData(true);
+        $data =
+            $listPembayaranSp["data"][
+                "belum_terinput_tanpa_where_jumlah"
+            ] ??
+            [];
+        $groupedData = [];
+
+        foreach ($data as $item) {
+            $tagihan = $item["tagihan"] ?? null;
+            $tagihanId = $tagihan["id"] ?? null;
+
+            if (!$tagihanId) {
+                continue;
+            }
+
+            if (!isset($groupedData[$tagihanId])) {
+                $groupedData[$tagihanId] = [
+                    "tagihan" => $tagihan,
+                    "pembayaran_tabel_sp" => [],
+                    "pembayaran_tabel_pembayaran" => [],
+                ];
+            }
+
+            $groupedData[$tagihanId]["pembayaran_tabel_sp"][] =
+                $item["pembayaran_sp"];
+        }
+
+        foreach ($groupedData as $tagihanId => &$group) {
+            $group["pembayaran_tabel_pembayaran"] = KeuanganPembayaran::where(
+                "tagihan_id",
+                $tagihanId,
+            )
+                ->where("nim", $group["tagihan"]["nim"])
+                ->orderBy("id")
+                ->get()
+                ->map(function ($pembayaran) {
+                    return [
+                        "id" => $pembayaran->id,
+                        "nomor" => $pembayaran->nomor,
+                        "tanggal" => $pembayaran->tanggal,
+                        "tagihan_id" => $pembayaran->tagihan_id,
+                        "nim" => $pembayaran->nim,
+                        "jumlah" => (float) $pembayaran->jumlah,
+                        "created_at" => $pembayaran->created_at,
+                    ];
+                })
+                ->values()
+                ->all();
+
+        }
+        unset($group);
+
+        $dataBandingan = [];
+        foreach (
+            collect($groupedData)
+                ->pluck("tagihan.nim")
+                ->filter()
+                ->unique()
+            as $nim
+        ) {
+            $dataBandingan[$nim] = KeuanganPembayaran::join(
+                "keuangan_tagihan as kt",
+                "kt.id",
+                "=",
+                "keuangan_pembayaran.tagihan_id",
+            )
+                ->where("keuangan_pembayaran.nim", $nim)
+                ->where("kt.nama", "LIKE", "SEMESTER PENDEK%")
+                ->orderBy("keuangan_pembayaran.id")
+                ->get([
+                    "keuangan_pembayaran.id",
+                    "keuangan_pembayaran.nomor",
+                    "keuangan_pembayaran.tanggal",
+                    "keuangan_pembayaran.tagihan_id",
+                    "keuangan_pembayaran.nim",
+                    "keuangan_pembayaran.jumlah",
+                    "keuangan_pembayaran.created_at",
+                    "kt.nama as tagihan_nama",
+                    "kt.jumlah as tagihan_jumlah",
+                ])
+                ->map(function ($pembayaran) {
+                    return [
+                        "id" => $pembayaran->id,
+                        "nomor" => $pembayaran->nomor,
+                        "tanggal" => $pembayaran->tanggal,
+                        "tagihan_id" => $pembayaran->tagihan_id,
+                        "nim" => $pembayaran->nim,
+                        "jumlah" => (float) $pembayaran->jumlah,
+                        "created_at" => $pembayaran->created_at,
+                        "tagihan_nama" => $pembayaran->tagihan_nama,
+                        "tagihan_jumlah" => (float) $pembayaran->tagihan_jumlah,
+                    ];
+                })
+                ->values()
+                ->all();
+        }
+
+        dd([
+            "status" => true,
+            "message" =>
+                "List pembayaran semester pendek belum terinput tanpa where jumlah.",
+            "summary" => [
+                "total_belum_terinput_tanpa_where_jumlah" =>
+                    $listPembayaranSp["summary"][
+                        "total_belum_terinput_tanpa_where_jumlah"
+                    ] ?? count($data),
+                "jumlah_belum_terinput_tanpa_where_jumlah_sp" =>
+                    $listPembayaranSp["summary"][
+                        "jumlah_belum_terinput_tanpa_where_jumlah_sp"
+                    ] ?? collect($data)->sum("pembayaran_sp.jumlah"),
+            ],
+            "data" => $groupedData,
+            "data_bandingan" => $dataBandingan,
+        ]);
+    }
+
+    public function listTagihanSpBelumDibayar()
+    {
+        $tagihanBelumDibayar = KeuanganTagihan::where(
+            "nama",
+            "LIKE",
+            "SEMESTER PENDEK%",
+        )
+            ->whereNotNull("nim")
+            ->whereNotExists(function ($query) {
+                $query
+                    ->select(DB::raw(1))
+                    ->from("keuangan_pembayaran")
+                    ->whereColumn(
+                        "keuangan_pembayaran.tagihan_id",
+                        "keuangan_tagihan.id",
+                    )
+                    ->whereColumn(
+                        "keuangan_pembayaran.nim",
+                        "keuangan_tagihan.nim",
+                    );
+            })
+            ->orderBy("id")
+            ->get()
+            ->map(function ($tagihan) {
+                return [
+                    "id" => $tagihan->id,
+                    "nim" => $tagihan->nim,
+                    "nama" => $tagihan->nama,
+                    "jumlah" => (float) $tagihan->jumlah,
+                    "th_akademik_id" => $tagihan->th_akademik_id,
+                    "th_angkatan_id" => $tagihan->th_angkatan_id,
+                    "prodi_id" => $tagihan->prodi_id,
+                    "kelas_id" => $tagihan->kelas_id,
+                    "created_at" => $tagihan->created_at,
+                ];
+            })
+            ->values();
+
+        return response()->json([
+            "status" => true,
+            "message" =>
+                "List tagihan semester pendek yang belum dibayar sama sekali.",
+            "summary" => [
+                "total_tagihan" => $tagihanBelumDibayar->count(),
+                "jumlah_tagihan" => $tagihanBelumDibayar->sum("jumlah"),
+            ],
+            "data" => $tagihanBelumDibayar,
+        ]);
+    }
+
+    public function inputSpBelumTerinput()
+    {
+        $summary = [
+            "status" => true,
+            "message" =>
+                "Input pembayaran semester pendek belum terinput selesai.",
+            "processed" => 0,
+            "migrated" => 0,
+            "skipped_existing_tagihan" => 0,
+            "skipped_no_tagihan" => 0,
+            "skipped_zero_amount" => 0,
+            "jumlah_migrated" => 0,
+            "inserted" => [],
+            "errors" => [],
+        ];
+
+        KeuanganPembayaranSemesterPendek::orderBy("id")
+            ->get()
+            ->groupBy(fn($pembayaranSp) => (int) $pembayaranSp->krs_id)
+            ->each(function ($rows, $krsId) use (&$summary) {
+                $summary["processed"] += $rows->count();
+                $tagihan = $this->findTagihanSemesterPendekByKrsId($krsId);
+
+                if (!$tagihan) {
+                    $summary["skipped_no_tagihan"] += $rows->count();
+                    return;
+                }
+
+                $nim = strtoupper(trim((string) $tagihan->nim));
+                $existing = KeuanganPembayaran::where(
+                    "tagihan_id",
+                    $tagihan->id,
+                )
+                    ->where("nim", $nim)
+                    ->exists();
+
+                if ($existing) {
+                    $summary["skipped_existing_tagihan"] += $rows->count();
+                    return;
+                }
+
+                foreach ($rows as $pembayaranSp) {
+                    if ((float) $pembayaranSp->jumlah <= 0) {
+                        $summary["skipped_zero_amount"]++;
+                        continue;
+                    }
+
+                    try {
+                        DB::transaction(function () use (
+                            $pembayaranSp,
+                            $tagihan,
+                            $nim,
+                            &$summary,
+                        ) {
+                            $timestamps = [
+                                "created_at" => $pembayaranSp->created_at,
+                                "updated_at" => $pembayaranSp->updated_at,
+                            ];
+
+                            $pembayaran = KeuanganPembayaran::create([
+                                "nomor" =>
+                                    $pembayaranSp->nomor ?:
+                                    Helper::generateNumber(),
+                                "tanggal" => $pembayaranSp->tanggal,
+                                "th_akademik_id" =>
+                                    $tagihan->th_akademik_id ?:
+                                    $pembayaranSp->th_akademik_id,
+                                "tagihan_id" => $tagihan->id,
+                                "nim" => $nim,
+                                "smt" => 0,
+                                "jml_sks" => 1,
+                                "jumlah" => $pembayaranSp->jumlah,
+                                "jk_id" => $pembayaranSp->jk_id,
+                                "user_id" => $pembayaranSp->user_id,
+                            ] + $timestamps);
+
+                            if ($pembayaranSp->jenis_pembayaran_id) {
+                                KeuanganJenisPembayaranDetail::firstOrCreate(
+                                    [
+                                        "pembayaran_id" => $pembayaran->id,
+                                    ],
+                                    [
+                                        "jenis_pembayaran_id" =>
+                                            $pembayaranSp->jenis_pembayaran_id,
+                                    ] + $timestamps,
+                                );
+                            }
+
+                            KeuanganNota::firstOrCreate(
+                                [
+                                    "pembayaran_id" => $pembayaran->id,
+                                ],
+                                [
+                                    "nota" =>
+                                        $pembayaranSp->nomor ?:
+                                        $pembayaran->nomor,
+                                ] + $timestamps,
+                            );
+
+                            $summary["migrated"]++;
+                            $summary["jumlah_migrated"] += (float) $pembayaranSp->jumlah;
+                            $summary["inserted"][] = [
+                                "pembayaran_sp_id" => $pembayaranSp->id,
+                                "pembayaran_id" => $pembayaran->id,
+                                "tagihan_id" => $tagihan->id,
+                                "nim" => $nim,
+                                "nomor" => $pembayaran->nomor,
+                                "jumlah" => (float) $pembayaran->jumlah,
+                            ];
+                        });
+                    } catch (\Throwable $th) {
+                        $summary["status"] = false;
+                        $summary["errors"][] = [
+                            "pembayaran_sp_id" => $pembayaranSp->id,
+                            "krs_id" => $pembayaranSp->krs_id,
+                            "nomor" => $pembayaranSp->nomor,
+                            "message" => $th->getMessage(),
+                        ];
+                    }
+                }
+            });
+
+        if (!empty($summary["inserted"])) {
+            file_put_contents(
+                storage_path("app/sp-belum-terinput-rollback.json"),
+                json_encode(
+                    [
+                        "created_at" => now()->toDateTimeString(),
+                        "pembayaran_ids" => collect($summary["inserted"])
+                            ->pluck("pembayaran_id")
+                            ->values()
+                            ->all(),
+                        "inserted" => $summary["inserted"],
+                    ],
+                    JSON_PRETTY_PRINT,
+                ),
+            );
+        }
+
+        return response()->json($summary);
+    }
+
+    public function rollbackInputSpBelumTerinput(Request $request)
+    {
+        $startId = (int) $request->input("start_id");
+        $endId = (int) $request->input("end_id", $startId);
+
+        $summary = [
+            "status" => true,
+            "message" =>
+                "Rollback input pembayaran semester pendek selesai.",
+            "start_id" => $startId,
+            "end_id" => $endId,
+            "requested" => 0,
+            "deleted" => 0,
+            "skipped_not_sp_tagihan" => 0,
+            "jumlah_deleted" => 0,
+            "deleted_items" => [],
+            "errors" => [],
+        ];
+
+        if (!$startId || !$endId || $endId < $startId) {
+            $summary["status"] = false;
+            $summary["message"] =
+                "Parameter start_id dan end_id wajib valid.";
+
+            return response()->json($summary, 422);
+        }
+
+        KeuanganPembayaran::whereBetween("id", [$startId, $endId])
+            ->orderBy("id")
+            ->chunkById(100, function ($pembayaranList) use (&$summary) {
+                foreach ($pembayaranList as $pembayaran) {
+                    $summary["requested"]++;
+
+                    $pembayaran->loadMissing("tagihan");
+                    if (
+                        !$pembayaran->tagihan ||
+                        stripos(
+                            (string) $pembayaran->tagihan->nama,
+                            "SEMESTER PENDEK",
+                        ) !== 0
+                    ) {
+                        $summary["skipped_not_sp_tagihan"]++;
+                        continue;
+                    }
+
+                    try {
+                        DB::transaction(function () use (
+                            $pembayaran,
+                            &$summary,
+                        ) {
+                            KeuanganJenisPembayaranDetail::where(
+                                "pembayaran_id",
+                                $pembayaran->id,
+                            )->delete();
+                            KeuanganNota::where(
+                                "pembayaran_id",
+                                $pembayaran->id,
+                            )->delete();
+
+                            $deletedItem = [
+                                "pembayaran_id" => $pembayaran->id,
+                                "tagihan_id" => $pembayaran->tagihan_id,
+                                "nim" => $pembayaran->nim,
+                                "nomor" => $pembayaran->nomor,
+                                "jumlah" => (float) $pembayaran->jumlah,
+                            ];
+
+                            $jumlah = (float) $pembayaran->jumlah;
+                            $pembayaran->delete();
+
+                            $summary["deleted"]++;
+                            $summary["jumlah_deleted"] += $jumlah;
+                            $summary["deleted_items"][] = $deletedItem;
+                        });
+                    } catch (\Throwable $th) {
+                        $summary["status"] = false;
+                        $summary["errors"][] = [
+                            "pembayaran_id" => $pembayaran->id,
+                            "message" => $th->getMessage(),
+                        ];
+                    }
+                }
+            });
+
+        return response()->json($summary);
+    }
+
     public function syncPembayaranSP()
     {
         $summary = [
@@ -868,6 +1412,62 @@ class TestingController extends Controller
         }
 
         return $query->first();
+    }
+
+    private function formatListPembayaranSPItem(
+        $pembayaranSp,
+        $tagihan,
+        $pembayaranBaru,
+    ) {
+        return [
+            "pembayaran_sp" => [
+                "id" => $pembayaranSp->id,
+                "nomor" => $pembayaranSp->nomor,
+                "tanggal" => $pembayaranSp->tanggal,
+                "krs_id" => $pembayaranSp->krs_id,
+                "jumlah" => (float) $pembayaranSp->jumlah,
+                "created_at" => $pembayaranSp->created_at,
+            ],
+            "tagihan" => $tagihan
+                ? [
+                    "id" => $tagihan->id,
+                    "nim" => $tagihan->nim,
+                    "nama" => $tagihan->nama,
+                    "jumlah" => (float) $tagihan->jumlah,
+                ]
+                : null,
+            "pembayaran_baru" => $pembayaranBaru
+                ? [
+                    "id" => $pembayaranBaru->id,
+                    "nomor" => $pembayaranBaru->nomor,
+                    "tanggal" => $pembayaranBaru->tanggal,
+                    "tagihan_id" => $pembayaranBaru->tagihan_id,
+                    "nim" => $pembayaranBaru->nim,
+                    "jumlah" => (float) $pembayaranBaru->jumlah,
+                    "created_at" => $pembayaranBaru->created_at,
+                ]
+                : null,
+        ];
+    }
+
+    private function findMatchingSemesterPendekPaymentForRollback($pembayaran)
+    {
+        $tagihan = KeuanganTagihan::find($pembayaran->tagihan_id);
+        if (!$tagihan) {
+            return null;
+        }
+
+        $krsId = SemesterPendek::parseKrsIdFromTagihanName($tagihan->nama);
+        if (!$krsId) {
+            return null;
+        }
+
+        return KeuanganPembayaranSemesterPendek::where("krs_id", $krsId)
+            ->where("nomor", $pembayaran->nomor)
+            ->where("tanggal", $pembayaran->tanggal)
+            ->where("jumlah", $pembayaran->jumlah)
+            ->where("created_at", $pembayaran->created_at)
+            ->first();
     }
 
     private function findTagihanSemesterPendekByKrsId($krsId, $nim = null)
