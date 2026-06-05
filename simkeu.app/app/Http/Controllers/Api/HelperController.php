@@ -290,7 +290,7 @@ class HelperController extends Controller
                 'message' => 'Mahasiswa tidak ditemukan.',
                 'data'    => [
                     'req' => $request->all(),
-                    'mahasiswa' => $mahasiswa;
+                    'mahasiswa' => $mahasiswa
                 ],
             ], 200);
             if (! $mahasiswa) {
