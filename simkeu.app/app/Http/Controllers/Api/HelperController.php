@@ -284,15 +284,6 @@ class HelperController extends Controller
             $createdAt = $tanggalTransaksi->copy();
 
             $mahasiswa = $this->resolveMahasiswa($nim);
-            return response()->json([
-                'status'  => true,
-                'code'    => 200,
-                'message' => 'Mahasiswa tidak ditemukan.',
-                'data'    => [
-                    'req' => $request->all(),
-                    'mahasiswa' => $mahasiswa
-                ],
-            ], 200);
             if (! $mahasiswa) {
                 return response()->json([
                     'status'  => false,
@@ -303,7 +294,6 @@ class HelperController extends Controller
                     ],
                 ], 404);
             }
-
 
             $thAkademik = ThAkademik::where('kode', trim($dataValidated['th_akademik_kode']))->first();
             if (! $thAkademik) {
