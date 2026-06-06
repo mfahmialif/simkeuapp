@@ -239,6 +239,7 @@ class TagihanMahasiswa
                     });
             })->orWhere('nim', $nim);
             })
+            ->with(['th_akademik', 'mata_uang'])
             ->get();
 
         $listTagihan = [];
@@ -278,6 +279,10 @@ class TagihanMahasiswa
                 $row->semester         = $thAkademik->semester;
                 $row->th_akademik_kode = $thAkademik->kode;
                 $row->semester_tagihan = self::getSemesterTagihan($row, $mhs->th_akademik->kode);
+                $row->mata_uang_id     = $row->mata_uang?->id;
+                $row->mata_uang_kode   = $row->mata_uang?->kode ?? 'IDR';
+                $row->mata_uang_nama   = $row->mata_uang?->nama ?? 'Rupiah';
+                $row->mata_uang_simbol = $row->mata_uang?->simbol ?? 'Rp';
 
                 $row->status_dispensasi = $statusDispensasi;
                 $row->batas_dispensasi  = $batasDispensasi;
@@ -309,6 +314,7 @@ class TagihanMahasiswa
         $mhs = Mahasiswa::nim($nim);
         if ($mhs) {
             $tagihan = KeuanganTagihan::where('th_angkatan_id', $mhs->th_akademik_id)
+                ->with(['th_akademik', 'mata_uang'])
                 ->where('prodi_id', $mhs->prodi_id)
                 ->where('kelas_id', $mhs->kelas_id)
                 ->whereNull('nim')
@@ -351,6 +357,10 @@ class TagihanMahasiswa
                 $tagihan->tahun_akademik   = $thAkademik->nama;
                 $tagihan->semester         = $thAkademik->semester;
                 $tagihan->th_akademik_kode = $thAkademik->kode;
+                $tagihan->mata_uang_id     = $tagihan->mata_uang?->id;
+                $tagihan->mata_uang_kode   = $tagihan->mata_uang?->kode ?? 'IDR';
+                $tagihan->mata_uang_nama   = $tagihan->mata_uang?->nama ?? 'Rupiah';
+                $tagihan->mata_uang_simbol = $tagihan->mata_uang?->simbol ?? 'Rp';
 
                 $tagihan->status_dispensasi = $statusDispensasi;
                 $tagihan->batas_dispensasi  = $batasDispensasi;

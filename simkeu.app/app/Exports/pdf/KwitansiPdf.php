@@ -4,6 +4,7 @@ namespace App\Exports\pdf;
 
 use App\Models\KeuanganPembayaran;
 use App\Exports\pdf\CustomKwitansiFpdf;
+use App\Services\MataUangFormatter;
 
 class KwitansiPdf
 {
@@ -18,12 +19,15 @@ class KwitansiPdf
         $fpdf = new CustomKwitansiFpdf("L", "mm", "A5");
         $fpdf->setData($data);
         $fpdf->AddPage();
-        $transaksi = KeuanganPembayaran::where('nomor', $data['nomor'])->get();
+        $transaksi = KeuanganPembayaran::with(['tagihan.mata_uang', 'jenisPembayaranDetail.jenisPembayaran', 'user'])
+            ->where('nomor', $data['nomor'])
+            ->get();
         $nomor = $data['nomor'];
         if ($data->keuanganNota) {
-            $transaksi = KeuanganPembayaran::leftJoin('keuangan_nota as kn', 'kn.pembayaran_id', 'keuangan_pembayaran.id')
+            $transaksi = KeuanganPembayaran::with(['tagihan.mata_uang', 'jenisPembayaranDetail.jenisPembayaran', 'user'])
+                ->leftJoin('keuangan_nota as kn', 'kn.pembayaran_id', 'keuangan_pembayaran.id')
                 ->where('nota', $data->keuanganNota->nota)
-                ->select('*', 'pembayaran_id as id')
+                ->select('keuangan_pembayaran.*', 'kn.nota', 'kn.pembayaran_id')
                 ->get();
             $nomor = $data->keuanganNota->nota;
         }
@@ -46,20 +50,21 @@ class KwitansiPdf
     public static function body($transaksi, $fpdf)
     {
         $i = 1;
-        $total = 0;
         foreach ($transaksi as $key => $t) {
             $offset = 0;
             $posY = $fpdf->getY();
             $posX = $fpdf->getX();
 
             $jenisPembayaran = ($t->jenisPembayaranDetail) ? $t->jenisPembayaranDetail->jenisPembayaran->nama : null;
+            $mataUang = MataUangFormatter::fromTagihan($t->tagihan);
+            $jumlah = MataUangFormatter::amount($t->jumlah, $mataUang);
 
             // set how much line space and get higher (max) line space
             $offset = [
                 'no' => floor(strlen($i) / 3),
                 'nama' => floor(strlen($t->tagihan->nama) / 35),
                 'jenis pembayaran' => floor(strlen($jenisPembayaran) / 30),
-                'Sub Total(Rp)' => floor(strlen($t->jumlah) / 16),
+                'Sub Total' => floor(strlen($jumlah) / 16),
             ];
             $max = max($offset);
 
@@ -68,7 +73,7 @@ class KwitansiPdf
                 'no' => str_repeat("\n", $max - $offset['no'] + 1),
                 'nama' => str_repeat("\n", $max - $offset['nama'] + 1),
                 'jenis pembayaran' => str_repeat("\n", $max - $offset['jenis pembayaran'] + 1),
-                'Sub Total(Rp)' => str_repeat("\n", $max - $offset['Sub Total(Rp)'] + 1),
+                'Sub Total' => str_repeat("\n", $max - $offset['Sub Total'] + 1),
             ];
 
             $fpdf->setXY($posX, $posY);
@@ -81,12 +86,9 @@ class KwitansiPdf
             $fpdf->MultiCell(70, 4, $jenisPembayaran . $offset['jenis pembayaran'], 'B', 'C', 0);
             $posX += 70;
             $fpdf->setXY($posX, $posY);
-            $fpdf->MultiCell(35, 4, number_format($t->jumlah, 0, ',', '.') . $offset['Sub Total(Rp)'], 'B', 'R', 0);
+            $fpdf->MultiCell(35, 4, $jumlah . $offset['Sub Total'], 'B', 'R', 0);
 
             $i++;
-            if (!str_contains(strtolower($jenisPembayaran), 'deposit')) {
-            }
-            $total += $t->jumlah;
 
             if ($posY > 100) {
                 $fpdf->AddPage();
@@ -95,10 +97,12 @@ class KwitansiPdf
 
         // Total
         $fpdf->SetFont('Courier', 'B', 9);
-        // $fpdf->Cell(0, 1, "", 0, 1, 'L');
-        $fpdf->Cell(155, 4, "Total : Rp.", '', 0, 'R');
-        $fpdf->Cell(35, 4, number_format($total, 0, ',', '.'), '', 1, 'R');
+        foreach (MataUangFormatter::totalsByCurrency($transaksi) as $row) {
+            $kode = $row['mata_uang']['kode'] ?: '';
+            $fpdf->Cell(155, 4, "Total {$kode} :", '', 0, 'R');
+            $fpdf->Cell(35, 4, MataUangFormatter::amount($row['total'], $row['mata_uang']), '', 1, 'R');
+        }
 
-        return $total;
+        return MataUangFormatter::totalsByCurrency($transaksi);
     }
 }

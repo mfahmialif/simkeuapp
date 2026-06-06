@@ -23,9 +23,9 @@
                 <td style="border: 1px solid #000; text-align: center; background-color: {{ $bgColor }};">{{ $row['no'] }}</td>
                 <td style="border: 1px solid #000; text-align: center; background-color: {{ $bgColor }};">{{ date('d-m-y', strtotime($row['tanggal'])) }}</td>
                 @foreach($columns as $col)
-                    <td style="border: 1px solid #000; text-align: right; background-color: {{ $bgColor }};" data-format="&quot;Rp. &quot;#,##0">{{ $row[$col['key']] ?: '-' }}</td>
+                    <td style="border: 1px solid #000; text-align: right; background-color: {{ $bgColor }};">{{ \App\Services\MataUangFormatter::formatTotals($row[$col['key'] . '_by_currency'] ?? []) }}</td>
                 @endforeach
-                <td style="border: 1px solid #000; text-align: right; font-weight: bold; background-color: {{ $bgColor }};" data-format="&quot;Rp. &quot;#,##0">{{ $row['jumlah'] ?: '-' }}</td>
+                <td style="border: 1px solid #000; text-align: right; font-weight: bold; background-color: {{ $bgColor }};">{{ \App\Services\MataUangFormatter::formatTotals($row['jumlah_by_currency'] ?? []) }}</td>
             </tr>
         @endforeach
     </tbody>
@@ -33,9 +33,9 @@
         <tr>
             <th colspan="2" style="border: 1px solid #000; text-align: center; font-weight: bold; background-color: #cccccc;">TOTAL</th>
             @foreach($columns as $col)
-                <th style="border: 1px solid #000; text-align: right; font-weight: bold; background-color: #cccccc;" data-format="&quot;Rp. &quot;#,##0">{{ $totals[$col['key']] ?: '-' }}</th>
+                <th style="border: 1px solid #000; text-align: right; font-weight: bold; background-color: #cccccc;">{{ \App\Services\MataUangFormatter::formatTotals($totals[$col['key'] . '_by_currency'] ?? []) }}</th>
             @endforeach
-            <th style="border: 1px solid #000; text-align: right; font-weight: bold; background-color: #cccccc;" data-format="&quot;Rp. &quot;#,##0">{{ $totals['jumlah'] ?: '-' }}</th>
+            <th style="border: 1px solid #000; text-align: right; font-weight: bold; background-color: #cccccc;">{{ \App\Services\MataUangFormatter::formatTotals($totals['jumlah_by_currency'] ?? []) }}</th>
         </tr>
     </tfoot>
 </table>

@@ -15,15 +15,16 @@ class TagihanTemplateExport implements FromArray, WithHeadings
             'namatagihan',
             'smt',
             'jumlahtagihan',
+            'mata_uang_id',
         ];
     }
 
     public function array(): array
     {
         return [
-            ['AS-HK', '2020', 'HERREGISTRASI SEMESTER 1', '1', '300000'],
-            ['AS-HK', '2020', 'SPP SEMESTER 1 BULAN 1', '1', '150000'],
-            ['AS-HK(DD)', '2020', 'UAS SEMESTER 1', '1', '300000'],
+            ['AS-HK', '2020', 'HERREGISTRASI SEMESTER 1', '1', '300000', '1'],
+            ['AS-HK', '2020', 'SPP SEMESTER 1 BULAN 1', '1', '150000', '1'],
+            ['AS-HK(DD)', '2020', 'UAS SEMESTER 1', '1', '300000', '1'],
         ];
     }
 }

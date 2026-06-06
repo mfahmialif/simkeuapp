@@ -25,6 +25,7 @@ use App\Exports\LaporanJumlahMahasiswaExport;
 use App\Exports\PembayaranTotalanHarianExport;
 use App\Models\KeuanganTagihan;
 use App\Services\Helper;
+use App\Services\MataUangFormatter;
 use App\Services\SemesterPendek;
 use App\Exports\PemasukanTunaiHarianBulananExport;
 use App\Exports\PemasukanTunaiHarianTahunanExport;
@@ -850,6 +851,7 @@ class LaporanController extends Controller
                 "=",
                 "keuangan_pembayaran.tagihan_id",
             )
+                ->leftJoin("mata_uang as mu", "mu.id", "=", "kt.mata_uang_id")
                 ->whereBetween("keuangan_pembayaran.tanggal", [
                     $startDate . " 00:00:00",
                     $endDate . " 23:59:59",
@@ -884,12 +886,16 @@ class LaporanController extends Controller
 
             $payments = $paymentsQuery
                 ->selectRaw(
-                    "DATE(keuangan_pembayaran.tanggal) as tgl, kt.nama as tagihan_nama, kt.prodi_id, SUM(keuangan_pembayaran.jumlah) as total_jumlah",
+                    "DATE(keuangan_pembayaran.tanggal) as tgl, kt.nama as tagihan_nama, kt.prodi_id, COALESCE(mu.id, 0) as mata_uang_id, COALESCE(mu.kode, 'IDR') as mata_uang_kode, COALESCE(mu.nama, 'Rupiah') as mata_uang_nama, COALESCE(mu.simbol, 'Rp') as mata_uang_simbol, SUM(keuangan_pembayaran.jumlah) as total_jumlah",
                 )
                 ->groupBy(
                     DB::raw("DATE(keuangan_pembayaran.tanggal)"),
                     "kt.nama",
                     "kt.prodi_id",
+                    "mu.id",
+                    "mu.kode",
+                    "mu.nama",
+                    "mu.simbol",
                 )
                 ->get();
 
@@ -899,6 +905,7 @@ class LaporanController extends Controller
                 "=",
                 "keuangan_pembayaran.tagihan_id",
             )
+                ->leftJoin("mata_uang as mu", "mu.id", "=", "kt.mata_uang_id")
                 ->whereBetween("keuangan_pembayaran.tanggal", [
                     $startDate . " 00:00:00",
                     $endDate . " 23:59:59",
@@ -923,12 +930,16 @@ class LaporanController extends Controller
 
             $spPayments = $spPaymentsQuery
                 ->selectRaw(
-                    "DATE(keuangan_pembayaran.tanggal) as tgl, kt.nama as tagihan_nama, kt.prodi_id, SUM(keuangan_pembayaran.jumlah) as total_jumlah",
+                    "DATE(keuangan_pembayaran.tanggal) as tgl, kt.nama as tagihan_nama, kt.prodi_id, COALESCE(mu.id, 0) as mata_uang_id, COALESCE(mu.kode, 'IDR') as mata_uang_kode, COALESCE(mu.nama, 'Rupiah') as mata_uang_nama, COALESCE(mu.simbol, 'Rp') as mata_uang_simbol, SUM(keuangan_pembayaran.jumlah) as total_jumlah",
                 )
                 ->groupBy(
                     DB::raw("DATE(keuangan_pembayaran.tanggal)"),
                     "kt.nama",
                     "kt.prodi_id",
+                    "mu.id",
+                    "mu.kode",
+                    "mu.nama",
+                    "mu.simbol",
                 )
                 ->get();
 
@@ -950,8 +961,10 @@ class LaporanController extends Controller
 
         foreach ($columns as $col) {
             $totals[$col["key"]] = 0;
+            $totals[$col["key"] . "_by_currency"] = [];
         }
         $totals["jumlah"] = 0;
+        $totals["jumlah_by_currency"] = [];
 
         for ($day = 1; $day <= $daysInMonth; $day++) {
             $dateStr = sprintf("%04d-%02d-%02d", $year, $month, $day);
@@ -962,7 +975,9 @@ class LaporanController extends Controller
             ];
             foreach ($columns as $col) {
                 $row[$col["key"]] = 0;
+                $row[$col["key"] . "_by_currency"] = [];
             }
+            $row["jumlah_by_currency"] = [];
             $dataMap[$dateStr] = $row;
         }
 
@@ -977,6 +992,7 @@ class LaporanController extends Controller
             $namaUpper = strtoupper($namaRaw);
             $prodi_id = $payment->prodi_id;
             $jumlah = (float) $payment->total_jumlah;
+            $mataUang = MataUangFormatter::fromColumns($payment);
 
             if (!isset($dataMap[$tgl])) {
                 continue;
@@ -1006,6 +1022,26 @@ class LaporanController extends Controller
                 $dataMap[$tgl]["jumlah"] += $jumlah;
                 $totals[$assignedKey] += $jumlah;
                 $totals["jumlah"] += $jumlah;
+                MataUangFormatter::addToTotals(
+                    $dataMap[$tgl][$assignedKey . "_by_currency"],
+                    $jumlah,
+                    $mataUang,
+                );
+                MataUangFormatter::addToTotals(
+                    $dataMap[$tgl]["jumlah_by_currency"],
+                    $jumlah,
+                    $mataUang,
+                );
+                MataUangFormatter::addToTotals(
+                    $totals[$assignedKey . "_by_currency"],
+                    $jumlah,
+                    $mataUang,
+                );
+                MataUangFormatter::addToTotals(
+                    $totals["jumlah_by_currency"],
+                    $jumlah,
+                    $mataUang,
+                );
             }
         }
 
@@ -1025,12 +1061,56 @@ class LaporanController extends Controller
             $assignedKey = "pmb";
 
             if (isset($colMap[$assignedKey])) {
+                $mataUang = MataUangFormatter::defaultCurrency();
                 $dataMap[$tgl][$assignedKey] += $jumlah;
                 $dataMap[$tgl]["jumlah"] += $jumlah;
                 $totals[$assignedKey] += $jumlah;
                 $totals["jumlah"] += $jumlah;
+                MataUangFormatter::addToTotals(
+                    $dataMap[$tgl][$assignedKey . "_by_currency"],
+                    $jumlah,
+                    $mataUang,
+                );
+                MataUangFormatter::addToTotals(
+                    $dataMap[$tgl]["jumlah_by_currency"],
+                    $jumlah,
+                    $mataUang,
+                );
+                MataUangFormatter::addToTotals(
+                    $totals[$assignedKey . "_by_currency"],
+                    $jumlah,
+                    $mataUang,
+                );
+                MataUangFormatter::addToTotals(
+                    $totals["jumlah_by_currency"],
+                    $jumlah,
+                    $mataUang,
+                );
             }
         }
+
+        foreach ($dataMap as &$row) {
+            foreach ($columns as $col) {
+                $currencyKey = $col["key"] . "_by_currency";
+                $row[$currencyKey] = MataUangFormatter::normalizeTotals(
+                    $row[$currencyKey],
+                );
+            }
+            $row["jumlah_by_currency"] = MataUangFormatter::normalizeTotals(
+                $row["jumlah_by_currency"],
+            );
+        }
+        unset($row);
+
+        foreach ($columns as $col) {
+            $currencyKey = $col["key"] . "_by_currency";
+            $totals[$currencyKey] = MataUangFormatter::normalizeTotals(
+                $totals[$currencyKey],
+            );
+        }
+        $totals["jumlah_by_currency"] = MataUangFormatter::normalizeTotals(
+            $totals["jumlah_by_currency"],
+        );
 
         $data = array_values($dataMap);
 
@@ -1158,6 +1238,7 @@ class LaporanController extends Controller
                     "=",
                     "keuangan_pembayaran.tagihan_id",
                 )
+                    ->leftJoin("mata_uang as mu", "mu.id", "=", "kt.mata_uang_id")
                     ->whereBetween("keuangan_pembayaran.tanggal", [
                         $startDateYear . " 00:00:00",
                         $endDateYear . " 23:59:59",
@@ -1195,12 +1276,16 @@ class LaporanController extends Controller
 
                 $allPayments = $allPaymentsQuery
                     ->selectRaw(
-                        "DATE(keuangan_pembayaran.tanggal) as tgl, kt.nama as tagihan_nama, kt.prodi_id, SUM(keuangan_pembayaran.jumlah) as total_jumlah",
+                        "DATE(keuangan_pembayaran.tanggal) as tgl, kt.nama as tagihan_nama, kt.prodi_id, COALESCE(mu.id, 0) as mata_uang_id, COALESCE(mu.kode, 'IDR') as mata_uang_kode, COALESCE(mu.nama, 'Rupiah') as mata_uang_nama, COALESCE(mu.simbol, 'Rp') as mata_uang_simbol, SUM(keuangan_pembayaran.jumlah) as total_jumlah",
                     )
                     ->groupBy(
                         DB::raw("DATE(keuangan_pembayaran.tanggal)"),
                         "kt.nama",
                         "kt.prodi_id",
+                        "mu.id",
+                        "mu.kode",
+                        "mu.nama",
+                        "mu.simbol",
                     )
                     ->get();
 
@@ -1210,6 +1295,7 @@ class LaporanController extends Controller
                     "=",
                     "keuangan_pembayaran.tagihan_id",
                 )
+                    ->leftJoin("mata_uang as mu", "mu.id", "=", "kt.mata_uang_id")
                     ->whereBetween("keuangan_pembayaran.tanggal", [
                         $startDateYear . " 00:00:00",
                         $endDateYear . " 23:59:59",
@@ -1237,12 +1323,16 @@ class LaporanController extends Controller
 
                 $spPayments = $spPaymentsQuery
                     ->selectRaw(
-                        "DATE(keuangan_pembayaran.tanggal) as tgl, kt.nama as tagihan_nama, kt.prodi_id, SUM(keuangan_pembayaran.jumlah) as total_jumlah",
+                        "DATE(keuangan_pembayaran.tanggal) as tgl, kt.nama as tagihan_nama, kt.prodi_id, COALESCE(mu.id, 0) as mata_uang_id, COALESCE(mu.kode, 'IDR') as mata_uang_kode, COALESCE(mu.nama, 'Rupiah') as mata_uang_nama, COALESCE(mu.simbol, 'Rp') as mata_uang_simbol, SUM(keuangan_pembayaran.jumlah) as total_jumlah",
                     )
                     ->groupBy(
                         DB::raw("DATE(keuangan_pembayaran.tanggal)"),
                         "kt.nama",
                         "kt.prodi_id",
+                        "mu.id",
+                        "mu.kode",
+                        "mu.nama",
+                        "mu.simbol",
                     )
                     ->get();
 
@@ -1563,6 +1653,7 @@ class LaporanController extends Controller
                     ),
                     "pembayaran" => $item->tagihan_nama,
                     "nominal" => (float) $item->jumlah,
+                    "mata_uang" => MataUangFormatter::fromColumns($item),
                     "metode" => $item->jenis_pembayaran_nama ?: "-",
                     "petugas" => $item->petugas_nama ?: "-",
                     "source" => "SIMKEU",
@@ -1709,6 +1800,7 @@ class LaporanController extends Controller
                     ),
                     "pembayaran" => "SEMESTER PENDEK",
                     "nominal" => (float) $item->jumlah,
+                    "mata_uang" => MataUangFormatter::fromColumns($item),
                     "metode" => $item->jenis_pembayaran_nama ?: "-",
                     "petugas" => $item->petugas_nama ?: "-",
                     "source" => "SIMKEU",
@@ -1804,6 +1896,7 @@ class LaporanController extends Controller
                         data_get($item, "tagihan", data_get($item, "mhsdari", "PMB") ?: "PMB"),
                     ),
                     "nominal" => (float) data_get($item, "nominal", 0),
+                    "mata_uang" => MataUangFormatter::defaultCurrency(),
                     "metode" => $jenisPembayaran,
                     "petugas" => data_get($item, "petugas", "PMB"),
                     "source" => "PMB",
@@ -1830,6 +1923,7 @@ class LaporanController extends Controller
             "=",
             "keuangan_pembayaran.tagihan_id",
         )
+            ->leftJoin("mata_uang as mu", "mu.id", "=", "kt.mata_uang_id")
             ->leftJoin(
                 "keuangan_nota as kn",
                 "kn.pembayaran_id",
@@ -1884,6 +1978,10 @@ class LaporanController extends Controller
                 "p.alias as prodi_alias",
                 "kjp.nama as jenis_pembayaran_nama",
                 "u.name as petugas_nama",
+                "mu.id as mata_uang_id",
+                "mu.kode as mata_uang_kode",
+                "mu.nama as mata_uang_nama",
+                "mu.simbol as mata_uang_simbol",
             )
             ->addSelect(DB::raw("COALESCE(kn.nota, keuangan_pembayaran.nomor) AS nota"))
             ->orderBy("keuangan_pembayaran.created_at")
@@ -1901,6 +1999,7 @@ class LaporanController extends Controller
             "=",
             "keuangan_pembayaran.tagihan_id",
         )
+            ->leftJoin("mata_uang as mu", "mu.id", "=", "kt.mata_uang_id")
             ->leftJoin(
                 "keuangan_nota as kn",
                 "kn.pembayaran_id",
@@ -1954,6 +2053,10 @@ class LaporanController extends Controller
                 "kt.nama as tagihan_nama",
                 "kjp.nama as jenis_pembayaran_nama",
                 "u.name as petugas_nama",
+                "mu.id as mata_uang_id",
+                "mu.kode as mata_uang_kode",
+                "mu.nama as mata_uang_nama",
+                "mu.simbol as mata_uang_simbol",
             )
             ->addSelect(DB::raw("COALESCE(kn.nota, keuangan_pembayaran.nomor) AS nota"))
             ->orderBy("keuangan_pembayaran.created_at")
@@ -2006,6 +2109,15 @@ class LaporanController extends Controller
         unset($row);
 
         $total = collect($rows)->sum("nominal");
+        $totalByCurrency = [];
+        foreach ($rows as $row) {
+            MataUangFormatter::addToTotals(
+                $totalByCurrency,
+                $row["nominal"],
+                $row["mata_uang"] ?? MataUangFormatter::defaultCurrency(),
+            );
+        }
+        $totalByCurrency = MataUangFormatter::normalizeTotals($totalByCurrency);
 
         return [
             "title" => "LAPORAN HARIAN",
@@ -2020,6 +2132,7 @@ class LaporanController extends Controller
             "jenis_kelamin" => $jp->kategori ?? "Semua",
             "rows" => $rows,
             "total" => $total,
+            "total_by_currency" => $totalByCurrency,
         ];
     }
 
@@ -2045,6 +2158,7 @@ class LaporanController extends Controller
                 "message" => "Data laporan harian berhasil diambil",
                 "data" => $data["rows"],
                 "total" => $data["total"],
+                "total_by_currency" => $data["total_by_currency"],
                 "title" => $data["title"],
                 "tanggal" => $data["tanggal"],
                 "kategori" => $data["kategori"],
@@ -2094,6 +2208,10 @@ class LaporanController extends Controller
                     "transfer" => 0,
                     "yayasan" => 0,
                     "total" => 0,
+                    "tunai_by_currency" => [],
+                    "transfer_by_currency" => [],
+                    "yayasan_by_currency" => [],
+                    "total_by_currency" => [],
                 ];
             }
             $data["total_all"] = [
@@ -2102,6 +2220,10 @@ class LaporanController extends Controller
                 "transfer" => 0,
                 "yayasan" => 0,
                 "total" => 0,
+                "tunai_by_currency" => [],
+                "transfer_by_currency" => [],
+                "yayasan_by_currency" => [],
+                "total_by_currency" => [],
             ];
 
             $pmbUrl = rtrim(env("PMB_URL"), "/") . "/simkeu/pembayaran";
@@ -2207,6 +2329,7 @@ class LaporanController extends Controller
                 "=",
                 "keuangan_pembayaran.tagihan_id",
             )
+                ->leftJoin("mata_uang as mu", "mu.id", "=", "kt.mata_uang_id")
                 ->join(
                     "keuangan_jenis_pembayaran_detail as kjpd",
                     "kjpd.pembayaran_id",
@@ -2243,16 +2366,33 @@ class LaporanController extends Controller
             if ($mode === "tahunan") {
                 $payments = $paymentsQuery
                     ->selectRaw(
-                        "kt.nama as tagihan_nama, kt.prodi_id, kjp.nama as jenis_pembayaran_nama, MONTH(keuangan_pembayaran.tanggal) as bulan, SUM(keuangan_pembayaran.jumlah) as total_jumlah",
+                        "kt.nama as tagihan_nama, kt.prodi_id, kjp.nama as jenis_pembayaran_nama, COALESCE(mu.id, 0) as mata_uang_id, COALESCE(mu.kode, 'IDR') as mata_uang_kode, COALESCE(mu.nama, 'Rupiah') as mata_uang_nama, COALESCE(mu.simbol, 'Rp') as mata_uang_simbol, MONTH(keuangan_pembayaran.tanggal) as bulan, SUM(keuangan_pembayaran.jumlah) as total_jumlah",
                     )
-                    ->groupBy("kt.nama", "kt.prodi_id", "kjp.nama", "bulan")
+                    ->groupBy(
+                        "kt.nama",
+                        "kt.prodi_id",
+                        "kjp.nama",
+                        "mu.id",
+                        "mu.kode",
+                        "mu.nama",
+                        "mu.simbol",
+                        "bulan",
+                    )
                     ->get();
             } else {
                 $payments = $paymentsQuery
                     ->selectRaw(
-                        "kt.nama as tagihan_nama, kt.prodi_id, kjp.nama as jenis_pembayaran_nama, SUM(keuangan_pembayaran.jumlah) as total_jumlah",
+                        "kt.nama as tagihan_nama, kt.prodi_id, kjp.nama as jenis_pembayaran_nama, COALESCE(mu.id, 0) as mata_uang_id, COALESCE(mu.kode, 'IDR') as mata_uang_kode, COALESCE(mu.nama, 'Rupiah') as mata_uang_nama, COALESCE(mu.simbol, 'Rp') as mata_uang_simbol, SUM(keuangan_pembayaran.jumlah) as total_jumlah",
                     )
-                    ->groupBy("kt.nama", "kt.prodi_id", "kjp.nama")
+                    ->groupBy(
+                        "kt.nama",
+                        "kt.prodi_id",
+                        "kjp.nama",
+                        "mu.id",
+                        "mu.kode",
+                        "mu.nama",
+                        "mu.simbol",
+                    )
                     ->get();
             }
 
@@ -2262,6 +2402,7 @@ class LaporanController extends Controller
                 "=",
                 "keuangan_pembayaran.tagihan_id",
             )
+                ->leftJoin("mata_uang as mu", "mu.id", "=", "kt.mata_uang_id")
                 ->join(
                     "keuangan_jenis_pembayaran_detail as kjpd",
                     "kjpd.pembayaran_id",
@@ -2291,21 +2432,33 @@ class LaporanController extends Controller
             if ($mode === "tahunan") {
                 $spPayments = $spPaymentsQuery
                     ->selectRaw(
-                        "kt.nama as tagihan_nama, kt.prodi_id, kjp.nama as jenis_pembayaran_nama, MONTH(keuangan_pembayaran.tanggal) as bulan, SUM(keuangan_pembayaran.jumlah) as total_jumlah",
+                        "kt.nama as tagihan_nama, kt.prodi_id, kjp.nama as jenis_pembayaran_nama, COALESCE(mu.id, 0) as mata_uang_id, COALESCE(mu.kode, 'IDR') as mata_uang_kode, COALESCE(mu.nama, 'Rupiah') as mata_uang_nama, COALESCE(mu.simbol, 'Rp') as mata_uang_simbol, MONTH(keuangan_pembayaran.tanggal) as bulan, SUM(keuangan_pembayaran.jumlah) as total_jumlah",
                     )
                     ->groupBy(
                         "kt.nama",
                         "kt.prodi_id",
                         "kjp.nama",
+                        "mu.id",
+                        "mu.kode",
+                        "mu.nama",
+                        "mu.simbol",
                         "bulan",
                     )
                     ->get();
             } else {
                 $spPayments = $spPaymentsQuery
                     ->selectRaw(
-                        "kt.nama as tagihan_nama, kt.prodi_id, kjp.nama as jenis_pembayaran_nama, SUM(keuangan_pembayaran.jumlah) as total_jumlah",
+                        "kt.nama as tagihan_nama, kt.prodi_id, kjp.nama as jenis_pembayaran_nama, COALESCE(mu.id, 0) as mata_uang_id, COALESCE(mu.kode, 'IDR') as mata_uang_kode, COALESCE(mu.nama, 'Rupiah') as mata_uang_nama, COALESCE(mu.simbol, 'Rp') as mata_uang_simbol, SUM(keuangan_pembayaran.jumlah) as total_jumlah",
                     )
-                    ->groupBy("kt.nama", "kt.prodi_id", "kjp.nama")
+                    ->groupBy(
+                        "kt.nama",
+                        "kt.prodi_id",
+                        "kjp.nama",
+                        "mu.id",
+                        "mu.kode",
+                        "mu.nama",
+                        "mu.simbol",
+                    )
                     ->get();
             }
 
@@ -2363,6 +2516,10 @@ class LaporanController extends Controller
                             "transfer" => 0,
                             "yayasan" => 0,
                             "total" => 0,
+                            "tunai_by_currency" => [],
+                            "transfer_by_currency" => [],
+                            "yayasan_by_currency" => [],
+                            "total_by_currency" => [],
                         ];
                     }
                     $allDataMonths[$m] = [
@@ -2373,6 +2530,10 @@ class LaporanController extends Controller
                             "transfer" => 0,
                             "yayasan" => 0,
                             "total" => 0,
+                            "tunai_by_currency" => [],
+                            "transfer_by_currency" => [],
+                            "yayasan_by_currency" => [],
+                            "total_by_currency" => [],
                         ],
                     ];
                 }
@@ -2385,6 +2546,7 @@ class LaporanController extends Controller
                 $jumlah = (float) $payment->total_jumlah;
                 $paymentType = $getPaymentType($payment->jenis_pembayaran_nama);
                 $bulanVal = $mode === "tahunan" ? (int) $payment->bulan : null;
+                $mataUang = MataUangFormatter::fromColumns($payment);
 
                 $assignedKey = null;
 
@@ -2411,6 +2573,26 @@ class LaporanController extends Controller
                     $data[$assignedKey]["total"] += $jumlah;
                     $data["total_all"][$paymentType] += $jumlah;
                     $data["total_all"]["total"] += $jumlah;
+                    MataUangFormatter::addToTotals(
+                        $data[$assignedKey][$paymentType . "_by_currency"],
+                        $jumlah,
+                        $mataUang,
+                    );
+                    MataUangFormatter::addToTotals(
+                        $data[$assignedKey]["total_by_currency"],
+                        $jumlah,
+                        $mataUang,
+                    );
+                    MataUangFormatter::addToTotals(
+                        $data["total_all"][$paymentType . "_by_currency"],
+                        $jumlah,
+                        $mataUang,
+                    );
+                    MataUangFormatter::addToTotals(
+                        $data["total_all"]["total_by_currency"],
+                        $jumlah,
+                        $mataUang,
+                    );
                 }
 
                 // Add to month data
@@ -2429,6 +2611,34 @@ class LaporanController extends Controller
                         $paymentType
                     ] += $jumlah;
                     $allDataMonths[$bulanVal]["total_all"]["total"] += $jumlah;
+                    MataUangFormatter::addToTotals(
+                        $allDataMonths[$bulanVal]["data_map"][$assignedKey][
+                            $paymentType . "_by_currency"
+                        ],
+                        $jumlah,
+                        $mataUang,
+                    );
+                    MataUangFormatter::addToTotals(
+                        $allDataMonths[$bulanVal]["data_map"][$assignedKey][
+                            "total_by_currency"
+                        ],
+                        $jumlah,
+                        $mataUang,
+                    );
+                    MataUangFormatter::addToTotals(
+                        $allDataMonths[$bulanVal]["total_all"][
+                            $paymentType . "_by_currency"
+                        ],
+                        $jumlah,
+                        $mataUang,
+                    );
+                    MataUangFormatter::addToTotals(
+                        $allDataMonths[$bulanVal]["total_all"][
+                            "total_by_currency"
+                        ],
+                        $jumlah,
+                        $mataUang,
+                    );
                 }
             }
 
@@ -2439,6 +2649,7 @@ class LaporanController extends Controller
                 }
 
                 $jumlah = (float) $pmb["nominal"];
+                $mataUang = MataUangFormatter::defaultCurrency();
                 $paymentType = $getPaymentType(
                     $pmb["jenis_pembayaran"] ?? "cash",
                 );
@@ -2452,6 +2663,26 @@ class LaporanController extends Controller
                     $data[$assignedKey]["total"] += $jumlah;
                     $data["total_all"][$paymentType] += $jumlah;
                     $data["total_all"]["total"] += $jumlah;
+                    MataUangFormatter::addToTotals(
+                        $data[$assignedKey][$paymentType . "_by_currency"],
+                        $jumlah,
+                        $mataUang,
+                    );
+                    MataUangFormatter::addToTotals(
+                        $data[$assignedKey]["total_by_currency"],
+                        $jumlah,
+                        $mataUang,
+                    );
+                    MataUangFormatter::addToTotals(
+                        $data["total_all"][$paymentType . "_by_currency"],
+                        $jumlah,
+                        $mataUang,
+                    );
+                    MataUangFormatter::addToTotals(
+                        $data["total_all"]["total_by_currency"],
+                        $jumlah,
+                        $mataUang,
+                    );
                 }
 
                 if (
@@ -2468,8 +2699,70 @@ class LaporanController extends Controller
                         $paymentType
                     ] += $jumlah;
                     $allDataMonths[$bulanVal]["total_all"]["total"] += $jumlah;
+                    MataUangFormatter::addToTotals(
+                        $allDataMonths[$bulanVal]["data_map"][$assignedKey][
+                            $paymentType . "_by_currency"
+                        ],
+                        $jumlah,
+                        $mataUang,
+                    );
+                    MataUangFormatter::addToTotals(
+                        $allDataMonths[$bulanVal]["data_map"][$assignedKey][
+                            "total_by_currency"
+                        ],
+                        $jumlah,
+                        $mataUang,
+                    );
+                    MataUangFormatter::addToTotals(
+                        $allDataMonths[$bulanVal]["total_all"][
+                            $paymentType . "_by_currency"
+                        ],
+                        $jumlah,
+                        $mataUang,
+                    );
+                    MataUangFormatter::addToTotals(
+                        $allDataMonths[$bulanVal]["total_all"][
+                            "total_by_currency"
+                        ],
+                        $jumlah,
+                        $mataUang,
+                    );
                 }
             }
+
+            $currencyFields = [
+                "tunai_by_currency",
+                "transfer_by_currency",
+                "yayasan_by_currency",
+                "total_by_currency",
+            ];
+            foreach ($data as &$row) {
+                foreach ($currencyFields as $field) {
+                    $row[$field] = MataUangFormatter::normalizeTotals(
+                        $row[$field],
+                    );
+                }
+            }
+            unset($row);
+
+            foreach ($allDataMonths as &$monthInfo) {
+                foreach ($monthInfo["data_map"] as &$row) {
+                    foreach ($currencyFields as $field) {
+                        $row[$field] = MataUangFormatter::normalizeTotals(
+                            $row[$field],
+                        );
+                    }
+                }
+                unset($row);
+
+                foreach ($currencyFields as $field) {
+                    $monthInfo["total_all"][$field] =
+                        MataUangFormatter::normalizeTotals(
+                            $monthInfo["total_all"][$field],
+                        );
+                }
+            }
+            unset($monthInfo);
 
             $tableData = [];
             $no = 1;
@@ -2482,6 +2775,10 @@ class LaporanController extends Controller
                     "transfer" => $row["transfer"],
                     "yayasan" => $row["yayasan"],
                     "total" => $row["total"],
+                    "tunai_by_currency" => $row["tunai_by_currency"],
+                    "transfer_by_currency" => $row["transfer_by_currency"],
+                    "yayasan_by_currency" => $row["yayasan_by_currency"],
+                    "total_by_currency" => $row["total_by_currency"],
                 ];
             }
 
@@ -2501,6 +2798,10 @@ class LaporanController extends Controller
                             "transfer" => $row["transfer"],
                             "yayasan" => $row["yayasan"],
                             "total" => $row["total"],
+                            "tunai_by_currency" => $row["tunai_by_currency"],
+                            "transfer_by_currency" => $row["transfer_by_currency"],
+                            "yayasan_by_currency" => $row["yayasan_by_currency"],
+                            "total_by_currency" => $row["total_by_currency"],
                         ];
                     }
                     $formattedAllData[] = [

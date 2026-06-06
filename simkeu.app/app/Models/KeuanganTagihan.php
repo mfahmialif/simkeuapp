@@ -35,4 +35,9 @@ class KeuanganTagihan extends Model
     {
         return $this->belongsTo(FormSchadule::class, 'form_schadule_id');
     }
+
+    public function mata_uang()
+    {
+        return $this->belongsTo(MataUang::class, 'mata_uang_id');
+    }
 }

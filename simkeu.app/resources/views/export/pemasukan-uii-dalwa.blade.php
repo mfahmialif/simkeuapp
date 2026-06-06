@@ -19,20 +19,20 @@
             <tr>
                 <td style="border: 1px solid #000; text-align: center; background-color: #ffffff;">{{ $row['no'] }}</td>
                 <td style="border: 1px solid #000; text-align: left; background-color: #ffffff;">{{ strtoupper($row['kategori']) }}</td>
-                <td style="border: 1px solid #000; text-align: right; background-color: #ffffff;" data-format="&quot;Rp &quot;* #,##0_ ;&quot;Rp &quot;* -_ ;&quot;Rp &quot;* &quot;-&quot;_ ;_ @_ ">{{ $row['tunai'] ?: 0 }}</td>
-                <td style="border: 1px solid #000; text-align: right; background-color: #ffffff;" data-format="&quot;Rp &quot;* #,##0_ ;&quot;Rp &quot;* -_ ;&quot;Rp &quot;* &quot;-&quot;_ ;_ @_ ">{{ $row['transfer'] ?: 0 }}</td>
-                <td style="border: 1px solid #000; text-align: right; background-color: #ffffff;" data-format="&quot;Rp &quot;* #,##0_ ;&quot;Rp &quot;* -_ ;&quot;Rp &quot;* &quot;-&quot;_ ;_ @_ ">{{ $row['yayasan'] ?: 0 }}</td>
-                <td style="border: 1px solid #000; text-align: right; background-color: #ffffff;" data-format="&quot;Rp &quot;* #,##0_ ;&quot;Rp &quot;* -_ ;&quot;Rp &quot;* &quot;-&quot;_ ;_ @_ ">{{ $row['total'] ?: 0 }}</td>
+                <td style="border: 1px solid #000; text-align: right; background-color: #ffffff;">{{ \App\Services\MataUangFormatter::formatTotals($row['tunai_by_currency'] ?? []) }}</td>
+                <td style="border: 1px solid #000; text-align: right; background-color: #ffffff;">{{ \App\Services\MataUangFormatter::formatTotals($row['transfer_by_currency'] ?? []) }}</td>
+                <td style="border: 1px solid #000; text-align: right; background-color: #ffffff;">{{ \App\Services\MataUangFormatter::formatTotals($row['yayasan_by_currency'] ?? []) }}</td>
+                <td style="border: 1px solid #000; text-align: right; background-color: #ffffff;">{{ \App\Services\MataUangFormatter::formatTotals($row['total_by_currency'] ?? []) }}</td>
             </tr>
         @endforeach
     </tbody>
     <tfoot>
         <tr>
             <th colspan="2" style="border: 1px solid #000; text-align: center; font-weight: bold; font-style: italic; background-color: #ffffff;">TOTAL</th>
-            <th style="border: 1px solid #000; text-align: right; font-weight: bold; background-color: #ffffff;" data-format="&quot;Rp &quot;* #,##0_ ;&quot;Rp &quot;* -_ ;&quot;Rp &quot;* &quot;-&quot;_ ;_ @_ ">{{ $totals['tunai'] ?: 0 }}</th>
-            <th style="border: 1px solid #000; text-align: right; font-weight: bold; background-color: #ffffff;" data-format="&quot;Rp &quot;* #,##0_ ;&quot;Rp &quot;* -_ ;&quot;Rp &quot;* &quot;-&quot;_ ;_ @_ ">{{ $totals['transfer'] ?: 0 }}</th>
-            <th style="border: 1px solid #000; text-align: right; font-weight: bold; background-color: #ffffff;" data-format="&quot;Rp &quot;* #,##0_ ;&quot;Rp &quot;* -_ ;&quot;Rp &quot;* &quot;-&quot;_ ;_ @_ ">{{ $totals['yayasan'] ?: 0 }}</th>
-            <th style="border: 1px solid #000; text-align: right; font-weight: bold; background-color: #ffffff;" data-format="&quot;Rp &quot;* #,##0_ ;&quot;Rp &quot;* -_ ;&quot;Rp &quot;* &quot;-&quot;_ ;_ @_ ">{{ $totals['total'] ?: 0 }}</th>
+            <th style="border: 1px solid #000; text-align: right; font-weight: bold; background-color: #ffffff;">{{ \App\Services\MataUangFormatter::formatTotals($totals['tunai_by_currency'] ?? []) }}</th>
+            <th style="border: 1px solid #000; text-align: right; font-weight: bold; background-color: #ffffff;">{{ \App\Services\MataUangFormatter::formatTotals($totals['transfer_by_currency'] ?? []) }}</th>
+            <th style="border: 1px solid #000; text-align: right; font-weight: bold; background-color: #ffffff;">{{ \App\Services\MataUangFormatter::formatTotals($totals['yayasan_by_currency'] ?? []) }}</th>
+            <th style="border: 1px solid #000; text-align: right; font-weight: bold; background-color: #ffffff;">{{ \App\Services\MataUangFormatter::formatTotals($totals['total_by_currency'] ?? []) }}</th>
         </tr>
     </tfoot>
 </table>

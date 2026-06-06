@@ -12,6 +12,7 @@ use App\Http\Controllers\Controller;
 use App\Models\KeuanganSaldoPemasukan;
 use App\Models\KeuanganSaldoPengeluaran;
 use App\Services\Helper;
+use App\Services\MataUangFormatter;
 
 class DashboardController extends Controller
 {
@@ -20,55 +21,61 @@ class DashboardController extends Controller
         $jkUser = Helper::getJenisKelaminUser();
         $jkIdStr = (string)$jkUser->id; // 8, 9, or '%'
 
-        $data = Cache::remember('dashboard_widget_v7_' . md5($jkIdStr), 30, function () use ($jkUser) {
+        $data = Cache::remember('dashboard_widget_v8_' . md5($jkIdStr), 30, function () use ($jkUser) {
             $today = Carbon::today()->format('Y-m-d');
             $startOfWeek = Carbon::now()->startOfWeek()->format('Y-m-d');
             $startOfMonth = Carbon::now()->startOfMonth()->format('Y-m-d');
 
-            // 1. Pembayaran Mahasiswa (Matrix Waktu x Gender)
-            $pembayaranQuery = DB::table('keuangan_pembayaran');
-            
-            // Filter menggunakan Helper sesuai request
-            $pembayaranQuery->where('jk_id', 'LIKE', "%" . $jkUser->id . "%");
-
             $selectRawPembayaran = "
-                -- Semua
-                COALESCE(SUM(CASE WHEN jk_id = 8 THEN jumlah ELSE 0 END), 0) as semua_laki,
-                SUM(CASE WHEN jk_id = 8 THEN 1 ELSE 0 END) as count_semua_laki,
-                COALESCE(SUM(CASE WHEN jk_id = 9 THEN jumlah ELSE 0 END), 0) as semua_perempuan,
-                SUM(CASE WHEN jk_id = 9 THEN 1 ELSE 0 END) as count_semua_perempuan,
-                -- Harian
-                COALESCE(SUM(CASE WHEN DATE(tanggal) = ? AND jk_id = 8 THEN jumlah ELSE 0 END), 0) as harian_laki,
-                SUM(CASE WHEN DATE(tanggal) = ? AND jk_id = 8 THEN 1 ELSE 0 END) as count_harian_laki,
-                COALESCE(SUM(CASE WHEN DATE(tanggal) = ? AND jk_id = 9 THEN jumlah ELSE 0 END), 0) as harian_perempuan,
-                SUM(CASE WHEN DATE(tanggal) = ? AND jk_id = 9 THEN 1 ELSE 0 END) as count_harian_perempuan,
-                -- Mingguan
-                COALESCE(SUM(CASE WHEN DATE(tanggal) >= ? AND jk_id = 8 THEN jumlah ELSE 0 END), 0) as mingguan_laki,
-                SUM(CASE WHEN DATE(tanggal) >= ? AND jk_id = 8 THEN 1 ELSE 0 END) as count_mingguan_laki,
-                COALESCE(SUM(CASE WHEN DATE(tanggal) >= ? AND jk_id = 9 THEN jumlah ELSE 0 END), 0) as mingguan_perempuan,
-                SUM(CASE WHEN DATE(tanggal) >= ? AND jk_id = 9 THEN 1 ELSE 0 END) as count_mingguan_perempuan,
-                -- Bulanan
-                COALESCE(SUM(CASE WHEN DATE(tanggal) >= ? AND jk_id = 8 THEN jumlah ELSE 0 END), 0) as bulanan_laki,
-                SUM(CASE WHEN DATE(tanggal) >= ? AND jk_id = 8 THEN 1 ELSE 0 END) as count_bulanan_laki,
-                COALESCE(SUM(CASE WHEN DATE(tanggal) >= ? AND jk_id = 9 THEN jumlah ELSE 0 END), 0) as bulanan_perempuan,
-                SUM(CASE WHEN DATE(tanggal) >= ? AND jk_id = 9 THEN 1 ELSE 0 END) as count_bulanan_perempuan
+                COALESCE(SUM(CASE WHEN kp.jk_id = 8 THEN kp.jumlah ELSE 0 END), 0) as semua_laki,
+                SUM(CASE WHEN kp.jk_id = 8 THEN 1 ELSE 0 END) as count_semua_laki,
+                COALESCE(SUM(CASE WHEN kp.jk_id = 9 THEN kp.jumlah ELSE 0 END), 0) as semua_perempuan,
+                SUM(CASE WHEN kp.jk_id = 9 THEN 1 ELSE 0 END) as count_semua_perempuan,
+                COALESCE(SUM(CASE WHEN DATE(kp.tanggal) = ? AND kp.jk_id = 8 THEN kp.jumlah ELSE 0 END), 0) as harian_laki,
+                SUM(CASE WHEN DATE(kp.tanggal) = ? AND kp.jk_id = 8 THEN 1 ELSE 0 END) as count_harian_laki,
+                COALESCE(SUM(CASE WHEN DATE(kp.tanggal) = ? AND kp.jk_id = 9 THEN kp.jumlah ELSE 0 END), 0) as harian_perempuan,
+                SUM(CASE WHEN DATE(kp.tanggal) = ? AND kp.jk_id = 9 THEN 1 ELSE 0 END) as count_harian_perempuan,
+                COALESCE(SUM(CASE WHEN DATE(kp.tanggal) >= ? AND kp.jk_id = 8 THEN kp.jumlah ELSE 0 END), 0) as mingguan_laki,
+                SUM(CASE WHEN DATE(kp.tanggal) >= ? AND kp.jk_id = 8 THEN 1 ELSE 0 END) as count_mingguan_laki,
+                COALESCE(SUM(CASE WHEN DATE(kp.tanggal) >= ? AND kp.jk_id = 9 THEN kp.jumlah ELSE 0 END), 0) as mingguan_perempuan,
+                SUM(CASE WHEN DATE(kp.tanggal) >= ? AND kp.jk_id = 9 THEN 1 ELSE 0 END) as count_mingguan_perempuan,
+                COALESCE(SUM(CASE WHEN DATE(kp.tanggal) >= ? AND kp.jk_id = 8 THEN kp.jumlah ELSE 0 END), 0) as bulanan_laki,
+                SUM(CASE WHEN DATE(kp.tanggal) >= ? AND kp.jk_id = 8 THEN 1 ELSE 0 END) as count_bulanan_laki,
+                COALESCE(SUM(CASE WHEN DATE(kp.tanggal) >= ? AND kp.jk_id = 9 THEN kp.jumlah ELSE 0 END), 0) as bulanan_perempuan,
+                SUM(CASE WHEN DATE(kp.tanggal) >= ? AND kp.jk_id = 9 THEN 1 ELSE 0 END) as count_bulanan_perempuan
             ";
-            
+
             $bindingsPembayaran = [
                 $today, $today, $today, $today,
                 $startOfWeek, $startOfWeek, $startOfWeek, $startOfWeek,
                 $startOfMonth, $startOfMonth, $startOfMonth, $startOfMonth
             ];
 
-            $pmb = $pembayaranQuery->selectRaw($selectRawPembayaran, $bindingsPembayaran)->first();
+            $pembayaranRows = DB::table('keuangan_pembayaran as kp')
+                ->join('keuangan_tagihan as kt', 'kt.id', '=', 'kp.tagihan_id')
+                ->leftJoin('mata_uang as mu', 'mu.id', '=', 'kt.mata_uang_id')
+                ->where('kp.jk_id', 'LIKE', "%" . $jkUser->id . "%")
+                ->selectRaw("
+                    COALESCE(mu.id, 0) as mata_uang_id,
+                    COALESCE(mu.kode, 'IDR') as mata_uang_kode,
+                    COALESCE(mu.nama, 'Rupiah') as mata_uang_nama,
+                    COALESCE(mu.simbol, 'Rp') as mata_uang_simbol,
+                    {$selectRawPembayaran}
+                ", $bindingsPembayaran)
+                ->groupBy('mu.id', 'mu.kode', 'mu.nama', 'mu.simbol')
+                ->get();
 
-            // 1b. Pembayaran Semester Pendek (tambahan pemasukan)
-            $spQuery = DB::table('keuangan_pembayaran_semester_pendek');
-            $spQuery->where('jk_id', 'LIKE', "%" . $jkUser->id . "%");
+            $selectRawSemesterPendek = str_replace(
+                ['kp.jk_id', 'kp.jumlah', 'kp.tanggal'],
+                ['jk_id', 'jumlah', 'tanggal'],
+                $selectRawPembayaran
+            );
 
-            $sp = $spQuery->selectRaw($selectRawPembayaran, $bindingsPembayaran)->first();
+            $sp = DB::table('keuangan_pembayaran_semester_pendek')
+                ->where('jk_id', 'LIKE', "%" . $jkUser->id . "%")
+                ->selectRaw($selectRawSemesterPendek, $bindingsPembayaran)
+                ->first();
 
-            // 2. Keuangan Saldo Umum (Hanya jika user '*')
             $umum = (object)[
                 'semua' => 0, 'count_semua' => 0,
                 'harian' => 0, 'count_harian' => 0,
@@ -91,69 +98,132 @@ class DashboardController extends Controller
                 $umum = KeuanganSaldoPemasukan::selectRaw($selectRawUmum, $bindingsUmum)->first();
             }
 
-            // Helpers untuk menyusun response
-            $buildPeriod = function($laki, $countLaki, $perempuan, $countPerempuan, $umumTotal, $countUmum, $spLaki = 0, $countSpLaki = 0, $spPerempuan = 0, $countSpPerempuan = 0) use ($jkUser) {
+            $defaultCurrency = MataUangFormatter::defaultCurrency();
+            $legacyIdrTotal = function (array $totals): float {
+                foreach ($totals as $row) {
+                    if (strtoupper((string) data_get($row, 'mata_uang.kode')) === 'IDR') {
+                        return (float) data_get($row, 'total', 0);
+                    }
+                }
+
+                return 0;
+            };
+
+            $buildGender = function (string $period, string $gender, float $semesterPendek = 0) use ($pembayaranRows, $defaultCurrency, $legacyIdrTotal) {
+                $totals = [];
+                $count = 0;
+                $amountKey = "{$period}_{$gender}";
+                $countKey = "count_{$period}_{$gender}";
+
+                foreach ($pembayaranRows as $row) {
+                    $amount = (float) ($row->{$amountKey} ?? 0);
+                    $count += (int) ($row->{$countKey} ?? 0);
+
+                    if ($amount != 0.0) {
+                        MataUangFormatter::addToTotals(
+                            $totals,
+                            $amount,
+                            MataUangFormatter::fromColumns($row)
+                        );
+                    }
+                }
+
+                if ($semesterPendek != 0.0) {
+                    MataUangFormatter::addToTotals($totals, $semesterPendek, $defaultCurrency);
+                }
+
+                $normalized = MataUangFormatter::normalizeTotals($totals);
+
+                return [
+                    'value' => $legacyIdrTotal($normalized),
+                    'change' => $count,
+                    'by_currency' => $normalized,
+                ];
+            };
+
+            $buildPeriod = function (string $period) use ($jkUser, $sp, $umum, $buildGender, $defaultCurrency, $legacyIdrTotal) {
                 $result = [];
-                $keseluruhan = 0;
                 $countKeseluruhan = 0;
+                $currencyGroups = [];
 
-                // Jika user login difilter laki-laki atau semua
                 if ($jkUser->id == 8 || $jkUser->id === '%') {
-                    $totalLaki = (float)$laki + (float)$spLaki;
-                    $totalCountLaki = (int)$countLaki + (int)$countSpLaki;
-                    $result['Laki-laki'] = ['value' => $totalLaki, 'change' => $totalCountLaki];
-                    $keseluruhan += $totalLaki;
-                    $countKeseluruhan += $totalCountLaki;
+                    $result['Laki-laki'] = $buildGender(
+                        $period,
+                        'laki',
+                        (float) ($sp->{$period . '_laki'} ?? 0)
+                    );
+                    $result['Laki-laki']['change'] += (int) ($sp->{'count_' . $period . '_laki'} ?? 0);
+                    $countKeseluruhan += $result['Laki-laki']['change'];
+                    $currencyGroups[] = $result['Laki-laki']['by_currency'];
                 }
-                
-                // Jika user login difilter perempuan atau semua
+
                 if ($jkUser->id == 9 || $jkUser->id === '%') {
-                    $totalPerempuan = (float)$perempuan + (float)$spPerempuan;
-                    $totalCountPerempuan = (int)$countPerempuan + (int)$countSpPerempuan;
-                    $result['Perempuan'] = ['value' => $totalPerempuan, 'change' => $totalCountPerempuan];
-                    $keseluruhan += $totalPerempuan;
-                    $countKeseluruhan += $totalCountPerempuan;
+                    $result['Perempuan'] = $buildGender(
+                        $period,
+                        'perempuan',
+                        (float) ($sp->{$period . '_perempuan'} ?? 0)
+                    );
+                    $result['Perempuan']['change'] += (int) ($sp->{'count_' . $period . '_perempuan'} ?? 0);
+                    $countKeseluruhan += $result['Perempuan']['change'];
+                    $currencyGroups[] = $result['Perempuan']['by_currency'];
                 }
 
-                // Umum hanya untuk semua
                 if ($jkUser->id === '%') {
-                    $result['Umum'] = ['value' => (float)$umumTotal, 'change' => (int)$countUmum, 'hideIfZero' => true];
-                    $keseluruhan += (float)$umumTotal;
-                    $countKeseluruhan += (int)$countUmum;
+                    $umumTotal = (float) ($umum->{$period} ?? 0);
+                    $umumCurrency = [];
+                    if ($umumTotal != 0.0) {
+                        MataUangFormatter::addToTotals($umumCurrency, $umumTotal, $defaultCurrency);
+                    }
+                    $umumCurrency = MataUangFormatter::normalizeTotals($umumCurrency);
+                    $result['Umum'] = [
+                        'value' => $umumTotal,
+                        'change' => (int) ($umum->{'count_' . $period} ?? 0),
+                        'hideIfZero' => true,
+                        'by_currency' => $umumCurrency,
+                    ];
+                    $countKeseluruhan += $result['Umum']['change'];
+                    $currencyGroups[] = $umumCurrency;
                 }
 
-                $result['Keseluruhan'] = ['value' => $keseluruhan, 'change' => $countKeseluruhan];
+                $byCurrency = MataUangFormatter::mergeTotals(...$currencyGroups);
+                $result['Keseluruhan'] = [
+                    'value' => $legacyIdrTotal($byCurrency),
+                    'change' => $countKeseluruhan,
+                    'by_currency' => $byCurrency,
+                ];
 
                 return $result;
             };
 
             $pemasukanBreakdown = [
-                'Harian' => $buildPeriod($pmb->harian_laki, $pmb->count_harian_laki, $pmb->harian_perempuan, $pmb->count_harian_perempuan, $umum->harian, $umum->count_harian, $sp->harian_laki, $sp->count_harian_laki, $sp->harian_perempuan, $sp->count_harian_perempuan),
-                'Mingguan' => $buildPeriod($pmb->mingguan_laki, $pmb->count_mingguan_laki, $pmb->mingguan_perempuan, $pmb->count_mingguan_perempuan, $umum->mingguan, $umum->count_mingguan, $sp->mingguan_laki, $sp->count_mingguan_laki, $sp->mingguan_perempuan, $sp->count_mingguan_perempuan),
-                'Bulanan' => $buildPeriod($pmb->bulanan_laki, $pmb->count_bulanan_laki, $pmb->bulanan_perempuan, $pmb->count_bulanan_perempuan, $umum->bulanan, $umum->count_bulanan, $sp->bulanan_laki, $sp->count_bulanan_laki, $sp->bulanan_perempuan, $sp->count_bulanan_perempuan),
-                'Semua' => $buildPeriod($pmb->semua_laki, $pmb->count_semua_laki, $pmb->semua_perempuan, $pmb->count_semua_perempuan, $umum->semua, $umum->count_semua, $sp->semua_laki, $sp->count_semua_laki, $sp->semua_perempuan, $sp->count_semua_perempuan),
+                'Harian' => $buildPeriod('harian'),
+                'Mingguan' => $buildPeriod('mingguan'),
+                'Bulanan' => $buildPeriod('bulanan'),
+                'Semua' => $buildPeriod('semua'),
             ];
 
-            // 3. Saldo
             $saldoData = KeuanganSaldo::selectRaw('COALESCE(SUM(saldo), 0) as total_saldo, COUNT(*) as jumlah')->first();
-
-            // 4. Pengeluaran
             $pengeluaranUmumData = KeuanganSaldoPengeluaran::selectRaw('COALESCE(SUM(jumlah), 0) as total, COUNT(*) as jumlah')->first();
             $pengeluaranDosenData = DB::table('keuangan_pengeluaran_dosen')->selectRaw('COALESCE(SUM(total), 0) as total, COUNT(*) as jumlah')->first();
-            
             $jumlahUser = User::count();
+            $saldo = (float) $saldoData->total_saldo;
+            $pengeluaran = (float) $pengeluaranUmumData->total + (float) $pengeluaranDosenData->total;
+            $singleIdrTotal = fn (float $total) => [[
+                'key' => 'kode:IDR',
+                'mata_uang' => $defaultCurrency,
+                'total' => $total,
+            ]];
 
             return [
-                'saldo' => (float) $saldoData->total_saldo,
+                'saldo' => $saldo,
+                'saldoByCurrency' => $singleIdrTotal($saldo),
                 'jumlahSaldo' => (int) $saldoData->jumlah,
-                
-                // Pemasukan default (Harian) untuk kartu
                 'pemasukanHarian' => $pemasukanBreakdown['Harian']['Keseluruhan']['value'] ?? 0,
+                'pemasukanHarianByCurrency' => $pemasukanBreakdown['Harian']['Keseluruhan']['by_currency'] ?? [],
                 'jumlahPemasukanHarian' => $pemasukanBreakdown['Harian']['Keseluruhan']['change'] ?? 0,
-                
                 'pemasukanBreakdown' => $pemasukanBreakdown,
-
-                'pengeluaran' => (float) $pengeluaranUmumData->total + (float) $pengeluaranDosenData->total,
+                'pengeluaran' => $pengeluaran,
+                'pengeluaranByCurrency' => $singleIdrTotal($pengeluaran),
                 'jumlahPengeluaran' => (int) $pengeluaranUmumData->jumlah + (int) $pengeluaranDosenData->jumlah,
                 'jumlahUser' => $jumlahUser,
             ];
@@ -169,7 +239,7 @@ class DashboardController extends Controller
     public function financeOverview(Request $request)
     {
         try {
-            $cacheKey = 'dashboard_finance_overview_v2_' . md5(json_encode($request->only(['th_akademik_id', 'prodi_id', 'jk_id'])));
+            $cacheKey = 'dashboard_finance_overview_v3_' . md5(json_encode($request->only(['th_akademik_id', 'prodi_id', 'jk_id'])));
 
             $result = Cache::remember($cacheKey, 600, function () use ($request) {
                 // Bundle grouping via CASE expression
@@ -185,9 +255,16 @@ class DashboardController extends Controller
                 // Subquery: hitung category name per row + jumlah pembayaran
                 $subquery = DB::table('keuangan_tagihan')
                     ->leftJoin('keuangan_pembayaran', 'keuangan_tagihan.id', '=', 'keuangan_pembayaran.tagihan_id')
+                    ->leftJoin('mata_uang', 'mata_uang.id', '=', 'keuangan_tagihan.mata_uang_id')
                     ->selectRaw("{$caseExpr} as category_name")
                     ->selectRaw("COALESCE(keuangan_pembayaran.jumlah, 0) as jumlah")
-                    ->selectRaw("keuangan_pembayaran.jk_id");
+                    ->selectRaw("keuangan_pembayaran.jk_id")
+                    ->selectRaw("
+                        COALESCE(mata_uang.id, 0) as mata_uang_id,
+                        COALESCE(mata_uang.kode, 'IDR') as mata_uang_kode,
+                        COALESCE(mata_uang.nama, 'Rupiah') as mata_uang_nama,
+                        COALESCE(mata_uang.simbol, 'Rp') as mata_uang_simbol
+                    ");
 
                 // Filter opsional pada subquery
                 if ($request->th_akademik_id) {
@@ -204,12 +281,23 @@ class DashboardController extends Controller
                 $data = DB::query()->fromSub($subquery, 'sub')
                     ->selectRaw("
                         sub.category_name as name,
+                        sub.mata_uang_id,
+                        sub.mata_uang_kode,
+                        sub.mata_uang_nama,
+                        sub.mata_uang_simbol,
                         COALESCE(SUM(sub.jumlah), 0) as amount,
                         COALESCE(SUM(CASE WHEN sub.jk_id = 8 THEN sub.jumlah ELSE 0 END), 0) as laki_laki,
                         COALESCE(SUM(CASE WHEN sub.jk_id = 9 THEN sub.jumlah ELSE 0 END), 0) as perempuan
                     ")
-                    ->groupBy('sub.category_name')
-                    ->orderByDesc('amount')
+                    ->groupBy(
+                        'sub.category_name',
+                        'sub.mata_uang_id',
+                        'sub.mata_uang_kode',
+                        'sub.mata_uang_nama',
+                        'sub.mata_uang_simbol'
+                    )
+                    ->orderBy('sub.category_name')
+                    ->orderBy('sub.mata_uang_kode')
                     ->get()
                     ->map(function ($item) {
                         return [
@@ -217,23 +305,77 @@ class DashboardController extends Controller
                             'amount'     => (float) $item->amount,
                             'laki_laki'  => (float) $item->laki_laki,
                             'perempuan'  => (float) $item->perempuan,
+                            'mata_uang'  => MataUangFormatter::fromColumns($item),
                         ];
                     });
 
-                $total = $data->sum('amount');
-                $totalLaki = $data->sum('laki_laki');
-                $totalPerempuan = $data->sum('perempuan');
+                $totalsByCurrency = [];
+                foreach ($data as $item) {
+                    $kode = strtoupper((string) data_get($item, 'mata_uang.kode', 'IDR'));
+                    $key = 'kode:' . $kode;
 
-                $data = $data->map(function ($item) use ($total) {
-                    $item['percent'] = $total > 0 ? number_format($item['amount'] / $total * 100, 2) : 0;
-                    return $item;
-                })->values();
+                    if (! isset($totalsByCurrency[$key])) {
+                        $totalsByCurrency[$key] = [
+                            'key' => $key,
+                            'mata_uang' => $item['mata_uang'],
+                            'total' => 0,
+                            'laki_laki' => 0,
+                            'perempuan' => 0,
+                        ];
+                    }
+
+                    $totalsByCurrency[$key]['total'] += $item['amount'];
+                    $totalsByCurrency[$key]['laki_laki'] += $item['laki_laki'];
+                    $totalsByCurrency[$key]['perempuan'] += $item['perempuan'];
+                }
+
+                $totalsByCurrency = $this->sortCurrencyRows(array_values($totalsByCurrency));
+                $currencyTotals = collect($totalsByCurrency)->keyBy(
+                    fn ($item) => strtoupper((string) data_get($item, 'mata_uang.kode', 'IDR'))
+                );
+
+                $data = $data
+                    ->groupBy('name')
+                    ->map(function ($items, $name) use ($currencyTotals) {
+                        $byCurrency = $items->map(function ($item) use ($currencyTotals) {
+                            $kode = strtoupper((string) data_get($item, 'mata_uang.kode', 'IDR'));
+                            $currencyTotal = (float) data_get($currencyTotals->get($kode), 'total', 0);
+
+                            return [
+                                'key' => 'kode:' . $kode,
+                                'mata_uang' => $item['mata_uang'],
+                                'amount' => $item['amount'],
+                                'laki_laki' => $item['laki_laki'],
+                                'perempuan' => $item['perempuan'],
+                                'percent' => $currencyTotal > 0
+                                    ? round($item['amount'] / $currencyTotal * 100, 2)
+                                    : 0,
+                            ];
+                        })->all();
+
+                        return [
+                            'name' => $name,
+                            'by_currency' => $this->sortCurrencyRows($byCurrency),
+                        ];
+                    })
+                    ->sortByDesc(function ($item) {
+                        $idr = collect($item['by_currency'])
+                            ->first(fn ($row) => strtoupper((string) data_get($row, 'mata_uang.kode')) === 'IDR');
+
+                        return (float) data_get($idr, 'amount', 0);
+                    })
+                    ->values();
+
+                $legacyIdr = collect($totalsByCurrency)->first(
+                    fn ($item) => strtoupper((string) data_get($item, 'mata_uang.kode')) === 'IDR'
+                ) ?? [];
 
                 return [
                     'data'            => $data,
-                    'total'           => $total,
-                    'total_laki_laki' => $totalLaki,
-                    'total_perempuan' => $totalPerempuan,
+                    'totals_by_currency' => $totalsByCurrency,
+                    'total'           => (float) data_get($legacyIdr, 'total', 0),
+                    'total_laki_laki' => (float) data_get($legacyIdr, 'laki_laki', 0),
+                    'total_perempuan' => (float) data_get($legacyIdr, 'perempuan', 0),
                 ];
             });
 
@@ -241,6 +383,7 @@ class DashboardController extends Controller
                 'status'          => true,
                 'message'         => 'Data berhasil diambil',
                 'data'            => $result['data'],
+                'totals_by_currency' => $result['totals_by_currency'],
                 'total'           => $result['total'],
                 'total_laki_laki' => $result['total_laki_laki'],
                 'total_perempuan' => $result['total_perempuan'],
@@ -263,18 +406,28 @@ class DashboardController extends Controller
     public function financeOverviewDetail(Request $request)
     {
         try {
-            $cacheKey = 'dashboard_finance_detail_v2_' . md5(json_encode($request->only(['category', 'group_by', 'th_akademik_id', 'prodi_id', 'jk_id'])));
+            $cacheKey = 'dashboard_finance_detail_v3_' . md5(json_encode($request->only([
+                'category',
+                'group_by',
+                'th_akademik_id',
+                'prodi_id',
+                'jk_id',
+                'mata_uang_kode',
+            ])));
 
             $result = Cache::remember($cacheKey, 600, function () use ($request) {
                 $category = $request->category;
                 $groupBy  = $request->group_by ?? 'semester';
+                $mataUangKode = strtoupper((string) ($request->mata_uang_kode ?: 'IDR'));
 
                 $query = DB::table('keuangan_tagihan')
                     ->leftJoin('keuangan_pembayaran', 'keuangan_tagihan.id', '=', 'keuangan_pembayaran.tagihan_id')
                     ->leftJoin('keuangan_jenis_pembayaran_detail', 'keuangan_jenis_pembayaran_detail.pembayaran_id', '=', 'keuangan_pembayaran.id')
                     ->leftJoin('keuangan_jenis_pembayaran', 'keuangan_jenis_pembayaran.id', '=', 'keuangan_jenis_pembayaran_detail.jenis_pembayaran_id')
                     ->leftJoin('th_akademik', 'keuangan_tagihan.th_akademik_id', '=', 'th_akademik.id')
-                    ->leftJoin('prodi', 'keuangan_tagihan.prodi_id', '=', 'prodi.id');
+                    ->leftJoin('prodi', 'keuangan_tagihan.prodi_id', '=', 'prodi.id')
+                    ->leftJoin('mata_uang', 'mata_uang.id', '=', 'keuangan_tagihan.mata_uang_id')
+                    ->whereRaw("COALESCE(mata_uang.kode, 'IDR') = ?", [$mataUangKode]);
 
                 // Filter berdasarkan kategori bundle
                 switch ($category) {
@@ -351,6 +504,12 @@ class DashboardController extends Controller
                 $query->selectRaw("{$labelExpr} as label")
                     ->selectRaw("COALESCE(keuangan_jenis_pembayaran.nama, 'Lainnya') as jenis_pembayaran")
                     ->selectRaw("COALESCE(keuangan_jenis_pembayaran.kategori, 'Semua') as jenis_kelamin")
+                    ->selectRaw("
+                        COALESCE(mata_uang.id, 0) as mata_uang_id,
+                        COALESCE(mata_uang.kode, 'IDR') as mata_uang_kode,
+                        COALESCE(mata_uang.nama, 'Rupiah') as mata_uang_nama,
+                        COALESCE(mata_uang.simbol, 'Rp') as mata_uang_simbol
+                    ")
                     ->selectRaw("COALESCE(SUM(keuangan_pembayaran.jumlah), 0) as amount")
                     ->selectRaw("COALESCE(SUM(CASE WHEN keuangan_pembayaran.jk_id = 8 THEN keuangan_pembayaran.jumlah ELSE 0 END), 0) as laki_laki")
                     ->selectRaw("COALESCE(SUM(CASE WHEN keuangan_pembayaran.jk_id = 9 THEN keuangan_pembayaran.jumlah ELSE 0 END), 0) as perempuan");
@@ -366,10 +525,22 @@ class DashboardController extends Controller
                 $query->groupBy(
                     'keuangan_jenis_pembayaran.id',
                     'keuangan_jenis_pembayaran.nama',
-                    'keuangan_jenis_pembayaran.kategori'
+                    'keuangan_jenis_pembayaran.kategori',
+                    'mata_uang.id',
+                    'mata_uang.kode',
+                    'mata_uang.nama',
+                    'mata_uang.simbol'
                 );
 
                 $rows = $query->get();
+                $mataUang = $rows->isNotEmpty()
+                    ? MataUangFormatter::fromColumns($rows->first())
+                    : [
+                        ...MataUangFormatter::defaultCurrency(),
+                        'kode' => $mataUangKode,
+                        'nama' => $mataUangKode,
+                        'simbol' => $mataUangKode === 'IDR' ? 'Rp' : $mataUangKode,
+                    ];
 
                 $data = $rows->groupBy(fn($item) => $item->label ?? '-')
                     ->map(function ($items, $label) {
@@ -427,6 +598,7 @@ class DashboardController extends Controller
                 return [
                     'category'        => $category,
                     'group_by'        => $groupBy,
+                    'mata_uang'       => $mataUang,
                     'data'            => $data,
                     'total'           => $total,
                     'total_laki_laki' => $totalLaki,
@@ -439,6 +611,7 @@ class DashboardController extends Controller
                 'message'         => 'Data berhasil diambil',
                 'category'        => $result['category'],
                 'group_by'        => $result['group_by'],
+                'mata_uang'       => $result['mata_uang'],
                 'data'            => $result['data'],
                 'total'           => $result['total'],
                 'total_laki_laki' => $result['total_laki_laki'],
@@ -455,78 +628,118 @@ class DashboardController extends Controller
     public function statistic()
     {
         try {
-            $result = Cache::remember('dashboard_statistic', 300, function () {
+            $result = Cache::remember('dashboard_statistic_v2', 300, function () {
                 $startDate = Carbon::now()->subDays(9)->startOfDay();
                 $endDate   = Carbon::now()->endOfDay();
 
-                /**
-                 * Ambil agregat harian dari 3 sumber:
-                 * - keuangan_pembayaran (penerimaan)
-                 * - keuangan_saldo_pemasukan (penerimaan)
-                 * - keuangan_saldo_pengeluaran (pengeluaran)
-                 */
-                $rows = DB::table('keuangan_pembayaran')
-                    ->selectRaw("DATE(keuangan_pembayaran.tanggal) AS tanggal, SUM(keuangan_pembayaran.jumlah) AS nominal, 'in' AS tipe")
-                    ->whereBetween('keuangan_pembayaran.tanggal', [$startDate, $endDate])
-                    ->groupBy(DB::raw('DATE(keuangan_pembayaran.tanggal)'))
+                $rows = DB::table('keuangan_pembayaran as kp')
+                    ->join('keuangan_tagihan as kt', 'kt.id', '=', 'kp.tagihan_id')
+                    ->leftJoin('mata_uang as mu', 'mu.id', '=', 'kt.mata_uang_id')
+                    ->selectRaw("
+                        DATE(kp.tanggal) AS tanggal,
+                        SUM(kp.jumlah) AS nominal,
+                        'in' AS tipe,
+                        COALESCE(mu.id, 0) as mata_uang_id,
+                        COALESCE(mu.kode, 'IDR') as mata_uang_kode,
+                        COALESCE(mu.nama, 'Rupiah') as mata_uang_nama,
+                        COALESCE(mu.simbol, 'Rp') as mata_uang_simbol
+                    ")
+                    ->whereBetween('kp.tanggal', [$startDate, $endDate])
+                    ->groupBy(
+                        DB::raw('DATE(kp.tanggal)'),
+                        'mu.id',
+                        'mu.kode',
+                        'mu.nama',
+                        'mu.simbol'
+                    )
 
                     ->unionAll(
                         DB::table('keuangan_pembayaran_semester_pendek')
-                            ->selectRaw("DATE(tanggal) AS tanggal, SUM(jumlah) AS nominal, 'in' AS tipe")
+                            ->selectRaw("
+                                DATE(tanggal) AS tanggal,
+                                SUM(jumlah) AS nominal,
+                                'in' AS tipe,
+                                0 as mata_uang_id,
+                                'IDR' as mata_uang_kode,
+                                'Rupiah' as mata_uang_nama,
+                                'Rp' as mata_uang_simbol
+                            ")
                             ->whereBetween('tanggal', [$startDate, $endDate])
                             ->groupBy(DB::raw('DATE(tanggal)'))
                     )
-
                     ->unionAll(
                         DB::table('keuangan_saldo_pemasukan')
-                            ->selectRaw("DATE(keuangan_saldo_pemasukan.tanggal) AS tanggal, SUM(keuangan_saldo_pemasukan.jumlah) AS nominal, 'in' AS tipe")
+                            ->selectRaw("
+                                DATE(keuangan_saldo_pemasukan.tanggal) AS tanggal,
+                                SUM(keuangan_saldo_pemasukan.jumlah) AS nominal,
+                                'in' AS tipe,
+                                0 as mata_uang_id,
+                                'IDR' as mata_uang_kode,
+                                'Rupiah' as mata_uang_nama,
+                                'Rp' as mata_uang_simbol
+                            ")
                             ->whereBetween('keuangan_saldo_pemasukan.tanggal', [$startDate, $endDate])
                             ->groupBy(DB::raw('DATE(keuangan_saldo_pemasukan.tanggal)'))
                     )
-
                     ->unionAll(
                         DB::table('keuangan_saldo_pengeluaran')
-                            ->selectRaw("DATE(keuangan_saldo_pengeluaran.tanggal) AS tanggal, SUM(keuangan_saldo_pengeluaran.jumlah) AS nominal, 'out' AS tipe")
+                            ->selectRaw("
+                                DATE(keuangan_saldo_pengeluaran.tanggal) AS tanggal,
+                                SUM(keuangan_saldo_pengeluaran.jumlah) AS nominal,
+                                'out' AS tipe,
+                                0 as mata_uang_id,
+                                'IDR' as mata_uang_kode,
+                                'Rupiah' as mata_uang_nama,
+                                'Rp' as mata_uang_simbol
+                            ")
                             ->whereBetween('keuangan_saldo_pengeluaran.tanggal', [$startDate, $endDate])
                             ->groupBy(DB::raw('DATE(keuangan_saldo_pengeluaran.tanggal)'))
                     )
                     ->get();
 
-                /**
-                 * Kelompokkan per tanggal
-                 */
-                $grouped = $rows->groupBy('tanggal')->map(function ($items, $date) {
-                    $in  = $items->where('tipe', 'in')->sum('nominal');
-                    $out = $items->where('tipe', 'out')->sum('nominal');
-
-                    return [
-                        'tanggal'     => $date,
-                        'penerimaan'  => (float) $in,
-                        'pengeluaran' => (float) $out,
-                    ];
-                })->values();
-
-                /**
-                 * Pastikan setiap tanggal dalam 10 hari terakhir ada di hasil
-                 */
                 $period = new \DatePeriod($startDate, new \DateInterval('P1D'), $endDate->copy()->addDay());
                 $categories = [];
-                $penerimaan = [];
-                $pengeluaran = [];
+                $dates = [];
 
                 foreach ($period as $day) {
-                    $key = $day->format('Y-m-d');
-                    $item = $grouped->firstWhere('tanggal', $key);
-
+                    $dates[] = $day->format('Y-m-d');
                     $categories[] = $day->format('d M');
-                    $penerimaan[] = $item['penerimaan']  ?? 0;
-                    $pengeluaran[] = $item['pengeluaran'] ?? 0;
                 }
+
+                $seriesByCurrency = $rows
+                    ->groupBy(fn ($row) => strtoupper((string) ($row->mata_uang_kode ?: 'IDR')))
+                    ->map(function ($currencyRows, $kode) use ($dates) {
+                        $mataUang = MataUangFormatter::fromColumns($currencyRows->first());
+                        $byDate = $currencyRows->groupBy('tanggal');
+                        $penerimaan = [];
+                        $pengeluaran = [];
+
+                        foreach ($dates as $date) {
+                            $dateRows = $byDate->get($date, collect());
+                            $penerimaan[] = (float) $dateRows->where('tipe', 'in')->sum('nominal');
+                            $pengeluaran[] = (float) $dateRows->where('tipe', 'out')->sum('nominal');
+                        }
+
+                        return [
+                            'key' => 'kode:' . $kode,
+                            'mata_uang' => $mataUang,
+                            'penerimaan' => $penerimaan,
+                            'pengeluaran' => $pengeluaran,
+                        ];
+                    })
+                    ->values()
+                    ->all();
+
+                $seriesByCurrency = $this->sortCurrencyRows($seriesByCurrency);
+                $legacyIdr = collect($seriesByCurrency)->first(
+                    fn ($row) => strtoupper((string) data_get($row, 'mata_uang.kode')) === 'IDR'
+                ) ?? ['penerimaan' => array_fill(0, count($dates), 0), 'pengeluaran' => array_fill(0, count($dates), 0)];
 
                 return [
                     'categories'  => $categories,
-                    'penerimaan'  => $penerimaan,
-                    'pengeluaran' => $pengeluaran,
+                    'series_by_currency' => $seriesByCurrency,
+                    'penerimaan'  => $legacyIdr['penerimaan'],
+                    'pengeluaran' => $legacyIdr['pengeluaran'],
                 ];
             });
 
@@ -534,6 +747,7 @@ class DashboardController extends Controller
                 'status'      => true,
                 'message'     => 'Data berhasil diambil',
                 'categories'  => $result['categories'],
+                'series_by_currency' => $result['series_by_currency'],
                 'penerimaan'  => $result['penerimaan'],
                 'pengeluaran' => $result['pengeluaran'],
             ]);
@@ -852,6 +1066,7 @@ class DashboardController extends Controller
                     'data'   => [
                         'total_mahasiswa_bayar' => 0,
                         'total_amount'          => 0,
+                        'total_amount_by_currency' => [],
                         'total_lunas'           => 0,
                         'total_belum_lunas'     => 0,
                     ],
@@ -860,6 +1075,7 @@ class DashboardController extends Controller
 
             $studentPayments = DB::table('keuangan_pembayaran')
                 ->join('keuangan_tagihan', 'keuangan_tagihan.id', '=', 'keuangan_pembayaran.tagihan_id')
+                ->leftJoin('mata_uang', 'mata_uang.id', '=', 'keuangan_tagihan.mata_uang_id')
                 ->whereIn('keuangan_pembayaran.tagihan_id', $tagihanIds)
                 ->when($thAkademikId, fn($q) => $q->where('keuangan_pembayaran.th_akademik_id', $thAkademikId))
                 ->when($jkId, fn($q) => $q->where('keuangan_pembayaran.jk_id', $jkId))
@@ -867,13 +1083,26 @@ class DashboardController extends Controller
                     keuangan_pembayaran.nim,
                     keuangan_pembayaran.tagihan_id,
                     keuangan_tagihan.jumlah as tagihan_amount,
+                    COALESCE(mata_uang.id, 0) as mata_uang_id,
+                    COALESCE(mata_uang.kode, "IDR") as mata_uang_kode,
+                    COALESCE(mata_uang.nama, "Rupiah") as mata_uang_nama,
+                    COALESCE(mata_uang.simbol, "Rp") as mata_uang_simbol,
                     SUM(keuangan_pembayaran.jumlah) as total_paid
                 ')
-                ->groupBy('keuangan_pembayaran.nim', 'keuangan_pembayaran.tagihan_id', 'keuangan_tagihan.jumlah')
+                ->groupBy(
+                    'keuangan_pembayaran.nim',
+                    'keuangan_pembayaran.tagihan_id',
+                    'keuangan_tagihan.jumlah',
+                    'mata_uang.id',
+                    'mata_uang.kode',
+                    'mata_uang.nama',
+                    'mata_uang.simbol'
+                )
                 ->get();
 
             $totalMahasiswaBayar = $studentPayments->unique('nim')->count();
-            $totalAmount         = $studentPayments->sum('total_paid');
+            $totalsByCurrency    = $this->currencyTotalsFromRows($studentPayments, 'total_paid');
+            $totalAmount         = $this->currencyTotal($totalsByCurrency, 'IDR');
             $lunasCount          = $studentPayments->filter(fn($s) => $s->total_paid >= $s->tagihan_amount)->unique('nim')->count();
             $belumLunasCount     = $totalMahasiswaBayar - $lunasCount;
 
@@ -882,6 +1111,7 @@ class DashboardController extends Controller
                 'data'   => [
                     'total_mahasiswa_bayar' => $totalMahasiswaBayar,
                     'total_amount'          => (float) $totalAmount,
+                    'total_amount_by_currency' => $totalsByCurrency,
                     'total_lunas'           => $lunasCount,
                     'total_belum_lunas'     => $belumLunasCount,
                 ],
@@ -937,6 +1167,7 @@ class DashboardController extends Controller
                 ->join('keuangan_tagihan', 'keuangan_tagihan.id', '=', 'keuangan_pembayaran.tagihan_id')
                 ->leftJoin('th_akademik', 'keuangan_pembayaran.th_akademik_id', '=', 'th_akademik.id')
                 ->leftJoin('prodi', 'keuangan_tagihan.prodi_id', '=', 'prodi.id')
+                ->leftJoin('mata_uang', 'mata_uang.id', '=', 'keuangan_tagihan.mata_uang_id')
                 ->whereIn('keuangan_pembayaran.tagihan_id', $tagihanIds)
                 ->when($thAkademikId, fn($q) => $q->where('keuangan_pembayaran.th_akademik_id', $thAkademikId))
                 ->when($jkId, fn($q) => $q->where('keuangan_pembayaran.jk_id', $jkId))
@@ -947,6 +1178,10 @@ class DashboardController extends Controller
                     keuangan_pembayaran.nim,
                     keuangan_tagihan.nama as tagihan_nama,
                     keuangan_tagihan.jumlah as tagihan_amount,
+                    COALESCE(mata_uang.id, 0) as mata_uang_id,
+                    COALESCE(mata_uang.kode, "IDR") as mata_uang_kode,
+                    COALESCE(mata_uang.nama, "Rupiah") as mata_uang_nama,
+                    COALESCE(mata_uang.simbol, "Rp") as mata_uang_simbol,
                     SUM(keuangan_pembayaran.jumlah) as total_paid,
                     MAX(keuangan_pembayaran.tanggal) as last_payment_date,
                     COALESCE(prodi.nama, "-") as prodi_nama,
@@ -956,6 +1191,10 @@ class DashboardController extends Controller
                     'keuangan_pembayaran.nim',
                     'keuangan_tagihan.nama',
                     'keuangan_tagihan.jumlah',
+                    'mata_uang.id',
+                    'mata_uang.kode',
+                    'mata_uang.nama',
+                    'mata_uang.simbol',
                     'prodi.nama',
                     'th_akademik.nama',
                     'th_akademik.semester'
@@ -967,6 +1206,7 @@ class DashboardController extends Controller
             $items = collect($paginated->items())->map(function ($item) {
                 $item->sisa     = max(0, $item->tagihan_amount - $item->total_paid);
                 $item->is_lunas = $item->total_paid >= $item->tagihan_amount;
+                $item->mata_uang = MataUangFormatter::fromColumns($item);
                 return $item;
             });
 
@@ -1016,6 +1256,7 @@ class DashboardController extends Controller
                     'data'   => [
                         'total_mahasiswa_bayar' => 0,
                         'total_amount'          => 0,
+                        'total_amount_by_currency' => [],
                         'total_lunas'           => 0,
                         'total_belum_lunas'     => 0,
                     ],
@@ -1024,6 +1265,7 @@ class DashboardController extends Controller
 
             $studentPayments = DB::table('keuangan_pembayaran')
                 ->join('keuangan_tagihan', 'keuangan_tagihan.id', '=', 'keuangan_pembayaran.tagihan_id')
+                ->leftJoin('mata_uang', 'mata_uang.id', '=', 'keuangan_tagihan.mata_uang_id')
                 ->whereIn('keuangan_pembayaran.tagihan_id', $tagihanIds)
                 ->when($thAkademikId, fn($q) => $q->where('keuangan_pembayaran.th_akademik_id', $thAkademikId))
                 ->when($jkId, fn($q) => $q->where('keuangan_pembayaran.jk_id', $jkId))
@@ -1031,13 +1273,26 @@ class DashboardController extends Controller
                     keuangan_pembayaran.nim,
                     keuangan_pembayaran.tagihan_id,
                     keuangan_tagihan.jumlah as tagihan_amount,
+                    COALESCE(mata_uang.id, 0) as mata_uang_id,
+                    COALESCE(mata_uang.kode, "IDR") as mata_uang_kode,
+                    COALESCE(mata_uang.nama, "Rupiah") as mata_uang_nama,
+                    COALESCE(mata_uang.simbol, "Rp") as mata_uang_simbol,
                     SUM(keuangan_pembayaran.jumlah) as total_paid
                 ')
-                ->groupBy('keuangan_pembayaran.nim', 'keuangan_pembayaran.tagihan_id', 'keuangan_tagihan.jumlah')
+                ->groupBy(
+                    'keuangan_pembayaran.nim',
+                    'keuangan_pembayaran.tagihan_id',
+                    'keuangan_tagihan.jumlah',
+                    'mata_uang.id',
+                    'mata_uang.kode',
+                    'mata_uang.nama',
+                    'mata_uang.simbol'
+                )
                 ->get();
 
             $totalMahasiswaBayar = $studentPayments->unique('nim')->count();
-            $totalAmount         = $studentPayments->sum('total_paid');
+            $totalsByCurrency    = $this->currencyTotalsFromRows($studentPayments, 'total_paid');
+            $totalAmount         = $this->currencyTotal($totalsByCurrency, 'IDR');
             $lunasCount          = $studentPayments->filter(fn($s) => $s->total_paid >= $s->tagihan_amount)->unique('nim')->count();
             $belumLunasCount     = $totalMahasiswaBayar - $lunasCount;
 
@@ -1046,6 +1301,7 @@ class DashboardController extends Controller
                 'data'   => [
                     'total_mahasiswa_bayar' => $totalMahasiswaBayar,
                     'total_amount'          => (float) $totalAmount,
+                    'total_amount_by_currency' => $totalsByCurrency,
                     'total_lunas'           => $lunasCount,
                     'total_belum_lunas'     => $belumLunasCount,
                 ],
@@ -1098,6 +1354,7 @@ class DashboardController extends Controller
                 ->join('keuangan_tagihan', 'keuangan_tagihan.id', '=', 'keuangan_pembayaran.tagihan_id')
                 ->leftJoin('th_akademik', 'keuangan_pembayaran.th_akademik_id', '=', 'th_akademik.id')
                 ->leftJoin('prodi', 'keuangan_tagihan.prodi_id', '=', 'prodi.id')
+                ->leftJoin('mata_uang', 'mata_uang.id', '=', 'keuangan_tagihan.mata_uang_id')
                 ->whereIn('keuangan_pembayaran.tagihan_id', $tagihanIds)
                 ->when($thAkademikId, fn($q) => $q->where('keuangan_pembayaran.th_akademik_id', $thAkademikId))
                 ->when($jkId, fn($q) => $q->where('keuangan_pembayaran.jk_id', $jkId))
@@ -1108,6 +1365,10 @@ class DashboardController extends Controller
                     keuangan_pembayaran.nim,
                     keuangan_tagihan.nama as tagihan_nama,
                     keuangan_tagihan.jumlah as tagihan_amount,
+                    COALESCE(mata_uang.id, 0) as mata_uang_id,
+                    COALESCE(mata_uang.kode, "IDR") as mata_uang_kode,
+                    COALESCE(mata_uang.nama, "Rupiah") as mata_uang_nama,
+                    COALESCE(mata_uang.simbol, "Rp") as mata_uang_simbol,
                     SUM(keuangan_pembayaran.jumlah) as total_paid,
                     MAX(keuangan_pembayaran.tanggal) as last_payment_date,
                     COALESCE(prodi.nama, "-") as prodi_nama,
@@ -1117,6 +1378,10 @@ class DashboardController extends Controller
                     'keuangan_pembayaran.nim',
                     'keuangan_tagihan.nama',
                     'keuangan_tagihan.jumlah',
+                    'mata_uang.id',
+                    'mata_uang.kode',
+                    'mata_uang.nama',
+                    'mata_uang.simbol',
                     'prodi.nama',
                     'th_akademik.nama',
                     'th_akademik.semester'
@@ -1128,6 +1393,7 @@ class DashboardController extends Controller
             $items = collect($paginated->items())->map(function ($item) {
                 $item->sisa     = max(0, $item->tagihan_amount - $item->total_paid);
                 $item->is_lunas = $item->total_paid >= $item->tagihan_amount;
+                $item->mata_uang = MataUangFormatter::fromColumns($item);
                 return $item;
             });
 
@@ -1147,6 +1413,61 @@ class DashboardController extends Controller
                 'message' => $th->getMessage(),
             ]);
         }
+    }
+
+    private function currencyTotalsFromRows($rows, string $amountField): array
+    {
+        $totals = [];
+
+        foreach ($rows as $row) {
+            $amount = (float) data_get($row, $amountField, 0);
+            if ($amount == 0.0) {
+                continue;
+            }
+
+            MataUangFormatter::addToTotals(
+                $totals,
+                $amount,
+                MataUangFormatter::fromColumns($row)
+            );
+        }
+
+        return MataUangFormatter::normalizeTotals($totals);
+    }
+
+    private function currencyTotal(array $totals, string $kode): float
+    {
+        $target = strtoupper($kode);
+
+        foreach ($totals as $row) {
+            if (strtoupper((string) data_get($row, 'mata_uang.kode')) === $target) {
+                return (float) data_get($row, 'total', 0);
+            }
+        }
+
+        return 0;
+    }
+
+    private function sortCurrencyRows(array $rows): array
+    {
+        usort($rows, function ($left, $right) {
+            $leftCode = strtoupper((string) data_get($left, 'mata_uang.kode', 'IDR'));
+            $rightCode = strtoupper((string) data_get($right, 'mata_uang.kode', 'IDR'));
+
+            if ($leftCode === $rightCode) {
+                return 0;
+            }
+            if ($leftCode === 'IDR') {
+                return -1;
+            }
+            if ($rightCode === 'IDR') {
+                return 1;
+            }
+
+            return strcmp($leftCode, $rightCode);
+        });
+
+        return array_values($rows);
     }
 
     private function barokahSourcesForRole(?string $roleName): array

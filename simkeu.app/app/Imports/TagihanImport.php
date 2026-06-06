@@ -3,6 +3,7 @@
 namespace App\Imports;
 
 use App\Models\KeuanganTagihan;
+use App\Models\MataUang;
 use App\Models\ThAkademik;
 use App\Models\Prodi;
 use App\Models\FormSchadule;
@@ -64,6 +65,7 @@ class TagihanImport implements ToModel, WithHeadingRow, SkipsOnFailure, WithEven
         $semesterRaw = $this->value($row, ['smt', 'semester']);
         $semesterInput = $semesterRaw === null ? null : trim((string) $semesterRaw);
         $jumlahRaw = $this->value($row, ['jumlahtagihan', 'jumlah_tagihan', 'jumlah_rp_tagihan', 'jumlah']);
+        $mataUangInput = trim((string) $this->value($row, ['mata_uang_id', 'matauang', 'mata_uang', 'kode_mata_uang', 'currency']));
 
         $missingColumns = [];
         foreach ([
@@ -88,6 +90,11 @@ class TagihanImport implements ToModel, WithHeadingRow, SkipsOnFailure, WithEven
         }
         if ($this->appendAmountZeros) {
             $jumlah *= 1000;
+        }
+
+        $mataUangId = $this->resolveMataUangId($mataUangInput);
+        if (!$mataUangId) {
+            return $this->skipRow("Mata uang '$mataUangInput' tidak ditemukan");
         }
 
         if (!preg_match('/^\d{4}$/', $tahunAngkatan)) {
@@ -137,6 +144,7 @@ class TagihanImport implements ToModel, WithHeadingRow, SkipsOnFailure, WithEven
             'kode'             => $kode,
             'nama'             => $namaTagihan,
             'jumlah'           => $jumlah,
+            'mata_uang_id'     => $mataUangId,
             'x_sks'            => 'Y',
             'user_id'          => $this->userId,
         ];
@@ -145,7 +153,8 @@ class TagihanImport implements ToModel, WithHeadingRow, SkipsOnFailure, WithEven
             'th_angkatan_id' => $thAngkatan->id,
             'prodi_id'       => $prodi->id,
             'nama'           => $namaTagihan,
-        ])->where(function ($query) use ($doubleDegree) {
+        ])->whereNull('nim')
+            ->where(function ($query) use ($doubleDegree) {
             if ($doubleDegree === 1) {
                 $query->where('double_degree', 1);
                 return;
@@ -237,6 +246,20 @@ class TagihanImport implements ToModel, WithHeadingRow, SkipsOnFailure, WithEven
         }
 
         return $semester % 2 === 1 ? 'KRS-1' : 'KRS-2';
+    }
+
+    protected function resolveMataUangId(string $mataUangInput): ?int
+    {
+        if ($mataUangInput !== '') {
+            if (is_numeric($mataUangInput) && MataUang::whereKey((int) $mataUangInput)->exists()) {
+                return (int) $mataUangInput;
+            }
+
+            return MataUang::where('kode', strtoupper($mataUangInput))->value('id');
+        }
+
+        return MataUang::where('kode', 'IDR')->value('id')
+            ?? MataUang::where('aktif', true)->orderBy('kode')->value('id');
     }
 
     protected function skipRow(string $reason)

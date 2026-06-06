@@ -4,6 +4,7 @@ namespace App\Exports\pdf;
 
 use App\Services\Helper;
 use App\Services\Mahasiswa;
+use App\Services\MataUangFormatter;
 use Codedge\Fpdf\Fpdf\Fpdf;
 use App\Models\KeuanganDeposit;
 use App\Models\KeuanganKamarMhs;
@@ -85,7 +86,7 @@ class CustomKwitansiFpdf extends Fpdf
         $this->SetFontSpacing(0);
         $depositData = KeuanganDeposit::where('nim', $data->nim)->first();
         $deposit = $depositData ? Helper::formatNumber($depositData->jumlah) : 0;
-        $this->Cell(0, 5, "Deposit(Rp)    : $deposit", 0, 1, 'L');
+        $this->Cell(0, 5, "Deposit(IDR)   : $deposit", 0, 1, 'L');
 
         $this->SetFontSpacing(0);
         $this->Cell(40, 5, "NIM", 0, 0, 'L');
@@ -128,7 +129,7 @@ class CustomKwitansiFpdf extends Fpdf
         $this->Cell(10, 5, "No.", 'B', 0, 'C');
         $this->Cell(75, 5, "Nama", 'B', 0, 'C');
         $this->Cell(70, 5, "Jenis Pembayaran", 'B', 0, 'C');
-        $this->Cell(35, 5, "Sub Total(Rp)", 'B', 1, 'R');
+        $this->Cell(35, 5, "Sub Total", 'B', 1, 'R');
 
     }
 
@@ -136,20 +137,17 @@ class CustomKwitansiFpdf extends Fpdf
     {
         $data = $this->data;
 
-        $transaksi = KeuanganPembayaran::where('nomor', $data['nomor'])->get();
+        $transaksi = KeuanganPembayaran::with(['tagihan.mata_uang', 'jenisPembayaranDetail.jenisPembayaran', 'user'])
+            ->where('nomor', $data['nomor'])
+            ->get();
         if ($data->keuanganNota) {
-            $transaksi = KeuanganPembayaran::leftJoin('keuangan_nota as kn', 'kn.pembayaran_id', 'keuangan_pembayaran.id')
+            $transaksi = KeuanganPembayaran::with(['tagihan.mata_uang', 'jenisPembayaranDetail.jenisPembayaran', 'user'])
+                ->leftJoin('keuangan_nota as kn', 'kn.pembayaran_id', 'keuangan_pembayaran.id')
                 ->where('nota', $data->keuanganNota->nota)
-                ->select('*', 'pembayaran_id as id')
+                ->select('keuangan_pembayaran.*', 'kn.nota', 'kn.pembayaran_id')
                 ->get();
         }
-        $total = 0;
-        foreach ($transaksi as $t) {
-            $jenisPembayaran = ($t->jenisPembayaranDetail) ? $t->jenisPembayaranDetail->jenisPembayaran->nama : null;
-            if (strtolower($jenisPembayaran) != "deposit") {
-                $total += $t->jumlah;
-            }
-        }
+        $totals = MataUangFormatter::totalsByCurrency($transaksi, true);
 
         $this->setY(-45);
         $this->SetFont('Courier', '', 9);
@@ -160,18 +158,13 @@ class CustomKwitansiFpdf extends Fpdf
         $this->Cell(30, 4, date('Y-m-d'), 0, 1, 'C');
 
         $this->Cell(0, 8, "", 0, 1, 'L');
-        $terbilang = Helper::terbilang($total);
-        if ($terbilang == "") {
-            $terbilang = "nol";
-        }
-
         $posY = $this->getY();
         $posX = $this->getX();
         $this->setXY($posX, $posY);
 
         $posX += 0;
         $this->setXY($posX, $posY);
-        $this->MultiCell(150, 4, "Terbilang : $terbilang rupiah", 0, 'L');
+        $this->MultiCell(150, 4, "Terbilang : " . MataUangFormatter::terbilangTotals($totals), 0, 'L');
         $this->Ln(0);
         $this->MultiCell(150, 4, "Terimakasih Atas Pembayaran Anda", 0, 'L', );
         $posX += 150;

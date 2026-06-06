@@ -2,13 +2,10 @@
 
 namespace App\Exports\pdf;
 
+use App\Services\MataUangFormatter;
+
 class LaporanHarianDetailPdf
 {
-    private static function rupiah($value)
-    {
-        return "Rp. " . number_format((float) $value, 0, ",", ".");
-    }
-
     private static function tanggal($value)
     {
         return $value ? date("d/m/Y", strtotime($value)) : "-";
@@ -77,7 +74,7 @@ class LaporanHarianDetailPdf
             "L/P",
             "Prodi",
             "Pembayaran",
-            "Nominal (Rp)",
+            "Nominal",
             "Metode",
             "Petugas",
         ];
@@ -125,7 +122,10 @@ class LaporanHarianDetailPdf
                 $row["jenis_kelamin"],
                 $row["prodi"],
                 $row["pembayaran"],
-                self::rupiah($row["nominal"]),
+                MataUangFormatter::amount(
+                    $row["nominal"],
+                    $row["mata_uang"] ?? MataUangFormatter::defaultCurrency(),
+                ),
                 $row["metode"],
                 $row["petugas"],
             ];
@@ -171,7 +171,21 @@ class LaporanHarianDetailPdf
         $fpdf->SetDrawColor(22, 101, 52);
         $fpdf->SetFont("Arial", "B", 8);
         $fpdf->Cell(array_sum(array_slice($widths, 0, 9)), 8, "TOTAL PEMASUKAN", 1, 0, "R", true);
-        $fpdf->Cell($widths[9] + $widths[10] + $widths[11], 8, self::rupiah($data["total"]), 1, 1, "R", true);
+        $fpdf->Cell(
+            $widths[9] + $widths[10] + $widths[11],
+            8,
+            self::fit(
+                $fpdf,
+                MataUangFormatter::formatTotals(
+                    $data["total_by_currency"] ?? [],
+                ),
+                $widths[9] + $widths[10] + $widths[11],
+            ),
+            1,
+            1,
+            "R",
+            true,
+        );
 
         $binary = $fpdf->Output("S");
 

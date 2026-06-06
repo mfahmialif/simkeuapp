@@ -33,7 +33,7 @@
             <th style="font-weight:bold;text-align:center;border-top:1px solid #000;border-bottom:1px solid #000;">L/P</th>
             <th style="font-weight:bold;text-align:center;border-top:1px solid #000;border-bottom:1px solid #000;">Prodi</th>
             <th style="font-weight:bold;text-align:center;border-top:1px solid #000;border-bottom:1px solid #000;">Pembayaran</th>
-            <th style="font-weight:bold;text-align:center;border-top:1px solid #000;border-bottom:1px solid #000;">Nominal (Rp)</th>
+            <th style="font-weight:bold;text-align:center;border-top:1px solid #000;border-bottom:1px solid #000;">Nominal</th>
             <th style="font-weight:bold;text-align:center;border-top:1px solid #000;border-bottom:1px solid #000;">Metode</th>
             <th style="font-weight:bold;text-align:center;border-top:1px solid #000;border-bottom:1px solid #000;">Petugas</th>
         </tr>
@@ -50,14 +50,14 @@
                 <td style="text-align:center;">{{ $row['jenis_kelamin'] }}</td>
                 <td style="text-align:center;">{{ $row['prodi'] }}</td>
                 <td>{{ $row['pembayaran'] }}</td>
-                <td style="text-align:right;" data-format='"Rp. " #,##0'>{{ $row['nominal'] }}</td>
+                <td style="text-align:right;">{{ \App\Services\MataUangFormatter::amount($row['nominal'], $row['mata_uang']) }}</td>
                 <td style="text-align:center;">{{ $row['metode'] }}</td>
                 <td>{{ $row['petugas'] }}</td>
             </tr>
         @endforeach
         <tr>
             <td colspan="9" style="font-weight:bold;text-align:right;border-top:1px solid #000;">TOTAL:</td>
-            <td style="font-weight:bold;text-align:right;border-top:1px solid #000;" data-format='"Rp. " #,##0'>{{ $data['total'] }}</td>
+            <td style="font-weight:bold;text-align:right;border-top:1px solid #000;">{{ \App\Services\MataUangFormatter::formatTotals($data['total_by_currency'] ?? []) }}</td>
             <td colspan="2" style="border-top:1px solid #000;"></td>
         </tr>
     </tbody>

@@ -74,11 +74,13 @@ class PembayaranController extends Controller
         $tanggalMulai = $request->tanggal_mulai ?? null;
         $tanggalAkhir = $request->tanggal_akhir ?? null;
 
-        $data = \Illuminate\Support\Facades\Cache::remember('pembayaran_mahasiswa_widget_v5_' . md5($jkIdStr . '_' . $thAkademikId . '_' . $prodiFilter . '_' . $jenisPembayaranFilter . '_' . $userIdFilter . '_' . $tanggalMulai . '_' . $tanggalAkhir), 30, function () use ($jkUser, $thAkademikId, $prodiFilter, $jenisPembayaranFilter, $userIdFilter, $tanggalMulai, $tanggalAkhir) {
+        $data = \Illuminate\Support\Facades\Cache::remember('pembayaran_mahasiswa_widget_v6_' . md5($jkIdStr . '_' . $thAkademikId . '_' . $prodiFilter . '_' . $jenisPembayaranFilter . '_' . $userIdFilter . '_' . $tanggalMulai . '_' . $tanggalAkhir), 30, function () use ($jkUser, $thAkademikId, $prodiFilter, $jenisPembayaranFilter, $userIdFilter, $tanggalMulai, $tanggalAkhir) {
             $startOfWeek = \Carbon\Carbon::now()->startOfWeek()->format('Y-m-d');
             $startOfMonth = \Carbon\Carbon::now()->startOfMonth()->format('Y-m-d');
 
-            $pembayaranQuery = DB::table('keuangan_pembayaran');
+            $pembayaranQuery = DB::table('keuangan_pembayaran')
+                ->join('keuangan_tagihan', 'keuangan_tagihan.id', '=', 'keuangan_pembayaran.tagihan_id')
+                ->leftJoin('mata_uang', 'mata_uang.id', '=', 'keuangan_tagihan.mata_uang_id');
             $pembayaranQuery->where('keuangan_pembayaran.jk_id', 'LIKE', "%" . $jkUser->id . "%");
 
             if ($thAkademikId !== 'all') {
@@ -87,7 +89,6 @@ class PembayaranController extends Controller
 
             // Filter by prodi
             if ($prodiFilter !== 'all') {
-                $pembayaranQuery->join('keuangan_tagihan', 'keuangan_tagihan.id', '=', 'keuangan_pembayaran.tagihan_id');
                 if ($prodiFilter === 'sarjana') {
                     $pembayaranQuery->join('prodi', 'prodi.id', '=', 'keuangan_tagihan.prodi_id');
                     $pembayaranQuery->where('prodi.jenjang', 'S1');
@@ -131,6 +132,7 @@ class PembayaranController extends Controller
 
             // Clone base query BEFORE it gets modified by first() or selectRaw()
             $harianDetailQuery = clone $pembayaranQuery;
+            $currencyBaseQuery = clone $pembayaranQuery;
 
             $selectRawPembayaran = "
                 -- Semua (Keseluruhan)
@@ -168,29 +170,88 @@ class PembayaranController extends Controller
 
             $pmb = $pembayaranQuery->selectRaw($selectRawPembayaran, $bindingsPembayaran)->first();
 
-            $buildPeriod = function($laki, $countLaki, $perempuan, $countPerempuan) use ($jkUser) {
+            $buildCurrencyTotals = function ($query) {
+                return $query
+                    ->select(
+                        DB::raw('COALESCE(mata_uang.id, 0) as mata_uang_id'),
+                        DB::raw("COALESCE(mata_uang.kode, 'IDR') as mata_uang_kode"),
+                        DB::raw("COALESCE(mata_uang.nama, 'Rupiah') as mata_uang_nama"),
+                        DB::raw("COALESCE(mata_uang.simbol, 'Rp') as mata_uang_simbol"),
+                        DB::raw('COALESCE(SUM(CASE WHEN keuangan_pembayaran.jk_id = 8 THEN keuangan_pembayaran.jumlah ELSE 0 END), 0) as laki_laki'),
+                        DB::raw('COALESCE(SUM(CASE WHEN keuangan_pembayaran.jk_id = 9 THEN keuangan_pembayaran.jumlah ELSE 0 END), 0) as perempuan'),
+                        DB::raw('COALESCE(SUM(keuangan_pembayaran.jumlah), 0) as keseluruhan')
+                    )
+                    ->groupBy('mata_uang.id', 'mata_uang.kode', 'mata_uang.nama', 'mata_uang.simbol')
+                    ->orderBy('mata_uang.kode')
+                    ->get()
+                    ->map(function ($item) {
+                        return [
+                            'key' => $item->mata_uang_id ? 'id:' . $item->mata_uang_id : 'kode:' . $item->mata_uang_kode,
+                            'mata_uang' => [
+                                'id' => $item->mata_uang_id ?: null,
+                                'kode' => $item->mata_uang_kode,
+                                'nama' => $item->mata_uang_nama,
+                                'simbol' => $item->mata_uang_simbol,
+                            ],
+                            'laki_laki' => (float) $item->laki_laki,
+                            'perempuan' => (float) $item->perempuan,
+                            'keseluruhan' => (float) $item->keseluruhan,
+                        ];
+                    })
+                    ->values();
+            };
+
+            $currencyByPeriod = [
+                'Harian' => $buildCurrencyTotals((clone $currencyBaseQuery)->whereDate('keuangan_pembayaran.tanggal', $today)),
+                'Mingguan' => $buildCurrencyTotals((clone $currencyBaseQuery)->whereDate('keuangan_pembayaran.tanggal', '>=', $startOfWeek)),
+                'Bulanan' => $buildCurrencyTotals((clone $currencyBaseQuery)->whereDate('keuangan_pembayaran.tanggal', '>=', $startOfMonth)),
+                'Semua' => $buildCurrencyTotals((clone $currencyBaseQuery)
+                    ->when($tanggalMulai, fn ($query) => $query->whereDate('keuangan_pembayaran.tanggal', '>=', $tanggalMulai))
+                    ->when($tanggalAkhir, fn ($query) => $query->whereDate('keuangan_pembayaran.tanggal', '<=', $tanggalAkhir))),
+            ];
+
+            $periodCurrencyForGender = function ($rows, string $field) {
+                return collect($rows)->map(function ($row) use ($field) {
+                    return [
+                        'key' => $row['key'],
+                        'mata_uang' => $row['mata_uang'],
+                        'total' => (float) $row[$field],
+                    ];
+                })->filter(fn ($row) => $row['total'] > 0)->values();
+            };
+
+            $buildPeriod = function($laki, $countLaki, $perempuan, $countPerempuan, $currencyRows) use ($jkUser, $periodCurrencyForGender) {
                 $result = [];
                 $keseluruhan = 0;
                 $countKeseluruhan = 0;
 
                 if ($jkUser->id == 8 || $jkUser->id === '%') {
-                    $result['Laki-laki'] = ['value' => (float)$laki, 'change' => (int)$countLaki];
+                    $result['Laki-laki'] = [
+                        'value' => (float)$laki,
+                        'change' => (int)$countLaki,
+                        'by_currency' => $periodCurrencyForGender($currencyRows, 'laki_laki'),
+                    ];
                     $keseluruhan += (float)$laki;
                     $countKeseluruhan += (int)$countLaki;
                 }
                 if ($jkUser->id == 9 || $jkUser->id === '%') {
-                    $result['Perempuan'] = ['value' => (float)$perempuan, 'change' => (int)$countPerempuan];
+                    $result['Perempuan'] = [
+                        'value' => (float)$perempuan,
+                        'change' => (int)$countPerempuan,
+                        'by_currency' => $periodCurrencyForGender($currencyRows, 'perempuan'),
+                    ];
                     $keseluruhan += (float)$perempuan;
                     $countKeseluruhan += (int)$countPerempuan;
                 }
-                $result['Keseluruhan'] = ['value' => $keseluruhan, 'change' => $countKeseluruhan];
+                $result['Keseluruhan'] = [
+                    'value' => $keseluruhan,
+                    'change' => $countKeseluruhan,
+                    'by_currency' => $periodCurrencyForGender($currencyRows, 'keseluruhan'),
+                ];
 
                 return $result;
             };
 
-            if ($prodiFilter === 'all') {
-                $harianDetailQuery->join('keuangan_tagihan', 'keuangan_tagihan.id', '=', 'keuangan_pembayaran.tagihan_id');
-            }
             if ($jenisPembayaranFilter === 'all') {
                 $harianDetailQuery->leftJoin('keuangan_jenis_pembayaran_detail', 'keuangan_jenis_pembayaran_detail.pembayaran_id', '=', 'keuangan_pembayaran.id');
                 $harianDetailQuery->leftJoin('keuangan_jenis_pembayaran', 'keuangan_jenis_pembayaran.id', '=', 'keuangan_jenis_pembayaran_detail.jenis_pembayaran_id');
@@ -215,18 +276,27 @@ class PembayaranController extends Controller
                 return $query->select(
                     DB::raw("{$caseExpr} as category_name"),
                     DB::raw("COALESCE(UPPER(keuangan_jenis_pembayaran.nama), 'LAINNYA') as payment_method"),
+                    DB::raw("COALESCE(mata_uang.kode, 'IDR') as mata_uang_kode"),
+                    DB::raw("COALESCE(mata_uang.nama, 'Rupiah') as mata_uang_nama"),
+                    DB::raw("COALESCE(mata_uang.simbol, 'Rp') as mata_uang_simbol"),
                     DB::raw('COALESCE(SUM(CASE WHEN keuangan_pembayaran.jk_id = 8 THEN keuangan_pembayaran.jumlah ELSE 0 END), 0) as laki_laki'),
                     DB::raw('COALESCE(SUM(CASE WHEN keuangan_pembayaran.jk_id = 9 THEN keuangan_pembayaran.jumlah ELSE 0 END), 0) as perempuan'),
                     DB::raw('COALESCE(SUM(keuangan_pembayaran.jumlah), 0) as keseluruhan')
                 )
-                ->groupBy(DB::raw("category_name"), DB::raw("payment_method"))
+                ->groupBy(DB::raw("category_name"), DB::raw("payment_method"), 'mata_uang.kode', 'mata_uang.nama', 'mata_uang.simbol')
                 ->orderBy(DB::raw("category_name"))
                 ->orderBy(DB::raw("payment_method"))
+                ->orderBy('mata_uang.kode')
                 ->get()
                 ->map(function ($item) {
                     return [
                         'jp_nama' => $item->payment_method, // Jenis Pembayaran e.g. CASH
                         'tagihan_nama' => $item->category_name, // Tagihan e.g. Registrasi
+                        'mata_uang' => [
+                            'kode' => $item->mata_uang_kode,
+                            'nama' => $item->mata_uang_nama,
+                            'simbol' => $item->mata_uang_simbol,
+                        ],
                         'laki_laki' => $item->laki_laki,
                         'perempuan' => $item->perempuan,
                         'keseluruhan' => $item->keseluruhan,
@@ -238,10 +308,10 @@ class PembayaranController extends Controller
             $semuaDetail = $buildDetail($semuaDetailQuery);
 
             return [
-                'Harian' => $buildPeriod($pmb->harian_laki, $pmb->count_harian_laki, $pmb->harian_perempuan, $pmb->count_harian_perempuan),
-                'Mingguan' => $buildPeriod($pmb->mingguan_laki, $pmb->count_mingguan_laki, $pmb->mingguan_perempuan, $pmb->count_mingguan_perempuan),
-                'Bulanan' => $buildPeriod($pmb->bulanan_laki, $pmb->count_bulanan_laki, $pmb->bulanan_perempuan, $pmb->count_bulanan_perempuan),
-                'Semua' => $buildPeriod($pmb->semua_laki, $pmb->count_semua_laki, $pmb->semua_perempuan, $pmb->count_semua_perempuan),
+                'Harian' => $buildPeriod($pmb->harian_laki, $pmb->count_harian_laki, $pmb->harian_perempuan, $pmb->count_harian_perempuan, $currencyByPeriod['Harian']),
+                'Mingguan' => $buildPeriod($pmb->mingguan_laki, $pmb->count_mingguan_laki, $pmb->mingguan_perempuan, $pmb->count_mingguan_perempuan, $currencyByPeriod['Mingguan']),
+                'Bulanan' => $buildPeriod($pmb->bulanan_laki, $pmb->count_bulanan_laki, $pmb->bulanan_perempuan, $pmb->count_bulanan_perempuan, $currencyByPeriod['Bulanan']),
+                'Semua' => $buildPeriod($pmb->semua_laki, $pmb->count_semua_laki, $pmb->semua_perempuan, $pmb->count_semua_perempuan, $currencyByPeriod['Semua']),
                 'Harian_Detail' => $harianDetail,
                 'Semua_Detail' => $semuaDetail,
             ];
@@ -265,6 +335,7 @@ class PembayaranController extends Controller
         $tanggalMulai = $request->tanggal_mulai ?? null;
         $tanggalAkhir = $request->tanggal_akhir ?? null;
         $category = $request->category ?? null;
+        $mataUangKode = $request->mata_uang_kode ?? null;
 
         if (!$category) {
             return response()->json(['status' => false, 'message' => 'Category is required', 'data' => []], 400);
@@ -279,6 +350,7 @@ class PembayaranController extends Controller
 
         // Filter by prodi
         $pembayaranQuery->join('keuangan_tagihan', 'keuangan_tagihan.id', '=', 'keuangan_pembayaran.tagihan_id');
+        $pembayaranQuery->leftJoin('mata_uang', 'mata_uang.id', '=', 'keuangan_tagihan.mata_uang_id');
         $pembayaranQuery->leftJoin('prodi', 'prodi.id', '=', 'keuangan_tagihan.prodi_id');
 
         if ($prodiFilter !== 'all') {
@@ -314,6 +386,10 @@ class PembayaranController extends Controller
         }
 
         // Apply Category Filter using CASE expression logic
+        if ($mataUangKode) {
+            $pembayaranQuery->whereRaw("COALESCE(mata_uang.kode, 'IDR') = ?", [strtoupper((string) $mataUangKode)]);
+        }
+
         if ($category === 'SPP') {
             $pembayaranQuery->where('keuangan_tagihan.nama', 'LIKE', '%SPP%');
         } elseif ($category === 'Registrasi') {
@@ -354,11 +430,14 @@ class PembayaranController extends Controller
 
         $detail = $pembayaranQuery->select(
             DB::raw("COALESCE(prodi.nama, 'Tanpa Prodi') as prodi_nama"),
+            DB::raw("COALESCE(mata_uang.kode, 'IDR') as mata_uang_kode"),
+            DB::raw("COALESCE(mata_uang.nama, 'Rupiah') as mata_uang_nama"),
+            DB::raw("COALESCE(mata_uang.simbol, 'Rp') as mata_uang_simbol"),
             DB::raw('COALESCE(SUM(CASE WHEN keuangan_pembayaran.jk_id = 8 THEN keuangan_pembayaran.jumlah ELSE 0 END), 0) as laki_laki'),
             DB::raw('COALESCE(SUM(CASE WHEN keuangan_pembayaran.jk_id = 9 THEN keuangan_pembayaran.jumlah ELSE 0 END), 0) as perempuan'),
             DB::raw('COALESCE(SUM(keuangan_pembayaran.jumlah), 0) as keseluruhan')
         )
-        ->groupBy('prodi.id', 'prodi.nama')
+        ->groupBy('prodi.id', 'prodi.nama', 'mata_uang.kode', 'mata_uang.nama', 'mata_uang.simbol')
         ->orderByDesc('keseluruhan');
 
         \Illuminate\Support\Facades\Log::info('SQL Query:', [
@@ -382,6 +461,7 @@ class PembayaranController extends Controller
     {
         $query = KeuanganPembayaran::join('th_akademik', 'th_akademik.id', '=', 'keuangan_pembayaran.th_akademik_id')
             ->join('keuangan_tagihan', 'keuangan_tagihan.id', '=', 'keuangan_pembayaran.tagihan_id')
+            ->leftJoin('mata_uang', 'mata_uang.id', '=', 'keuangan_tagihan.mata_uang_id')
             ->leftJoin('keuangan_nota', 'keuangan_nota.pembayaran_id', '=', 'keuangan_pembayaran.id')
             ->leftJoin('keuangan_jenis_pembayaran_detail', 'keuangan_jenis_pembayaran_detail.pembayaran_id', '=', 'keuangan_pembayaran.id')
             ->leftJoin('keuangan_jenis_pembayaran', 'keuangan_jenis_pembayaran.id', '=', 'keuangan_jenis_pembayaran_detail.jenis_pembayaran_id')
@@ -395,6 +475,8 @@ class PembayaranController extends Controller
                     ->orWhere('keuangan_pembayaran.nomor', 'LIKE', "%$request->search%")
                     ->orWhere('keuangan_pembayaran.nim', 'LIKE', "%$request->search%")
                     ->orWhere('keuangan_pembayaran.jumlah', 'LIKE', "%$request->search%")
+                    ->orWhere('mata_uang.kode', 'LIKE', "%$request->search%")
+                    ->orWhere('mata_uang.nama', 'LIKE', "%$request->search%")
                     ->orWhere('keuangan_nota.nota', 'LIKE', "%$request->search%");
             });
         }
@@ -443,7 +525,7 @@ class PembayaranController extends Controller
 
         $query->orderBy($sortKey, $sortOrder);
         $query
-            ->select('keuangan_pembayaran.*', 'th_akademik.kode as th_akademik_kode', 'keuangan_tagihan.nama as keuangan_tagihan_nama', 'keuangan_jenis_pembayaran.nama as keuangan_jenis_pembayaran_nama', 'keuangan_tagihan.double_degree as keuangan_tagihan_double_degree', 'users.name as petugas_nama')
+            ->select('keuangan_pembayaran.*', 'th_akademik.kode as th_akademik_kode', 'keuangan_tagihan.nama as keuangan_tagihan_nama', 'keuangan_jenis_pembayaran.nama as keuangan_jenis_pembayaran_nama', 'keuangan_tagihan.double_degree as keuangan_tagihan_double_degree', 'users.name as petugas_nama', 'mata_uang.id as mata_uang_id', 'mata_uang.kode as mata_uang_kode', 'mata_uang.nama as mata_uang_nama', 'mata_uang.simbol as mata_uang_simbol')
             ->addSelect(DB::raw(
                 "COALESCE(keuangan_nota.nota, keuangan_pembayaran.nomor) AS nota"
             ));
@@ -505,9 +587,16 @@ class PembayaranController extends Controller
 
             for ($i = 0; $i < count($dataValidated['list_tagihan']); $i++) {
                 $tagihanId = $dataValidated['list_tagihan_id'][$i];
+                $tagihanPembayaran = KeuanganTagihan::with('mata_uang')->findOrFail($tagihanId);
                 $dibayar = $this->normalizeNumber($dataValidated['list_dibayar'][$i] ?? 0);
                 $depositDibayar = $this->normalizeNumber($dataValidated['list_deposit'][$i] ?? 0);
                 $keringananJenis = $this->normalizeKeringananJenis($dataValidated['list_keringanan_jenis'][$i] ?? null);
+
+                if ($depositDibayar > 0 && strtoupper((string) ($tagihanPembayaran->mata_uang?->kode ?? 'IDR')) !== 'IDR') {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        "list_deposit.$i" => 'Deposit hanya bisa dipakai untuk tagihan mata uang IDR.',
+                    ]);
+                }
 
                 if ($keringananJenis) {
                     $jumlahKeringanan = $this->resolveKeringananJumlah(
@@ -720,7 +809,7 @@ class PembayaranController extends Controller
 
         return response()->json([
             'status'  => true,
-            'data'    => $data->load('th_akademik', 'tagihan', 'keuanganNota', 'jenisPembayaranDetail', 'user'),
+            'data'    => $data->load('th_akademik', 'tagihan.mata_uang', 'keuanganNota', 'jenisPembayaranDetail.jenisPembayaran', 'user'),
             'message' => 'Berhasil mengambil data.',
             'code'     => 200,
         ]);

@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\Admin\ProfilController;
 use App\Http\Controllers\Api\Admin\PegawaiController;
 use App\Http\Controllers\Api\Admin\DashboardController;
 use App\Http\Controllers\Api\Admin\MahasiswaController;
+use App\Http\Controllers\Api\Admin\MataUangController;
 use App\Http\Controllers\Api\Admin\ThAkademikController;
 use App\Http\Controllers\Api\Admin\AktifkanMahasiswaController;
 use App\Http\Controllers\Api\Admin\PengeluaranController;
@@ -85,8 +86,10 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
     Route::prefix('pemasukan')->group(function () {
         Route::prefix('mahasiswa')->group(function () {
             Route::apiResource('jenis-pembayaran', JenisPembayaranController::class);
+            Route::get('tagihan/export-excel', [TagihanController::class, 'exportExcel']);
             Route::post('tagihan/import', [TagihanController::class, 'import']);
             Route::get('tagihan/template', [TagihanController::class, 'downloadTemplate']);
+            Route::get('tagihan-perorangan/export-excel', [TagihanPeroranganController::class, 'exportExcel']);
             Route::apiResource('tagihan-perorangan', TagihanPeroranganController::class);
             Route::apiResource('tagihan', TagihanController::class);
 
@@ -189,6 +192,7 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
     Route::apiResource('role', RoleController::class);
     Route::apiResource('th-akademik', ThAkademikController::class);
     Route::apiResource('prodi', ProdiController::class);
+    Route::apiResource('mata-uang', MataUangController::class);
     Route::apiResource('ref', RefController::class);
     Route::get('pegawai/dosen-siakad/preview', [PegawaiController::class, 'previewDosenSiakad'])->middleware('role:admin');
     Route::get('pegawai/dosen-siakad/ids', [PegawaiController::class, 'dosenSiakadIds'])->middleware('role:admin');

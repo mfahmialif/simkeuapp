@@ -3,8 +3,10 @@ namespace App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa;
 
 use App\Http\Controllers\Controller;
 use App\Exports\TagihanTemplateExport;
+use App\Exports\TagihanExport;
 use App\Imports\TagihanImport;
 use App\Models\KeuanganTagihan;
+use App\Models\MataUang;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Maatwebsite\Excel\Facades\Excel;
@@ -24,7 +26,8 @@ class TagihanController extends Controller
             ->join('th_akademik as tha2', 'tha2.id', 'th_angkatan_id')
             ->join('prodi as prodi', 'prodi.id', 'prodi_id')
             ->join('ref as ref_kelas', 'ref_kelas.id', 'kelas_id')
-            ->join('form_schadule as form', 'form.id', 'form_schadule_id');
+            ->join('form_schadule as form', 'form.id', 'form_schadule_id')
+            ->leftJoin('mata_uang as mata_uang', 'mata_uang.id', 'keuangan_tagihan.mata_uang_id');
 
         if ($request->filled('search')) {
             $query->where(function ($q) use ($request) {
@@ -33,6 +36,9 @@ class TagihanController extends Controller
                     ->orWhere('prodi.nama', 'LIKE', "%$request->search%")
                     ->orWhere('ref_kelas.nama', 'LIKE', "%$request->search%")
                     ->orWhere('form.nama', 'LIKE', "%$request->search%")
+                    ->orWhere('mata_uang.kode', 'LIKE', "%$request->search%")
+                    ->orWhere('mata_uang.nama', 'LIKE', "%$request->search%")
+                    ->orWhere('mata_uang.simbol', 'LIKE', "%$request->search%")
                     ->orWhere('keuangan_tagihan.kode', 'LIKE', "%$request->search%")
                     ->orWhere('keuangan_tagihan.nama', 'LIKE', "%$request->search%")
                     ->orWhere('keuangan_tagihan.jumlah', 'LIKE', "%$request->search%");
@@ -71,9 +77,21 @@ class TagihanController extends Controller
         // Sorting
         $sortKey   = $request->input('sort_key', 'id');
         $sortOrder = $request->input('sort_order', 'desc'); // 'asc' or 'desc'
+        if ($sortKey === 'id') {
+            $sortKey = 'keuangan_tagihan.id';
+        }
 
         $query->orderBy($sortKey, $sortOrder);
-        $query->select('keuangan_tagihan.*', 'tha.kode as th_akademik_kode', 'tha2.kode as th_angkatan_kode', 'prodi.nama as prodi_nama', 'form.nama as form_nama');
+        $query->select(
+            'keuangan_tagihan.*',
+            'tha.kode as th_akademik_kode',
+            'tha2.kode as th_angkatan_kode',
+            'prodi.nama as prodi_nama',
+            'form.nama as form_nama',
+            'mata_uang.kode as mata_uang_kode',
+            'mata_uang.nama as mata_uang_nama',
+            'mata_uang.simbol as mata_uang_simbol'
+        );
 
         $data = $query->paginate($request->get('limit', 10));
 
@@ -84,6 +102,99 @@ class TagihanController extends Controller
         ]);
     }
 
+    public function exportExcel(Request $request)
+    {
+        $query = KeuanganTagihan::join('th_akademik as tha', 'tha.id', 'th_akademik_id')
+            ->join('th_akademik as tha2', 'tha2.id', 'th_angkatan_id')
+            ->join('prodi as prodi', 'prodi.id', 'prodi_id')
+            ->join('ref as ref_kelas', 'ref_kelas.id', 'kelas_id')
+            ->join('form_schadule as form', 'form.id', 'form_schadule_id')
+            ->leftJoin('mata_uang as mata_uang', 'mata_uang.id', 'keuangan_tagihan.mata_uang_id')
+            ->whereNull('keuangan_tagihan.nim');
+
+        if ($request->filled('search')) {
+            $query->where(function ($q) use ($request) {
+                $q->where('tha.kode', 'LIKE', "%$request->search%")
+                    ->orWhere('tha2.kode', 'LIKE', "%$request->search%")
+                    ->orWhere('prodi.nama', 'LIKE', "%$request->search%")
+                    ->orWhere('ref_kelas.nama', 'LIKE', "%$request->search%")
+                    ->orWhere('form.nama', 'LIKE', "%$request->search%")
+                    ->orWhere('mata_uang.kode', 'LIKE', "%$request->search%")
+                    ->orWhere('mata_uang.nama', 'LIKE', "%$request->search%")
+                    ->orWhere('mata_uang.simbol', 'LIKE', "%$request->search%")
+                    ->orWhere('keuangan_tagihan.kode', 'LIKE', "%$request->search%")
+                    ->orWhere('keuangan_tagihan.nama', 'LIKE', "%$request->search%")
+                    ->orWhere('keuangan_tagihan.jumlah', 'LIKE', "%$request->search%");
+            });
+        }
+
+        if ($request->th_akademik_id != "") {
+            $query->where('keuangan_tagihan.th_akademik_id', $request->th_akademik_id);
+        }
+
+        if ($request->th_angkatan_id != "") {
+            $query->where('keuangan_tagihan.th_angkatan_id', $request->th_angkatan_id);
+        }
+
+        if ($request->prodi_id != "") {
+            $query->where('keuangan_tagihan.prodi_id', $request->prodi_id);
+        }
+
+        if ($request->has('double_degree') && $request->double_degree !== "") {
+            if ($request->double_degree == 1) {
+                $query->where('keuangan_tagihan.double_degree', $request->double_degree);
+            } else {
+                $query->where(function ($query) use ($request) {
+                    $query->where('keuangan_tagihan.double_degree', $request->double_degree)
+                        ->orWhereNull('keuangan_tagihan.double_degree');
+                });
+            }
+        }
+
+        if ($request->kelas_id != "") {
+            $query->where('keuangan_tagihan.kelas_id', $request->kelas_id);
+        }
+
+        $data = $query
+            ->orderBy('keuangan_tagihan.id', 'desc')
+            ->select(
+                'tha.kode as tahun_akademik',
+                'tha2.kode as tahun_angkatan',
+                'prodi.nama as prodi',
+                'keuangan_tagihan.double_degree',
+                'ref_kelas.nama as kelas',
+                'form.nama as formulir',
+                'keuangan_tagihan.kode as kode_tagihan',
+                'keuangan_tagihan.nama as nama_tagihan',
+                'keuangan_tagihan.mata_uang_id',
+                'mata_uang.kode as mata_uang_kode',
+                'mata_uang.simbol as mata_uang_simbol',
+                'keuangan_tagihan.jumlah'
+            )
+            ->get()
+            ->values()
+            ->map(function ($item, $index) {
+                return [
+                    $index + 1,
+                    $item->tahun_akademik,
+                    $item->tahun_angkatan,
+                    $item->prodi,
+                    $item->double_degree ? 'Ya' : 'Tidak',
+                    $item->kelas,
+                    $item->formulir,
+                    $item->kode_tagihan,
+                    $item->nama_tagihan,
+                    $item->mata_uang_id,
+                    $item->mata_uang_kode,
+                    $item->mata_uang_simbol,
+                    $item->jumlah,
+                ];
+            })
+            ->all();
+
+        return Excel::download(new TagihanExport($data), 'Tagihan Mahasiswa.xlsx');
+    }
+
     /**
      * Store a newly created resource in storage.
      *
@@ -92,6 +203,10 @@ class TagihanController extends Controller
      */
     public function store(Request $request)
     {
+        $request->merge([
+            'mata_uang_id' => $this->resolveMataUangId($request),
+        ]);
+
         $validator = Validator::make($request->all(), [
             'th_akademik_id'   => 'required|exists:th_akademik,id',
             'th_angkatan_id'   => 'required|exists:th_akademik,id',
@@ -101,6 +216,7 @@ class TagihanController extends Controller
             'form_schadule_id' => 'required|exists:form_schadule,id',
             'nama'             => 'required|string|max:255',
             'jumlah'           => 'required|numeric',
+            'mata_uang_id'     => 'required|exists:mata_uang,id',
         ]);
 
         if ($validator->fails()) {
@@ -163,7 +279,7 @@ class TagihanController extends Controller
             ], 404);
         }
 
-        return response()->json($data->load('th_akademik', 'th_angkatan', 'prodi', 'form_schadule', 'kelas'), 200);
+        return response()->json($data->load('th_akademik', 'th_angkatan', 'prodi', 'form_schadule', 'kelas', 'mata_uang'), 200);
     }
 
     /**
@@ -175,6 +291,10 @@ class TagihanController extends Controller
      */
     public function update(Request $request, $id)
     {
+        $request->merge([
+            'mata_uang_id' => $this->resolveMataUangId($request),
+        ]);
+
         // Validasi data yang dikirimkan
         $validator = Validator::make($request->all(), [
             'th_akademik_id'   => 'required|exists:th_akademik,id',
@@ -185,6 +305,7 @@ class TagihanController extends Controller
             'form_schadule_id' => 'required|exists:form_schadule,id',
             'nama'             => 'required|string|max:255',
             'jumlah'           => 'required|numeric',
+            'mata_uang_id'     => 'required|exists:mata_uang,id',
         ]);
 
         if ($validator->fails()) {
@@ -327,5 +448,21 @@ class TagihanController extends Controller
     public function downloadTemplate()
     {
         return Excel::download(new TagihanTemplateExport, 'template_tagihan.xlsx');
+    }
+
+    private function resolveMataUangId(Request $request): ?int
+    {
+        if ($request->filled('mata_uang_id')) {
+            $value = $request->input('mata_uang_id');
+
+            if (is_numeric($value) && MataUang::whereKey((int) $value)->exists()) {
+                return (int) $value;
+            }
+
+            return MataUang::where('kode', strtoupper((string) $value))->value('id');
+        }
+
+        return MataUang::where('kode', 'IDR')->value('id')
+            ?? MataUang::where('aktif', true)->orderBy('kode')->value('id');
     }
 }
