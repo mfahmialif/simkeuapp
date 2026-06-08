@@ -3,6 +3,7 @@
 namespace App\Exports;
 
 use App\Services\Helper;
+use App\Services\TagihanLaporanFilter;
 use App\Models\KeuanganPembayaran;
 use App\Models\KeuanganTagihan;
 use App\Models\Prodi;
@@ -13,22 +14,27 @@ use Maatwebsite\Excel\Concerns\WithTitle;
 class RekapTahunanExport implements FromView, WithTitle
 {
     protected $tahun;
+    protected $includeWisudaSemesterPendek;
 
     public function __construct($data)
     {
         $this->tahun = $data['tahun_rekap'];
+        $this->includeWisudaSemesterPendek = TagihanLaporanFilter::includeWisudaSemesterPendek($data['include_wisuda_semester_pendek'] ?? false);
 
     }
 
     public function kategori()
     {
         // data tagihan yang bukan ada kaitannya dengan semester
-        $tagihanSisa = KeuanganTagihan::where([
+        $tagihanSisaQuery = KeuanganTagihan::where([
             ['nama', 'NOT LIKE', '%SPP%'],
             ['nama', 'NOT LIKE', '%DAFTAR ULANG%'],
             ['nama', 'NOT LIKE', '%REGIST%'],
+            ['nama', 'NOT LIKE', '%UTS%'],
             ['nama', 'NOT LIKE', '%UAS%'],
-        ])->get()->unique('nama')->pluck('nama')->toArray();
+        ]);
+        TagihanLaporanFilter::applyWisudaSemesterPendekScope($tagihanSisaQuery, $this->includeWisudaSemesterPendek, 'nama');
+        $tagihanSisa = $tagihanSisaQuery->get()->unique('nama')->pluck('nama')->toArray();
 
         $kategori = [];
         foreach ($tagihanSisa as $ts) {
@@ -45,6 +51,10 @@ class RekapTahunanExport implements FromView, WithTitle
         $kategori[] = (object) [
             "id" => "REGIST",
             "nama" => "REGISTRASI",
+        ];
+        $kategori[] = (object) [
+            "id" => "UTS",
+            "nama" => "UTS",
         ];
         $kategori[] = (object) [
             "id" => "UAS",
@@ -95,7 +105,9 @@ class RekapTahunanExport implements FromView, WithTitle
                         ['kt.nama', 'LIKE', '%SPP%'],
                         ['kt.prodi_id', $p],
                         ['keuangan_pembayaran.jk_id', 'LIKE', "%$jp->id%"],
-                    ])
+                    ]);
+                TagihanLaporanFilter::applyWisudaSemesterPendekScope($transaksi, $this->includeWisudaSemesterPendek);
+                $transaksi = $transaksi
                     ->select('*', 'kt.jumlah as jumlah_tagihan', 'keuangan_pembayaran.jumlah as dibayar')
                     ->get();
                 $totalDibayarSPP = 0;
@@ -124,7 +136,9 @@ class RekapTahunanExport implements FromView, WithTitle
                     ->where([
                         ['kt.nama', 'LIKE', "%$p%"],
                         ['keuangan_pembayaran.jk_id', 'LIKE', "%$jp->id%"],
-                    ])
+                    ]);
+                TagihanLaporanFilter::applyWisudaSemesterPendekScope($transaksi, $this->includeWisudaSemesterPendek);
+                $transaksi = $transaksi
                     ->select('*', 'kt.jumlah as jumlah_tagihan', 'keuangan_pembayaran.jumlah as dibayar')
                     ->get();
 

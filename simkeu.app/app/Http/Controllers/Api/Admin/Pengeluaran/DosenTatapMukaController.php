@@ -6,7 +6,9 @@ use App\Exports\BsiPayrollExport;
 use App\Exports\ExcelExport;
 use App\Exports\pdf\SlipGajiPdf;
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Api\Admin\Pengeluaran\Concerns\ManagesPengeluaranRekap;
 use App\Models\KeuanganPengeluaranDosen;
+use App\Models\KeuanganPengeluaranDosenRekap;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -17,6 +19,8 @@ use Maatwebsite\Excel\Facades\Excel;
 
 class DosenTatapMukaController extends Controller
 {
+    use ManagesPengeluaranRekap;
+
     private const JENIS_PEMBAYARAN = ['CUS BSI', 'Transfer'];
     private const BUKTI_TRANSFER_DIR = 'bukti-transfer/barokah-dosen/tatapmuka';
 
@@ -30,9 +34,11 @@ class DosenTatapMukaController extends Controller
             'pegawai.kode as kode_dosen',
             'prodi.nama as nama_prodi_dosen',
             'prodi.alias as alias_prodi_dosen',
+            'pengeluaran_rekap.nama as nama_rekap',
         ]);
 
         $this->joinPegawaiDosen($query);
+        $this->joinRekap($query);
 
         if ($request->filled('search')) {
             $query->where(function ($q) use ($request) {
@@ -59,7 +65,8 @@ class DosenTatapMukaController extends Controller
                     ->orWhere('keuangan_pengeluaran_dosen.keterangan', 'LIKE', "%$request->search%")
                     ->orWhere('pegawai.nama', 'LIKE', "%$request->search%")
                     ->orWhere('pegawai.kode', 'LIKE', "%$request->search%")
-                    ->orWhere('prodi.nama', 'LIKE', "%$request->search%");
+                    ->orWhere('prodi.nama', 'LIKE', "%$request->search%")
+                    ->orWhere('pengeluaran_rekap.nama', 'LIKE', "%$request->search%");
             });
         }
 
@@ -71,9 +78,10 @@ class DosenTatapMukaController extends Controller
             $query->where('keuangan_pengeluaran_dosen.pegawai_id', $request->pegawai_id);
         }
 
-        $stats = $this->stats($query);
-
         $this->applyDateFilter($query, $request);
+        $this->applyRekapFilter($query, $request);
+
+        $stats = $this->stats($query);
 
         $sortColumns = [
             'id' => 'keuangan_pengeluaran_dosen.id',
@@ -100,6 +108,7 @@ class DosenTatapMukaController extends Controller
             'total' => 'keuangan_pengeluaran_dosen.total',
             'jenis_pembayaran' => 'keuangan_pengeluaran_dosen.jenis_pembayaran',
             'nama_dosen' => 'pegawai.nama',
+            'nama_rekap' => 'pengeluaran_rekap.nama',
         ];
 
         $sortKey = $request->input('sort_key', 'id');
@@ -300,6 +309,7 @@ class DosenTatapMukaController extends Controller
             'pegawai.nama as dosen',
             'pegawai.kode as niy',
             'prodi.nama as prodi',
+            'pengeluaran_rekap.nama as rekap',
             'keuangan_pengeluaran_dosen.jam',
             'keuangan_pengeluaran_dosen.jam_mengajar_double_degree',
             'keuangan_pengeluaran_dosen.hari',
@@ -321,6 +331,7 @@ class DosenTatapMukaController extends Controller
         ]);
 
         $this->joinPegawaiDosen($query);
+        $this->joinRekap($query);
 
         if ($request->filled('search')) {
             $query->where(function ($q) use ($request) {
@@ -347,11 +358,13 @@ class DosenTatapMukaController extends Controller
                     ->orWhere('keuangan_pengeluaran_dosen.keterangan', 'LIKE', "%$request->search%")
                     ->orWhere('pegawai.nama', 'LIKE', "%$request->search%")
                     ->orWhere('pegawai.kode', 'LIKE', "%$request->search%")
-                    ->orWhere('prodi.nama', 'LIKE', "%$request->search%");
+                    ->orWhere('prodi.nama', 'LIKE', "%$request->search%")
+                    ->orWhere('pengeluaran_rekap.nama', 'LIKE', "%$request->search%");
             });
         }
 
         $this->applyDateFilter($query, $request);
+        $this->applyRekapFilter($query, $request);
 
         if ($request->filled('kode')) {
             $query->where('pegawai.kode', $request->kode);
@@ -399,6 +412,7 @@ class DosenTatapMukaController extends Controller
         ]);
 
         $this->joinPegawaiDosen($query);
+        $this->joinRekap($query);
 
         $hasNamaPemilikRekening = $this->hasNamaPemilikRekeningColumn();
 
@@ -428,7 +442,8 @@ class DosenTatapMukaController extends Controller
                     ->orWhere('pegawai.nama', 'LIKE', "%$request->search%")
                     ->orWhere('pegawai.kode', 'LIKE', "%$request->search%")
                     ->orWhere('pegawai.nomer_rekening', 'LIKE', "%$request->search%")
-                    ->orWhere('prodi.nama', 'LIKE', "%$request->search%");
+                    ->orWhere('prodi.nama', 'LIKE', "%$request->search%")
+                    ->orWhere('pengeluaran_rekap.nama', 'LIKE', "%$request->search%");
 
                 if ($hasNamaPemilikRekening) {
                     $q->orWhere('pegawai.nama_pemilik_rekening', 'LIKE', "%$request->search%");
@@ -437,6 +452,7 @@ class DosenTatapMukaController extends Controller
         }
 
         $this->applyDateFilter($query, $request);
+        $this->applyRekapFilter($query, $request);
 
         if ($request->filled('kode')) {
             $query->where('pegawai.kode', $request->kode);
@@ -475,6 +491,80 @@ class DosenTatapMukaController extends Controller
             ->leftJoin('prodi', 'prodi.id', '=', 'dosen.prodi_id');
     }
 
+    protected function rekapModelClass(): string
+    {
+        return KeuanganPengeluaranDosenRekap::class;
+    }
+
+    protected function pengeluaranTable(): string
+    {
+        return 'keuangan_pengeluaran_dosen';
+    }
+
+    protected function newRekapPengeluaranQuery()
+    {
+        return KeuanganPengeluaranDosen::query();
+    }
+
+    protected function newRekapBulkPengeluaranQuery(Request $request)
+    {
+        $query = KeuanganPengeluaranDosen::query();
+
+        $this->joinPegawaiDosen($query);
+        $this->joinRekap($query);
+        $this->applySearchFilter($query, $request);
+
+        if ($request->filled('kode')) {
+            $query->where('pegawai.kode', $request->kode);
+        }
+
+        if ($request->filled('pegawai_id')) {
+            $query->where('keuangan_pengeluaran_dosen.pegawai_id', $request->pegawai_id);
+        }
+
+        $this->applyDateFilter($query, $request);
+        $this->applyRekapFilter($query, $request);
+
+        return $query;
+    }
+
+    private function applySearchFilter($query, Request $request): void
+    {
+        if (! $request->filled('search')) {
+            return;
+        }
+
+        $search = $request->search;
+
+        $query->where(function ($q) use ($search) {
+            $q->orWhere('keuangan_pengeluaran_dosen.transport', 'LIKE', "%{$search}%")
+                ->orWhere('keuangan_pengeluaran_dosen.transport_motor', 'LIKE', "%{$search}%")
+                ->orWhere('keuangan_pengeluaran_dosen.transport_mobil', 'LIKE', "%{$search}%")
+                ->orWhere('keuangan_pengeluaran_dosen.transport_mobil_tol', 'LIKE', "%{$search}%")
+                ->orWhere('keuangan_pengeluaran_dosen.transport_mobil_tanpa_tol', 'LIKE', "%{$search}%")
+                ->orWhere('keuangan_pengeluaran_dosen.hari_transport_motor', 'LIKE', "%{$search}%")
+                ->orWhere('keuangan_pengeluaran_dosen.hari_transport_mobil', 'LIKE', "%{$search}%")
+                ->orWhere('keuangan_pengeluaran_dosen.hari_transport_mobil_tol', 'LIKE', "%{$search}%")
+                ->orWhere('keuangan_pengeluaran_dosen.hari_transport_mobil_tanpa_tol', 'LIKE', "%{$search}%")
+                ->orWhere('keuangan_pengeluaran_dosen.barokah', 'LIKE', "%{$search}%")
+                ->orWhere('keuangan_pengeluaran_dosen.barokah_mengajar_biasa', 'LIKE', "%{$search}%")
+                ->orWhere('keuangan_pengeluaran_dosen.barokah_mengajar_double_degree', 'LIKE', "%{$search}%")
+                ->orWhere('keuangan_pengeluaran_dosen.jam_mengajar_double_degree', 'LIKE', "%{$search}%")
+                ->orWhere('keuangan_pengeluaran_dosen.barokah_uas', 'LIKE', "%{$search}%")
+                ->orWhere('keuangan_pengeluaran_dosen.jumlah_mahasiswa_uas', 'LIKE', "%{$search}%")
+                ->orWhere('keuangan_pengeluaran_dosen.barokah_sempro', 'LIKE', "%{$search}%")
+                ->orWhere('keuangan_pengeluaran_dosen.jam_sempro', 'LIKE', "%{$search}%")
+                ->orWhere('keuangan_pengeluaran_dosen.keterangan_sempro', 'LIKE', "%{$search}%")
+                ->orWhere('keuangan_pengeluaran_dosen.total', 'LIKE', "%{$search}%")
+                ->orWhere('keuangan_pengeluaran_dosen.jenis_pembayaran', 'LIKE', "%{$search}%")
+                ->orWhere('keuangan_pengeluaran_dosen.keterangan', 'LIKE', "%{$search}%")
+                ->orWhere('pegawai.nama', 'LIKE', "%{$search}%")
+                ->orWhere('pegawai.kode', 'LIKE', "%{$search}%")
+                ->orWhere('prodi.nama', 'LIKE', "%{$search}%")
+                ->orWhere('pengeluaran_rekap.nama', 'LIKE', "%{$search}%");
+        });
+    }
+
     private function bsiBeneficiaryNameSelect()
     {
         if ($this->hasNamaPemilikRekeningColumn()) {
@@ -499,9 +589,11 @@ class DosenTatapMukaController extends Controller
             'pegawai.kode as kode_dosen',
             'prodi.nama as nama_prodi_dosen',
             'prodi.alias as alias_prodi_dosen',
+            'pengeluaran_rekap.nama as nama_rekap',
         ]);
 
         $this->joinPegawaiDosen($query);
+        $this->joinRekap($query);
 
         return $query->where('keuangan_pengeluaran_dosen.id', $id)->first();
     }
@@ -594,6 +686,7 @@ class DosenTatapMukaController extends Controller
             'keterangan_sempro' => 'nullable|string',
             'total' => 'nullable|numeric|min:0',
             'jenis_pembayaran' => 'required|in:' . implode(',', self::JENIS_PEMBAYARAN),
+            'rekap_id' => $this->rekapIdRules(),
             'bukti_transfer' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:4096',
             'keterangan' => 'nullable|string',
         ];
@@ -679,6 +772,9 @@ class DosenTatapMukaController extends Controller
             $jamSempro
         );
         $data->jenis_pembayaran = $request->jenis_pembayaran;
+        if ($request->has('rekap_id')) {
+            $data->rekap_id = $request->filled('rekap_id') ? $request->rekap_id : null;
+        }
         $data->keterangan = $request->keterangan;
 
         if ($request->hasFile('bukti_transfer')) {

@@ -27,6 +27,7 @@ use App\Models\KeuanganTagihan;
 use App\Services\Helper;
 use App\Services\MataUangFormatter;
 use App\Services\SemesterPendek;
+use App\Services\TagihanLaporanFilter;
 use App\Exports\PemasukanTunaiHarianBulananExport;
 use App\Exports\PemasukanTunaiHarianTahunanExport;
 
@@ -47,7 +48,11 @@ class LaporanController extends Controller
                 "tanggal" => "required",
                 "kategori" => "required",
                 "action" => "required",
+                "include_wisuda_semester_pendek" => "nullable",
             ]);
+            $includeWisudaSemesterPendek = TagihanLaporanFilter::includeWisudaSemesterPendek(
+                $request->input("include_wisuda_semester_pendek", false),
+            );
 
             if ($dataValidated["action"] == "excel") {
                 // LaporanHarianExcel::excel($request->all());
@@ -78,6 +83,7 @@ class LaporanController extends Controller
                         $prodi,
                         $tahunAkademik,
                         $jenisPembayaran,
+                        $includeWisudaSemesterPendek,
                     ),
                     "laporanharian.xlsx",
                 );
@@ -115,6 +121,7 @@ class LaporanController extends Controller
                         $tahunAkademik,
                         $jenisPembayaran,
                         $userId,
+                        $includeWisudaSemesterPendek,
                     ),
                     "laporantotalanharian.xlsx",
                 );
@@ -145,6 +152,8 @@ class LaporanController extends Controller
                         $prodi,
                         $tahunAkademik,
                         $jenisPembayaran,
+                        false,
+                        $includeWisudaSemesterPendek,
                     ),
                     "laporantotalanharian.xlsx",
                 );
@@ -177,7 +186,11 @@ class LaporanController extends Controller
                 "bulan" => "required",
                 "kategori" => "required",
                 "action" => "required",
+                "include_wisuda_semester_pendek" => "nullable",
             ]);
+            $includeWisudaSemesterPendek = TagihanLaporanFilter::includeWisudaSemesterPendek(
+                $request->input("include_wisuda_semester_pendek", false),
+            );
 
             if ($dataValidated["action"] == "excel") {
                 $data = $request->all();
@@ -205,6 +218,7 @@ class LaporanController extends Controller
                         $prodi,
                         $tahunAkademik,
                         $jenisPembayaran,
+                        $includeWisudaSemesterPendek,
                     ),
                     "Laporan Bulanan.xlsx",
                 );
@@ -228,7 +242,11 @@ class LaporanController extends Controller
                 "tahun" => "required",
                 "kategori" => "required",
                 "action" => "required",
+                "include_wisuda_semester_pendek" => "nullable",
             ]);
+            $includeWisudaSemesterPendek = TagihanLaporanFilter::includeWisudaSemesterPendek(
+                $request->input("include_wisuda_semester_pendek", false),
+            );
 
             if ($dataValidated["action"] == "excel") {
                 $data = $request->all();
@@ -256,6 +274,7 @@ class LaporanController extends Controller
                         $prodi,
                         $tahunAkademik,
                         $jenisPembayaran,
+                        $includeWisudaSemesterPendek,
                     ),
                     "Laporan Tahunan.xlsx",
                 );
@@ -286,6 +305,7 @@ class LaporanController extends Controller
             $dataValidated = $request->validate([
                 "tahun_rekap" => "required",
                 "bulan_rekap" => "required",
+                "include_wisuda_semester_pendek" => "nullable",
             ]);
             $bulan = explode("-", $dataValidated["bulan_rekap"])[0];
             return Excel::download(
@@ -316,6 +336,7 @@ class LaporanController extends Controller
             //code...
             $dataValidated = $request->validate([
                 "tahun_rekap" => "required",
+                "include_wisuda_semester_pendek" => "nullable",
             ]);
             return Excel::download(
                 new RekapTahunanExport($dataValidated),

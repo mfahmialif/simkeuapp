@@ -4,6 +4,7 @@ namespace App\Exports;
 
 use App\Models\Prodi;
 use App\Services\Helper;
+use App\Services\TagihanLaporanFilter;
 use App\Models\KeuanganPembayaran;
 use Illuminate\Contracts\View\View;
 use Maatwebsite\Excel\Concerns\FromView;
@@ -19,14 +20,16 @@ class PembayaranHarianExport implements FromView
     public $jenisPembayaran;
     public $tanggal;
     public $kategori;
+    public $includeWisudaSemesterPendek;
 
-    public function __construct($tanggal, $kategori, $prodi, $tahunAkademik, $jenisPembayaran)
+    public function __construct($tanggal, $kategori, $prodi, $tahunAkademik, $jenisPembayaran, $includeWisudaSemesterPendek = false)
     {
         $this->prodi = $prodi;
         $this->tahunAkademik = $tahunAkademik;
         $this->jenisPembayaran = $jenisPembayaran;
         $this->tanggal = $tanggal;
         $this->kategori = $kategori;
+        $this->includeWisudaSemesterPendek = TagihanLaporanFilter::includeWisudaSemesterPendek($includeWisudaSemesterPendek);
     }
     public function view(): View
     {
@@ -39,6 +42,7 @@ class PembayaranHarianExport implements FromView
             ->leftJoin('keuangan_jenis_pembayaran_detail as kjpd', 'kjpd.pembayaran_id', '=', 'keuangan_pembayaran.id')
             ->leftJoin('keuangan_jenis_pembayaran as kjp', 'kjp.id', '=', 'kjpd.jenis_pembayaran_id')
             ->select('*', 'kjp.nama as kjp_nama', 'kt.nama as kt', 'keuangan_pembayaran.jumlah as dibayar', 'kt.jumlah as jumlah_tagihan');
+        TagihanLaporanFilter::applyWisudaSemesterPendekScope($dataPembayaran, $this->includeWisudaSemesterPendek);
         if ($pilihTanggal != '') {
             $dataPembayaran->whereDate('tanggal', $pilihTanggal);
         }

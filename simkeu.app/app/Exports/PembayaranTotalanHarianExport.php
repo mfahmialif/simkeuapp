@@ -5,6 +5,7 @@ namespace App\Exports;
 use App\Models\Ref;
 use App\Models\Prodi;
 use App\Services\Helper;
+use App\Services\TagihanLaporanFilter;
 use App\Models\KeuanganSetoran;
 use App\Models\KeuanganTagihan;
 use Illuminate\Support\Facades\DB;
@@ -25,8 +26,9 @@ class PembayaranTotalanHarianExport implements FromView
     public $tanggal;
     public $kategori;
     public $userId;
+    public $includeWisudaSemesterPendek;
 
-    public function __construct($tanggal, $kategori, $prodi, $tahunAkademik, $jenisPembayaran, $userId = false)
+    public function __construct($tanggal, $kategori, $prodi, $tahunAkademik, $jenisPembayaran, $userId = false, $includeWisudaSemesterPendek = false)
     {
         $this->prodi = $prodi;
         $this->tahunAkademik = $tahunAkademik;
@@ -34,17 +36,21 @@ class PembayaranTotalanHarianExport implements FromView
         $this->tanggal = $tanggal;
         $this->kategori = $kategori;
         $this->userId = $userId;
+        $this->includeWisudaSemesterPendek = TagihanLaporanFilter::includeWisudaSemesterPendek($includeWisudaSemesterPendek);
     }
 
     public function kategori()
     {
         // data tagihan yang bukan ada kaitannya dengan semester
-        $tagihanSisa = KeuanganTagihan::where([
+        $tagihanSisaQuery = KeuanganTagihan::where([
             ['nama', 'NOT LIKE', '%SPP%'],
             ['nama', 'NOT LIKE', '%DAFTAR ULANG%'],
             ['nama', 'NOT LIKE', '%REG%'],
+            ['nama', 'NOT LIKE', '%UTS%'],
             ['nama', 'NOT LIKE', '%UAS%'],
-        ])->get()->unique('nama')->pluck('nama')->toArray();
+        ]);
+        TagihanLaporanFilter::applyWisudaSemesterPendekScope($tagihanSisaQuery, $this->includeWisudaSemesterPendek, 'nama');
+        $tagihanSisa = $tagihanSisaQuery->get()->unique('nama')->pluck('nama')->toArray();
 
         $kategori = [];
         foreach ($tagihanSisa as $ts) {
@@ -61,6 +67,10 @@ class PembayaranTotalanHarianExport implements FromView
         $kategori[] = (object) [
             "id" => "REG",
             "nama" => "REGISTRASI",
+        ];
+        $kategori[] = (object) [
+            "id" => "UTS",
+            "nama" => "UTS",
         ];
         $kategori[] = (object) [
             "id" => "UAS",
@@ -145,6 +155,7 @@ class PembayaranTotalanHarianExport implements FromView
         $tahunAkademik = $this->tahunAkademik;
         $jenisPembayaran = $this->jenisPembayaran;
         $userId = $this->userId;
+        $includeWisudaSemesterPendek = $this->includeWisudaSemesterPendek;
 
         $jp = Helper::getJenisKelaminUser();
         $jenisKelamin = Ref::where('table', 'JenisKelamin')->get();
@@ -213,7 +224,8 @@ class PembayaranTotalanHarianExport implements FromView
                 'tagihanSisaPembayaranTambahan',
                 'jenisKelamin',
                 'jp',
-                'userId'
+                'userId',
+                'includeWisudaSemesterPendek'
             )
         );
     }

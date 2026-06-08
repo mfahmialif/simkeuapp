@@ -5,7 +5,9 @@ namespace App\Http\Controllers\Api\Admin\Pengeluaran;
 use App\Exports\BsiPayrollExport;
 use App\Exports\ExcelExport;
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Api\Admin\Pengeluaran\Concerns\ManagesPengeluaranRekap;
 use App\Models\KeuanganPengeluaranDosenKegiatan;
+use App\Models\KeuanganPengeluaranDosenKegiatanRekap;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -16,6 +18,8 @@ use Maatwebsite\Excel\Facades\Excel;
 
 class DosenKegiatanController extends Controller
 {
+    use ManagesPengeluaranRekap;
+
     private const JENIS_PEMBAYARAN = ['CUS BSI', 'Transfer'];
     private const BUKTI_TRANSFER_DIR = 'bukti-transfer/barokah-dosen/kegiatan';
 
@@ -32,14 +36,17 @@ class DosenKegiatanController extends Controller
             'pegawai.kode as kode_dosen',
             'prodi.nama as nama_prodi_dosen',
             'staff.jabatan as jabatan_staff',
+            'pengeluaran_rekap.nama as nama_rekap',
         ]);
 
         $this->joinPegawaiDetail($query);
+        $this->joinRekap($query);
         $this->applySearchFilter($query, $request);
         $this->applyPegawaiFilter($query, $request);
+        $this->applyDateFilter($query, $request);
+        $this->applyRekapFilter($query, $request);
 
         $stats = $this->stats($query);
-        $this->applyDateFilter($query, $request);
 
         $sortColumns = [
             'id' => 'keuangan_pengeluaran_dosen_kegiatan.id',
@@ -54,6 +61,7 @@ class DosenKegiatanController extends Controller
             'barokah' => 'keuangan_pengeluaran_dosen_kegiatan.barokah',
             'total' => 'keuangan_pengeluaran_dosen_kegiatan.total',
             'jenis_pembayaran' => 'keuangan_pengeluaran_dosen_kegiatan.jenis_pembayaran',
+            'nama_rekap' => 'pengeluaran_rekap.nama',
             'created_at' => 'keuangan_pengeluaran_dosen_kegiatan.created_at',
         ];
 
@@ -162,6 +170,7 @@ class DosenKegiatanController extends Controller
             'pegawai.tipe as tipe_pegawai',
             'prodi.nama as prodi',
             'staff.jabatan as jabatan',
+            'pengeluaran_rekap.nama as rekap',
             'keuangan_pengeluaran_dosen_kegiatan.nama_kegiatan',
             'keuangan_pengeluaran_dosen_kegiatan.transport',
             'keuangan_pengeluaran_dosen_kegiatan.barokah',
@@ -171,9 +180,11 @@ class DosenKegiatanController extends Controller
         ]);
 
         $this->joinPegawaiDetail($query);
+        $this->joinRekap($query);
         $this->applySearchFilter($query, $request);
         $this->applyPegawaiFilter($query, $request);
         $this->applyDateFilter($query, $request);
+        $this->applyRekapFilter($query, $request);
 
         $data = $query
             ->orderBy('keuangan_pengeluaran_dosen_kegiatan.tanggal', 'desc')
@@ -216,9 +227,11 @@ class DosenKegiatanController extends Controller
         ]);
 
         $this->joinPegawaiDetail($query);
+        $this->joinRekap($query);
         $this->applySearchFilter($query, $request);
         $this->applyPegawaiFilter($query, $request);
         $this->applyDateFilter($query, $request);
+        $this->applyRekapFilter($query, $request);
 
         return $query
             ->where('keuangan_pengeluaran_dosen_kegiatan.jenis_pembayaran', 'CUS BSI')
@@ -303,6 +316,35 @@ class DosenKegiatanController extends Controller
             ->leftJoin('prodi', 'prodi.id', '=', 'dosen.prodi_id');
     }
 
+    protected function rekapModelClass(): string
+    {
+        return KeuanganPengeluaranDosenKegiatanRekap::class;
+    }
+
+    protected function pengeluaranTable(): string
+    {
+        return 'keuangan_pengeluaran_dosen_kegiatan';
+    }
+
+    protected function newRekapPengeluaranQuery()
+    {
+        return KeuanganPengeluaranDosenKegiatan::query();
+    }
+
+    protected function newRekapBulkPengeluaranQuery(Request $request)
+    {
+        $query = KeuanganPengeluaranDosenKegiatan::query();
+
+        $this->joinPegawaiDetail($query);
+        $this->joinRekap($query);
+        $this->applySearchFilter($query, $request);
+        $this->applyPegawaiFilter($query, $request);
+        $this->applyDateFilter($query, $request);
+        $this->applyRekapFilter($query, $request);
+
+        return $query;
+    }
+
     private function bsiBeneficiaryNameSelect()
     {
         if ($this->hasNamaPemilikRekeningColumn()) {
@@ -337,7 +379,8 @@ class DosenKegiatanController extends Controller
                 ->orWhere('pegawai.kode', 'LIKE', "%{$search}%")
                 ->orWhere('pegawai.tipe', 'LIKE', "%{$search}%")
                 ->orWhere('prodi.nama', 'LIKE', "%{$search}%")
-                ->orWhere('staff.jabatan', 'LIKE', "%{$search}%");
+                ->orWhere('staff.jabatan', 'LIKE', "%{$search}%")
+                ->orWhere('pengeluaran_rekap.nama', 'LIKE', "%{$search}%");
         });
     }
 
@@ -382,9 +425,11 @@ class DosenKegiatanController extends Controller
             'pegawai.kode as kode_dosen',
             'prodi.nama as nama_prodi_dosen',
             'staff.jabatan as jabatan_staff',
+            'pengeluaran_rekap.nama as nama_rekap',
         ]);
 
         $this->joinPegawaiDetail($query);
+        $this->joinRekap($query);
 
         return $query->where('keuangan_pengeluaran_dosen_kegiatan.id', $id)->first();
     }
@@ -443,6 +488,7 @@ class DosenKegiatanController extends Controller
             'barokah' => 'nullable|numeric|min:0',
             'total' => 'nullable|numeric|min:0',
             'jenis_pembayaran' => 'required|in:' . implode(',', self::JENIS_PEMBAYARAN),
+            'rekap_id' => $this->rekapIdRules(),
             'bukti_transfer' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:4096',
             'keterangan' => 'nullable|string',
         ];
@@ -462,6 +508,9 @@ class DosenKegiatanController extends Controller
         $data->barokah = $barokah;
         $data->total = (int) round($transport + $barokah);
         $data->jenis_pembayaran = $request->jenis_pembayaran;
+        if ($request->has('rekap_id')) {
+            $data->rekap_id = $request->filled('rekap_id') ? $request->rekap_id : null;
+        }
         $data->keterangan = $request->keterangan;
 
         if ($request->hasFile('bukti_transfer')) {

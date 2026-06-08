@@ -3,6 +3,7 @@
 namespace App\Exports\pdf;
 
 use App\Services\Helper;
+use App\Services\TagihanLaporanFilter;
 use App\Exports\pdf\CustomFpdf;
 use App\Models\KeuanganSetoran;
 use App\Models\KeuanganPembayaran;
@@ -41,6 +42,8 @@ class LaporanHarianPdf
             ->leftJoin('keuangan_jenis_pembayaran_detail as kjpd', 'kjpd.pembayaran_id', '=', 'keuangan_pembayaran.id')
             ->leftJoin('keuangan_jenis_pembayaran as kjp', 'kjp.id', '=', 'kjpd.jenis_pembayaran_id')
             ->select('*', 'kjp.nama as kjp_nama', 'kt.nama as kt', 'keuangan_pembayaran.jumlah as dibayar', 'kt.jumlah as jumlah_tagihan');
+        $includeWisudaSemesterPendek = TagihanLaporanFilter::includeWisudaSemesterPendek($data['include_wisuda_semester_pendek'] ?? false);
+        TagihanLaporanFilter::applyWisudaSemesterPendekScope($dataPembayaran, $includeWisudaSemesterPendek);
         if ($data['tanggal'] != '') {
             $dataPembayaran->whereDate('tanggal', $data['tanggal']);
         }

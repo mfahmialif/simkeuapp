@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api\Admin\Pengeluaran;
 use App\Exports\BsiPayrollExport;
 use App\Exports\ExcelExport;
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Api\Admin\Pengeluaran\Concerns\ManagesPengeluaranRekap;
+use App\Models\KeuanganPengeluaranDosenBulananRekap;
 use App\Models\KeuanganPengeluaranPegawaiBulanan;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -15,11 +17,14 @@ use Maatwebsite\Excel\Facades\Excel;
 
 class DosenBulananController extends Controller
 {
+    use ManagesPengeluaranRekap;
+
     protected const PEGAWAI_TIPE = 'dosen';
     protected const MODULE_NAME = 'Barokah Dosen Bulanan';
     protected const PEGAWAI_LABEL = 'Dosen';
     protected const JENIS_PEMBAYARAN = ['CUS BSI', 'Transfer'];
     protected const REQUIRE_PERIODE = false;
+    protected const REKAP_MODEL = KeuanganPengeluaranDosenBulananRekap::class;
 
     public function index(Request $request)
     {
@@ -33,17 +38,21 @@ class DosenBulananController extends Controller
             'pegawai.jenis_kelamin as jenis_kelamin_pegawai',
             'prodi.nama as nama_prodi_dosen',
             'staff.jabatan as jabatan_staff',
+            'pengeluaran_rekap.nama as nama_rekap',
         ]);
 
         $this->joinPegawaiDetail($query);
+        $this->joinRekap($query);
         $query->where('pegawai.tipe', static::PEGAWAI_TIPE);
         $this->applySearchFilter($query, $request);
         $this->applyPegawaiFilter($query, $request);
 
-        $stats = $this->stats($query);
-
         $this->applyPeriodFilter($query, $request);
         $this->applyDateFilter($query, $request);
+        $this->applyRekapFilter($query, $request);
+
+        $stats = $this->stats($query);
+
         $this->applySorting($query, $request);
 
         $data = $query->paginate($request->get('limit', 10));
@@ -159,6 +168,7 @@ class DosenBulananController extends Controller
             'pegawai.jenis_kelamin as jenis_kelamin',
             'prodi.nama as prodi',
             'staff.jabatan as jabatan',
+            'pengeluaran_rekap.nama as rekap',
             'keuangan_pengeluaran_pegawai_bulanan.hari',
             'keuangan_pengeluaran_pegawai_bulanan.barokah_harian',
             DB::raw('(keuangan_pengeluaran_pegawai_bulanan.barokah_harian * keuangan_pengeluaran_pegawai_bulanan.hari) as subtotal_harian'),
@@ -169,11 +179,13 @@ class DosenBulananController extends Controller
         ]);
 
         $this->joinPegawaiDetail($query);
+        $this->joinRekap($query);
         $query->where('pegawai.tipe', static::PEGAWAI_TIPE);
         $this->applySearchFilter($query, $request);
         $this->applyPegawaiFilter($query, $request);
         $this->applyPeriodFilter($query, $request);
         $this->applyDateFilter($query, $request);
+        $this->applyRekapFilter($query, $request);
 
         $data = $query
             ->orderBy('keuangan_pengeluaran_pegawai_bulanan.tanggal', 'desc')
@@ -216,11 +228,13 @@ class DosenBulananController extends Controller
         ]);
 
         $this->joinPegawaiDetail($query);
+        $this->joinRekap($query);
         $query->where('pegawai.tipe', static::PEGAWAI_TIPE);
         $this->applySearchFilter($query, $request);
         $this->applyPegawaiFilter($query, $request);
         $this->applyPeriodFilter($query, $request);
         $this->applyDateFilter($query, $request);
+        $this->applyRekapFilter($query, $request);
 
         return $query
             ->where('keuangan_pengeluaran_pegawai_bulanan.jenis_pembayaran', 'CUS BSI')
@@ -259,6 +273,40 @@ class DosenBulananController extends Controller
             ->leftJoin('prodi', 'prodi.id', '=', 'dosen.prodi_id');
     }
 
+    protected function rekapModelClass(): string
+    {
+        return static::REKAP_MODEL;
+    }
+
+    protected function pengeluaranTable(): string
+    {
+        return 'keuangan_pengeluaran_pegawai_bulanan';
+    }
+
+    protected function newRekapPengeluaranQuery()
+    {
+        $query = KeuanganPengeluaranPegawaiBulanan::query();
+        $this->joinPegawaiDetail($query);
+
+        return $query->where('pegawai.tipe', static::PEGAWAI_TIPE);
+    }
+
+    protected function newRekapBulkPengeluaranQuery(Request $request)
+    {
+        $query = KeuanganPengeluaranPegawaiBulanan::query();
+
+        $this->joinPegawaiDetail($query);
+        $this->joinRekap($query);
+        $query->where('pegawai.tipe', static::PEGAWAI_TIPE);
+        $this->applySearchFilter($query, $request);
+        $this->applyPegawaiFilter($query, $request);
+        $this->applyPeriodFilter($query, $request);
+        $this->applyDateFilter($query, $request);
+        $this->applyRekapFilter($query, $request);
+
+        return $query;
+    }
+
     protected function bsiBeneficiaryNameSelect()
     {
         if ($this->hasNamaPemilikRekeningColumn()) {
@@ -285,9 +333,11 @@ class DosenBulananController extends Controller
             'pegawai.jenis_kelamin as jenis_kelamin_pegawai',
             'prodi.nama as nama_prodi_dosen',
             'staff.jabatan as jabatan_staff',
+            'pengeluaran_rekap.nama as nama_rekap',
         ]);
 
         $this->joinPegawaiDetail($query);
+        $this->joinRekap($query);
         $query->where('pegawai.tipe', static::PEGAWAI_TIPE);
 
         return $query->where('keuangan_pengeluaran_pegawai_bulanan.id', $id)->first();
@@ -315,7 +365,8 @@ class DosenBulananController extends Controller
                 ->orWhere('pegawai.kode', 'LIKE', "%{$search}%")
                 ->orWhere('pegawai.jenis_kelamin', 'LIKE', "%{$search}%")
                 ->orWhere('prodi.nama', 'LIKE', "%{$search}%")
-                ->orWhere('staff.jabatan', 'LIKE', "%{$search}%");
+                ->orWhere('staff.jabatan', 'LIKE', "%{$search}%")
+                ->orWhere('pengeluaran_rekap.nama', 'LIKE', "%{$search}%");
         });
     }
 
@@ -373,6 +424,7 @@ class DosenBulananController extends Controller
             'barokah_bulanan' => 'keuangan_pengeluaran_pegawai_bulanan.barokah_bulanan',
             'total' => 'keuangan_pengeluaran_pegawai_bulanan.total',
             'jenis_pembayaran' => 'keuangan_pengeluaran_pegawai_bulanan.jenis_pembayaran',
+            'nama_rekap' => 'pengeluaran_rekap.nama',
             'created_at' => 'keuangan_pengeluaran_pegawai_bulanan.created_at',
         ];
 
@@ -438,6 +490,7 @@ class DosenBulananController extends Controller
             'barokah_bulanan' => 'nullable|numeric|min:0',
             'total' => 'nullable|numeric|min:0',
             'jenis_pembayaran' => 'required|in:' . implode(',', static::JENIS_PEMBAYARAN),
+            'rekap_id' => $this->rekapIdRules(),
             'keterangan' => 'nullable|string',
         ];
     }
@@ -461,6 +514,9 @@ class DosenBulananController extends Controller
         $data->barokah_bulanan = $barokahBulanan;
         $data->total = (int) round(($barokahHarian * $hari) + $barokahBulanan);
         $data->jenis_pembayaran = $request->jenis_pembayaran;
+        if ($request->has('rekap_id')) {
+            $data->rekap_id = $request->filled('rekap_id') ? $request->rekap_id : null;
+        }
         $data->keterangan = $request->keterangan;
     }
 

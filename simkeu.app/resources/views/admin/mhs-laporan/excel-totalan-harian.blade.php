@@ -75,6 +75,9 @@
                             ->when($userId, function ($query) use ($userId) {
                                 return $query->where('keuangan_pembayaran.user_id', $userId);
                             })
+                            ->when(!$includeWisudaSemesterPendek, function ($query) {
+                                return App\Services\TagihanLaporanFilter::excludeWisudaSemesterPendek($query);
+                            })
                             ->select('*', 'keuangan_pembayaran.jumlah as dibayar')
                             ->get();
 
@@ -100,6 +103,9 @@
                                 ->where([['kt.nama', 'LIKE', "%$jt->id%"], ['kjpd.jenis_pembayaran_id', $gjp->id]])
                                 ->when($userId, function ($query) use ($userId) {
                                     return $query->where('keuangan_pembayaran.user_id', $userId);
+                                })
+                                ->when(!$includeWisudaSemesterPendek, function ($query) {
+                                    return App\Services\TagihanLaporanFilter::excludeWisudaSemesterPendek($query);
                                 })
                                 ->select('*', 'keuangan_pembayaran.jumlah as dibayar')
                                 ->get();
