@@ -112,7 +112,7 @@ trait ManagesPengeluaranRekap
         $modelClass = $this->rekapModelClass();
 
         $validator = Validator::make($request->all(), [
-            'rekap_id' => ['required', Rule::exists((new $modelClass())->getTable(), 'id')],
+            'rekap_id' => ['present', 'nullable', Rule::exists((new $modelClass())->getTable(), 'id')],
             'all_pages' => 'nullable|boolean',
             'ids' => 'nullable|array',
             'ids.*' => 'integer',
@@ -163,7 +163,69 @@ trait ManagesPengeluaranRekap
             'data' => [
                 'updated' => $updated,
             ],
-            'message' => "{$updated} data berhasil diupdate ke rekap.",
+            'message' => $request->filled('rekap_id')
+                ? "{$updated} data berhasil diupdate ke rekap."
+                : "{$updated} data berhasil dibatalkan dari rekap.",
+        ]);
+    }
+
+    public function rekapRelease($id)
+    {
+        $modelClass = $this->rekapModelClass();
+        $rekap = $modelClass::find($id);
+
+        if (! $rekap) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Rekap not found',
+            ], 404);
+        }
+
+        $updated = DB::table($this->pengeluaranTable())
+            ->where('rekap_id', $rekap->id)
+            ->update([
+                'rekap_id' => null,
+                'updated_at' => now(),
+            ]);
+
+        return response()->json([
+            'status' => true,
+            'data' => [
+                'updated' => $updated,
+            ],
+            'message' => "{$updated} data berhasil dibatalkan dari rekap {$rekap->nama}.",
+        ]);
+    }
+
+    public function rekapDestroy($id)
+    {
+        $modelClass = $this->rekapModelClass();
+        $rekap = $modelClass::find($id);
+
+        if (! $rekap) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Rekap not found',
+            ], 404);
+        }
+
+        $jumlahData = DB::table($this->pengeluaranTable())
+            ->where('rekap_id', $rekap->id)
+            ->count();
+
+        if ($jumlahData > 0) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Rekap hanya dapat dihapus ketika jumlah datanya 0.',
+            ], 422);
+        }
+
+        $nama = $rekap->nama;
+        $rekap->delete();
+
+        return response()->json([
+            'status' => true,
+            'message' => "Rekap {$nama} berhasil dihapus.",
         ]);
     }
 

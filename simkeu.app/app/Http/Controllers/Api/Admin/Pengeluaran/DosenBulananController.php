@@ -458,6 +458,10 @@ class DosenBulananController extends Controller
                 fn ($periodQuery) => $periodQuery->whereBetween($dateColumn, [$monthStart, $monthEnd])
             ),
             'keseluruhan' => $this->periodStats($query),
+            'belum_rekap' => $this->periodStats(
+                $query,
+                fn ($periodQuery) => $periodQuery->whereNull('keuangan_pengeluaran_pegawai_bulanan.rekap_id')
+            ),
         ];
     }
 
