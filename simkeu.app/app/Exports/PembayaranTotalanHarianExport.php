@@ -50,7 +50,7 @@ class PembayaranTotalanHarianExport implements FromView
             ['nama', 'NOT LIKE', '%UAS%'],
         ]);
         TagihanLaporanFilter::applyWisudaSemesterPendekScope($tagihanSisaQuery, $this->includeWisudaSemesterPendek, 'nama');
-        TagihanLaporanFilter::excludeStandaloneSemesterOneToFive($tagihanSisaQuery, 'nama');
+        TagihanLaporanFilter::excludeStandaloneSemester($tagihanSisaQuery, 'nama');
         $tagihanSisa = $tagihanSisaQuery->get()->unique('nama')->pluck('nama')->toArray();
 
         $kategori = [];
@@ -93,7 +93,7 @@ class PembayaranTotalanHarianExport implements FromView
                 ['tagihan', 'NOT LIKE', '%UAS%'],
             ])
             ->where('jenis_kelamin', $jk);
-        TagihanLaporanFilter::excludeStandaloneSemesterOneToFive($tagihanSisaTambahan, 'tagihan');
+        TagihanLaporanFilter::excludeStandaloneSemester($tagihanSisaTambahan, 'tagihan');
         $tagihanSisaTambahan = $tagihanSisaTambahan->get()->unique('tagihan')->pluck('tagihan')->toArray();
 
         $tagihanSisaPembayaranQuery = KeuanganTagihan::select(DB::raw('upper(nama) as nama'))
@@ -103,7 +103,7 @@ class PembayaranTotalanHarianExport implements FromView
                 ['nama', 'NOT LIKE', '%REGIST%'],
                 ['nama', 'NOT LIKE', '%UAS%'],
             ]);
-        TagihanLaporanFilter::excludeStandaloneSemesterOneToFive($tagihanSisaPembayaranQuery, 'nama');
+        TagihanLaporanFilter::excludeStandaloneSemester($tagihanSisaPembayaranQuery, 'nama');
         $tagihanSisaPembayaran = $tagihanSisaPembayaranQuery->get()->unique('nama')->pluck('nama')->toArray();
 
         $diffTagihan = array_diff($tagihanSisaTambahan, $tagihanSisaPembayaran);
@@ -114,7 +114,7 @@ class PembayaranTotalanHarianExport implements FromView
             ['nama', 'NOT LIKE', '%REG%'],
             ['nama', 'NOT LIKE', '%UAS%'],
         ]);
-        TagihanLaporanFilter::excludeStandaloneSemesterOneToFive($tagihanSisaQuery, 'nama');
+        TagihanLaporanFilter::excludeStandaloneSemester($tagihanSisaQuery, 'nama');
         $tagihanSisa = $tagihanSisaQuery->get()->unique('nama')->pluck('nama')->toArray();
 
         $kategori = [];
