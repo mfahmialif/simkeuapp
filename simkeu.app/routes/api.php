@@ -42,6 +42,7 @@ use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\SemesterPendekController;
 use App\Http\Controllers\Api\Admin\Pengeluaran\DosenTatapMukaController;
 use App\Http\Controllers\Api\Admin\Pengeluaran\DosenBulananController;
 use App\Http\Controllers\Api\Admin\Pengeluaran\StaffBulananController;
+use App\Http\Controllers\Api\Admin\Pengeluaran\RabController;
 use App\Http\Controllers\Api\Admin\Pengeluaran\DosenKegiatanController as PengeluaranDosenKegiatanController;
 
 Route::prefix('auth')->group(function () {
@@ -192,6 +193,8 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
         Route::apiResource('dosen-kegiatan', PengeluaranDosenKegiatanController::class);
         Route::get('dosen-bulanan/export-bsi', [DosenBulananController::class, 'exportBsi'])->middleware('role:admin,barokahdosen_bulanan');
         Route::get('dosen-bulanan/copy-bsi', [DosenBulananController::class, 'copyBsi'])->middleware('role:admin,barokahdosen_bulanan');
+        Route::get('dosen-bulanan/form-data', [DosenBulananController::class, 'formData'])->middleware('role:admin,barokahdosen_bulanan');
+        Route::post('dosen-bulanan/batch-store', [DosenBulananController::class, 'batchStore'])->middleware('role:admin,barokahdosen_bulanan');
         Route::get('dosen-bulanan/rekap', [DosenBulananController::class, 'rekapIndex'])->middleware('role:admin,barokahdosen_bulanan');
         Route::post('dosen-bulanan/rekap', [DosenBulananController::class, 'rekapStore'])->middleware('role:admin,barokahdosen_bulanan');
         Route::post('dosen-bulanan/rekap/bulk-update', [DosenBulananController::class, 'rekapBulkUpdate'])->middleware('role:admin,barokahdosen_bulanan');
@@ -210,6 +213,8 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
         Route::get('staff-bulanan/rekap/{id}', [StaffBulananController::class, 'rekapShow'])->middleware('role:admin,barokahdosen_kegiatan');
         Route::apiResource('staff-bulanan', StaffBulananController::class)->middleware('role:admin,barokahdosen_kegiatan');
     });
+    Route::get('laporan/rab', [RabController::class, 'index'])
+        ->middleware('role:admin,pimpinan,keuangan,kabag');
     Route::apiResource('pengeluaran', PengeluaranController::class);
 
     Route::apiResource('users', UserController::class);

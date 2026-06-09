@@ -32,6 +32,14 @@ trait ManagesPengeluaranRekap
             });
         }
 
+        if ($request->filled('bulan')) {
+            $query->whereMonth('bulan_tahun', (int) $request->bulan);
+        }
+
+        if ($request->filled('tahun')) {
+            $query->whereYear('bulan_tahun', (int) $request->tahun);
+        }
+
         $sortColumns = [
             'id' => "{$rekapTable}.id",
             'nama' => "{$rekapTable}.nama",
@@ -57,11 +65,13 @@ trait ManagesPengeluaranRekap
         $rekapTable = (new $modelClass())->getTable();
         $input = [
             'nama' => trim((string) $request->input('nama')),
+            'bulan_tahun' => $request->input('bulan_tahun'),
             'keterangan' => $request->input('keterangan'),
         ];
 
         $validator = Validator::make($input, [
             'nama' => ['required', 'string', 'max:255', Rule::unique($rekapTable, 'nama')],
+            'bulan_tahun' => ['required', 'date_format:Y-m'],
             'keterangan' => 'nullable|string',
         ]);
 
@@ -72,7 +82,10 @@ trait ManagesPengeluaranRekap
             ], 422);
         }
 
-        $data = $modelClass::create($validator->validated());
+        $validated = $validator->validated();
+        $validated['bulan_tahun'] .= '-01';
+
+        $data = $modelClass::create($validated);
 
         $data->jumlah_data = 0;
         $data->total_pengeluaran = 0;
