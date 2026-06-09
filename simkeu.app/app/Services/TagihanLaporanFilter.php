@@ -24,4 +24,13 @@ class TagihanLaporanFilter
             ->whereRaw("LOWER($column) NOT LIKE ?", ['%wisuda%'])
             ->whereRaw("LOWER($column) NOT LIKE ?", ['%semester pendek%']);
     }
+
+    public static function excludeStandaloneSemesterOneToFive($query, string $column = 'nama')
+    {
+        foreach (range(1, 5) as $semester) {
+            $query->whereRaw("LOWER(TRIM($column)) != ?", ["semester $semester"]);
+        }
+
+        return $query;
+    }
 }

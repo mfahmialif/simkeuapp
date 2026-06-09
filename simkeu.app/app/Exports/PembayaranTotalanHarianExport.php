@@ -50,6 +50,7 @@ class PembayaranTotalanHarianExport implements FromView
             ['nama', 'NOT LIKE', '%UAS%'],
         ]);
         TagihanLaporanFilter::applyWisudaSemesterPendekScope($tagihanSisaQuery, $this->includeWisudaSemesterPendek, 'nama');
+        TagihanLaporanFilter::excludeStandaloneSemesterOneToFive($tagihanSisaQuery, 'nama');
         $tagihanSisa = $tagihanSisaQuery->get()->unique('nama')->pluck('nama')->toArray();
 
         $kategori = [];
@@ -91,26 +92,30 @@ class PembayaranTotalanHarianExport implements FromView
                 ['tagihan', 'NOT LIKE', '%REG%'],
                 ['tagihan', 'NOT LIKE', '%UAS%'],
             ])
-            ->where('jenis_kelamin', $jk)
-            ->get()->unique('tagihan')->pluck('tagihan')->toArray();
+            ->where('jenis_kelamin', $jk);
+        TagihanLaporanFilter::excludeStandaloneSemesterOneToFive($tagihanSisaTambahan, 'tagihan');
+        $tagihanSisaTambahan = $tagihanSisaTambahan->get()->unique('tagihan')->pluck('tagihan')->toArray();
 
-        $tagihanSisaPembayaran = KeuanganTagihan::select(DB::raw('upper(nama) as nama'))
+        $tagihanSisaPembayaranQuery = KeuanganTagihan::select(DB::raw('upper(nama) as nama'))
             ->where([
                 ['nama', 'NOT LIKE', '%SPP%'],
                 ['nama', 'NOT LIKE', '%DAFTAR ULANG%'],
                 ['nama', 'NOT LIKE', '%REGIST%'],
                 ['nama', 'NOT LIKE', '%UAS%'],
-            ])
-            ->get()->unique('nama')->pluck('nama')->toArray();
+            ]);
+        TagihanLaporanFilter::excludeStandaloneSemesterOneToFive($tagihanSisaPembayaranQuery, 'nama');
+        $tagihanSisaPembayaran = $tagihanSisaPembayaranQuery->get()->unique('nama')->pluck('nama')->toArray();
 
         $diffTagihan = array_diff($tagihanSisaTambahan, $tagihanSisaPembayaran);
 
-        $tagihanSisa = KeuanganTagihan::where([
+        $tagihanSisaQuery = KeuanganTagihan::where([
             ['nama', 'NOT LIKE', '%SPP%'],
             ['nama', 'NOT LIKE', '%DAFTAR ULANG%'],
             ['nama', 'NOT LIKE', '%REG%'],
             ['nama', 'NOT LIKE', '%UAS%'],
-        ])->get()->unique('nama')->pluck('nama')->toArray();
+        ]);
+        TagihanLaporanFilter::excludeStandaloneSemesterOneToFive($tagihanSisaQuery, 'nama');
+        $tagihanSisa = $tagihanSisaQuery->get()->unique('nama')->pluck('nama')->toArray();
 
         $kategori = [];
         foreach ($tagihanSisa as $ts) {
