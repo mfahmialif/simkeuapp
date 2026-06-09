@@ -4,8 +4,9 @@ namespace App\Http\Controllers\Api\Admin\Pengeluaran;
 
 use App\Exports\BsiPayrollExport;
 use App\Exports\ExcelExport;
-use App\Http\Controllers\Controller;
+use App\Http\Controllers\Api\Admin\Pengeluaran\Concerns\BuildsPengeluaranIndex;
 use App\Http\Controllers\Api\Admin\Pengeluaran\Concerns\ManagesPengeluaranRekap;
+use App\Http\Controllers\Controller;
 use App\Models\KeuanganPengeluaranDosenBulananRekap;
 use App\Models\KeuanganPengeluaranPegawaiBulanan;
 use App\Models\Pegawai;
@@ -18,13 +19,19 @@ use Maatwebsite\Excel\Facades\Excel;
 
 class DosenBulananController extends Controller
 {
+    use BuildsPengeluaranIndex;
     use ManagesPengeluaranRekap;
 
     protected const PEGAWAI_TIPE = 'dosen';
+
     protected const MODULE_NAME = 'Barokah Dosen Bulanan';
+
     protected const PEGAWAI_LABEL = 'Dosen';
+
     protected const JENIS_PEMBAYARAN = ['CUS BSI', 'Transfer'];
+
     protected const REQUIRE_PERIODE = false;
+
     protected const REKAP_MODEL = KeuanganPengeluaranDosenBulananRekap::class;
 
     public function index(Request $request)
@@ -44,7 +51,7 @@ class DosenBulananController extends Controller
 
         $this->joinPegawaiDetail($query);
         $this->joinRekap($query);
-        $query->where('pegawai.tipe', static::PEGAWAI_TIPE);
+        $query->where('keuangan_pengeluaran_pegawai_bulanan.pegawai_tipe', static::PEGAWAI_TIPE);
         $this->applySearchFilter($query, $request);
         $this->applyPegawaiFilter($query, $request);
 
@@ -52,17 +59,24 @@ class DosenBulananController extends Controller
         $this->applyDateFilter($query, $request);
         $this->applyRekapFilter($query, $request);
 
-        $stats = $this->stats($query);
+        $stats = $this->aggregatePengeluaranStats(
+            $this->newIndexStatsQuery($request),
+            'keuangan_pengeluaran_pegawai_bulanan'
+        );
 
         $this->applySorting($query, $request);
 
-        $data = $query->paginate($request->get('limit', 10));
+        $data = $this->paginateWithKnownTotal(
+            $query,
+            $request,
+            $stats['keseluruhan']['jumlah']
+        );
 
         return response()->json([
             'status' => true,
             'data' => $data,
             'stats' => $stats,
-            'message' => static::MODULE_NAME . ' retrieved successfully',
+            'message' => static::MODULE_NAME.' retrieved successfully',
         ]);
     }
 
@@ -77,14 +91,14 @@ class DosenBulananController extends Controller
             ], 422);
         }
 
-        $data = new KeuanganPengeluaranPegawaiBulanan();
+        $data = new KeuanganPengeluaranPegawaiBulanan;
         $this->fillData($data, $request);
         $data->save();
 
         return response()->json([
             'status' => true,
             'data' => $this->findWithPegawai($data->id) ?? $data,
-            'message' => static::MODULE_NAME . ' created successfully',
+            'message' => static::MODULE_NAME.' created successfully',
         ], 201);
     }
 
@@ -145,7 +159,7 @@ class DosenBulananController extends Controller
 
     public function batchStore(Request $request)
     {
-        $rekapTable = (new KeuanganPengeluaranDosenBulananRekap())->getTable();
+        $rekapTable = (new KeuanganPengeluaranDosenBulananRekap)->getTable();
         $validator = Validator::make($request->all(), [
             'rekap_id' => ['required', Rule::exists($rekapTable, 'id')],
             'tanggal' => ['required', 'date'],
@@ -197,9 +211,10 @@ class DosenBulananController extends Controller
                     continue;
                 }
 
-                $data = $records->first() ?? new KeuanganPengeluaranPegawaiBulanan();
+                $data = $records->first() ?? new KeuanganPengeluaranPegawaiBulanan;
                 $isNew = ! $data->exists;
                 $data->pegawai_id = $item['pegawai_id'];
+                $data->pegawai_tipe = 'dosen';
                 $data->rekap_id = $payload['rekap_id'];
                 $data->tanggal = $payload['tanggal'];
                 $data->bulan = (int) date('n', strtotime($payload['tanggal']));
@@ -244,14 +259,14 @@ class DosenBulananController extends Controller
         if (! $data) {
             return response()->json([
                 'status' => false,
-                'message' => static::MODULE_NAME . ' not found',
+                'message' => static::MODULE_NAME.' not found',
             ], 404);
         }
 
         return response()->json([
             'status' => true,
             'data' => $data,
-            'message' => static::MODULE_NAME . ' retrieved successfully',
+            'message' => static::MODULE_NAME.' retrieved successfully',
         ]);
     }
 
@@ -262,7 +277,7 @@ class DosenBulananController extends Controller
         if (! $data || ! $this->findWithPegawai($id)) {
             return response()->json([
                 'status' => false,
-                'message' => static::MODULE_NAME . ' not found',
+                'message' => static::MODULE_NAME.' not found',
             ], 404);
         }
 
@@ -281,7 +296,7 @@ class DosenBulananController extends Controller
         return response()->json([
             'status' => true,
             'data' => $this->findWithPegawai($data->id) ?? $data,
-            'message' => static::MODULE_NAME . ' updated successfully',
+            'message' => static::MODULE_NAME.' updated successfully',
         ]);
     }
 
@@ -292,7 +307,7 @@ class DosenBulananController extends Controller
         if (! $data || ! $this->findWithPegawai($id)) {
             return response()->json([
                 'status' => false,
-                'message' => static::MODULE_NAME . ' not found',
+                'message' => static::MODULE_NAME.' not found',
             ], 404);
         }
 
@@ -300,7 +315,7 @@ class DosenBulananController extends Controller
 
         return response()->json([
             'status' => true,
-            'message' => static::MODULE_NAME . ' deleted successfully',
+            'message' => static::MODULE_NAME.' deleted successfully',
         ]);
     }
 
@@ -332,7 +347,7 @@ class DosenBulananController extends Controller
 
         $this->joinPegawaiDetail($query);
         $this->joinRekap($query);
-        $query->where('pegawai.tipe', static::PEGAWAI_TIPE);
+        $query->where('keuangan_pengeluaran_pegawai_bulanan.pegawai_tipe', static::PEGAWAI_TIPE);
         $this->applySearchFilter($query, $request);
         $this->applyPegawaiFilter($query, $request);
         $this->applyPeriodFilter($query, $request);
@@ -344,14 +359,14 @@ class DosenBulananController extends Controller
             ->orderBy('keuangan_pengeluaran_pegawai_bulanan.id', 'desc')
             ->get();
 
-        return Excel::download(new ExcelExport($data), 'Laporan ' . static::MODULE_NAME . '.xlsx');
+        return Excel::download(new ExcelExport($data), 'Laporan '.static::MODULE_NAME.'.xlsx');
     }
 
     public function exportBsi(Request $request)
     {
         $data = $this->bsiRows($request);
 
-        return Excel::download(new BsiPayrollExport($data, $this->bsiMessage()), 'CUS BSI ' . static::MODULE_NAME . '.xlsx');
+        return Excel::download(new BsiPayrollExport($data, $this->bsiMessage()), 'CUS BSI '.static::MODULE_NAME.'.xlsx');
     }
 
     public function copyBsi(Request $request)
@@ -381,7 +396,7 @@ class DosenBulananController extends Controller
 
         $this->joinPegawaiDetail($query);
         $this->joinRekap($query);
-        $query->where('pegawai.tipe', static::PEGAWAI_TIPE);
+        $query->where('keuangan_pengeluaran_pegawai_bulanan.pegawai_tipe', static::PEGAWAI_TIPE);
         $this->applySearchFilter($query, $request);
         $this->applyPegawaiFilter($query, $request);
         $this->applyPeriodFilter($query, $request);
@@ -440,7 +455,10 @@ class DosenBulananController extends Controller
         $query = KeuanganPengeluaranPegawaiBulanan::query();
         $this->joinPegawaiDetail($query);
 
-        return $query->where('pegawai.tipe', static::PEGAWAI_TIPE);
+        return $query->where(
+            'keuangan_pengeluaran_pegawai_bulanan.pegawai_tipe',
+            static::PEGAWAI_TIPE
+        );
     }
 
     protected function newRekapBulkPengeluaranQuery(Request $request)
@@ -449,7 +467,7 @@ class DosenBulananController extends Controller
 
         $this->joinPegawaiDetail($query);
         $this->joinRekap($query);
-        $query->where('pegawai.tipe', static::PEGAWAI_TIPE);
+        $query->where('keuangan_pengeluaran_pegawai_bulanan.pegawai_tipe', static::PEGAWAI_TIPE);
         $this->applySearchFilter($query, $request);
         $this->applyPegawaiFilter($query, $request);
         $this->applyPeriodFilter($query, $request);
@@ -490,7 +508,7 @@ class DosenBulananController extends Controller
 
         $this->joinPegawaiDetail($query);
         $this->joinRekap($query);
-        $query->where('pegawai.tipe', static::PEGAWAI_TIPE);
+        $query->where('keuangan_pengeluaran_pegawai_bulanan.pegawai_tipe', static::PEGAWAI_TIPE);
 
         return $query->where('keuangan_pengeluaran_pegawai_bulanan.id', $id)->first();
     }
@@ -590,57 +608,33 @@ class DosenBulananController extends Controller
         $query->orderBy($sortColumns[$sortKey] ?? 'keuangan_pengeluaran_pegawai_bulanan.id', $sortOrder);
     }
 
-    protected function stats($query): array
+    protected function newIndexStatsQuery(Request $request)
     {
-        $dateColumn = 'keuangan_pengeluaran_pegawai_bulanan.tanggal';
-        $today = now();
-        $todayDate = $today->toDateString();
-        $weekStart = $today->copy()->startOfWeek()->toDateString();
-        $weekEnd = $today->copy()->endOfWeek()->toDateString();
-        $monthStart = $today->copy()->startOfMonth()->toDateString();
-        $monthEnd = $today->copy()->endOfMonth()->toDateString();
+        $query = KeuanganPengeluaranPegawaiBulanan::query()
+            ->where('keuangan_pengeluaran_pegawai_bulanan.pegawai_tipe', static::PEGAWAI_TIPE);
 
-        return [
-            'hari_ini' => $this->periodStats(
-                $query,
-                fn ($periodQuery) => $periodQuery->whereDate($dateColumn, $todayDate)
-            ),
-            'mingguan' => $this->periodStats(
-                $query,
-                fn ($periodQuery) => $periodQuery->whereBetween($dateColumn, [$weekStart, $weekEnd])
-            ),
-            'bulanan' => $this->periodStats(
-                $query,
-                fn ($periodQuery) => $periodQuery->whereBetween($dateColumn, [$monthStart, $monthEnd])
-            ),
-            'keseluruhan' => $this->periodStats($query),
-            'belum_rekap' => $this->periodStats(
-                $query,
-                fn ($periodQuery) => $periodQuery->whereNull('keuangan_pengeluaran_pegawai_bulanan.rekap_id')
-            ),
-        ];
-    }
-
-    protected function periodStats($baseQuery, ?callable $period = null): array
-    {
-        $query = clone $baseQuery;
-
-        if ($period) {
-            $period($query);
+        if ($request->filled('search')) {
+            $this->joinPegawaiDetail($query);
+            $this->joinRekap($query);
+            $this->applySearchFilter($query, $request);
+        } elseif ($request->filled('kode')) {
+            $query->leftJoin('pegawai', 'pegawai.id', '=', 'keuangan_pengeluaran_pegawai_bulanan.pegawai_id');
         }
 
-        return [
-            'total' => (int) (clone $query)->sum('keuangan_pengeluaran_pegawai_bulanan.total'),
-            'jumlah' => (int) $query->count(),
-        ];
+        $this->applyPegawaiFilter($query, $request);
+        $this->applyPeriodFilter($query, $request);
+        $this->applyDateFilter($query, $request);
+        $this->applyRekapFilter($query, $request);
+
+        return $query;
     }
 
     protected function rules(bool $isUpdate): array
     {
         return [
             'tanggal' => 'required|date',
-            'bulan' => (static::REQUIRE_PERIODE ? 'required' : 'nullable') . '|integer|min:1|max:12',
-            'tahun' => (static::REQUIRE_PERIODE ? 'required' : 'nullable') . '|integer|min:1900|max:2100',
+            'bulan' => (static::REQUIRE_PERIODE ? 'required' : 'nullable').'|integer|min:1|max:12',
+            'tahun' => (static::REQUIRE_PERIODE ? 'required' : 'nullable').'|integer|min:1900|max:2100',
             'pegawai_id' => [
                 $isUpdate ? 'nullable' : 'required',
                 Rule::exists('pegawai', 'id')->where(fn ($query) => $query->where('tipe', static::PEGAWAI_TIPE)),
@@ -651,7 +645,7 @@ class DosenBulananController extends Controller
             'barokah_dosen_tetap' => 'nullable|numeric|min:0',
             'barokah_struktural' => 'nullable|numeric|min:0',
             'total' => 'nullable|numeric|min:0',
-            'jenis_pembayaran' => 'required|in:' . implode(',', static::JENIS_PEMBAYARAN),
+            'jenis_pembayaran' => 'required|in:'.implode(',', static::JENIS_PEMBAYARAN),
             'rekap_id' => $this->rekapIdRules(),
             'keterangan' => 'nullable|string',
         ];
@@ -672,6 +666,7 @@ class DosenBulananController extends Controller
         if ($request->filled('pegawai_id')) {
             $data->pegawai_id = $request->pegawai_id;
         }
+        $data->pegawai_tipe = static::PEGAWAI_TIPE;
 
         if (static::PEGAWAI_TIPE === 'dosen') {
             $data->hari = 0;

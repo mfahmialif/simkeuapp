@@ -4,8 +4,9 @@ namespace App\Http\Controllers\Api\Admin\Pengeluaran;
 
 use App\Exports\BsiPayrollExport;
 use App\Exports\ExcelExport;
-use App\Http\Controllers\Controller;
+use App\Http\Controllers\Api\Admin\Pengeluaran\Concerns\BuildsPengeluaranIndex;
 use App\Http\Controllers\Api\Admin\Pengeluaran\Concerns\ManagesPengeluaranRekap;
+use App\Http\Controllers\Controller;
 use App\Models\KeuanganPengeluaranDosenKegiatan;
 use App\Models\KeuanganPengeluaranDosenKegiatanRekap;
 use Illuminate\Http\Request;
@@ -18,9 +19,11 @@ use Maatwebsite\Excel\Facades\Excel;
 
 class DosenKegiatanController extends Controller
 {
+    use BuildsPengeluaranIndex;
     use ManagesPengeluaranRekap;
 
     private const JENIS_PEMBAYARAN = ['CUS BSI', 'Transfer'];
+
     private const BUKTI_TRANSFER_DIR = 'bukti-transfer/barokah-dosen/kegiatan';
 
     public function index(Request $request)
@@ -46,7 +49,10 @@ class DosenKegiatanController extends Controller
         $this->applyDateFilter($query, $request);
         $this->applyRekapFilter($query, $request);
 
-        $stats = $this->stats($query);
+        $stats = $this->aggregatePengeluaranStats(
+            $this->newIndexStatsQuery($request),
+            'keuangan_pengeluaran_dosen_kegiatan'
+        );
 
         $sortColumns = [
             'id' => 'keuangan_pengeluaran_dosen_kegiatan.id',
@@ -69,7 +75,11 @@ class DosenKegiatanController extends Controller
         $sortOrder = $request->input('sort_order', 'desc') === 'asc' ? 'asc' : 'desc';
         $query->orderBy($sortColumns[$sortKey] ?? 'keuangan_pengeluaran_dosen_kegiatan.id', $sortOrder);
 
-        $data = $query->paginate($request->get('limit', 10));
+        $data = $this->paginateWithKnownTotal(
+            $query,
+            $request,
+            $stats['keseluruhan']['jumlah']
+        );
         $data->getCollection()->transform(fn ($item) => $this->appendBuktiTransferUrl($item));
 
         return response()->json([
@@ -95,7 +105,7 @@ class DosenKegiatanController extends Controller
             return $this->buktiTransferRequiredResponse();
         }
 
-        $data = new KeuanganPengeluaranDosenKegiatan();
+        $data = new KeuanganPengeluaranDosenKegiatan;
         $this->fillData($data, $request);
         $data->save();
 
@@ -434,49 +444,30 @@ class DosenKegiatanController extends Controller
         return $query->where('keuangan_pengeluaran_dosen_kegiatan.id', $id)->first();
     }
 
-    private function stats($query): array
+    private function newIndexStatsQuery(Request $request)
     {
-        $dateColumn = 'keuangan_pengeluaran_dosen_kegiatan.tanggal';
-        $today = now();
-        $todayDate = $today->toDateString();
-        $weekStart = $today->copy()->startOfWeek()->toDateString();
-        $weekEnd = $today->copy()->endOfWeek()->toDateString();
-        $monthStart = $today->copy()->startOfMonth()->toDateString();
-        $monthEnd = $today->copy()->endOfMonth()->toDateString();
+        $query = KeuanganPengeluaranDosenKegiatan::query();
 
-        return [
-            'hari_ini' => $this->periodStats(
-                $query,
-                fn ($periodQuery) => $periodQuery->whereDate($dateColumn, $todayDate)
-            ),
-            'mingguan' => $this->periodStats(
-                $query,
-                fn ($periodQuery) => $periodQuery->whereBetween($dateColumn, [$weekStart, $weekEnd])
-            ),
-            'bulanan' => $this->periodStats(
-                $query,
-                fn ($periodQuery) => $periodQuery->whereBetween($dateColumn, [$monthStart, $monthEnd])
-            ),
-            'keseluruhan' => $this->periodStats($query),
-            'belum_rekap' => $this->periodStats(
-                $query,
-                fn ($periodQuery) => $periodQuery->whereNull('keuangan_pengeluaran_dosen_kegiatan.rekap_id')
-            ),
-        ];
-    }
-
-    private function periodStats($baseQuery, ?callable $period = null): array
-    {
-        $query = clone $baseQuery;
-
-        if ($period) {
-            $period($query);
+        if ($request->filled('search')) {
+            $this->joinPegawaiDetail($query);
+            $this->joinRekap($query);
+            $this->applySearchFilter($query, $request);
+        } elseif ($request->filled('kode')) {
+            $query->leftJoin('pegawai', 'pegawai.id', '=', 'keuangan_pengeluaran_dosen_kegiatan.pegawai_id');
         }
 
-        return [
-            'total' => (int) (clone $query)->sum('keuangan_pengeluaran_dosen_kegiatan.total'),
-            'jumlah' => (int) $query->count(),
-        ];
+        if ($request->filled('kode')) {
+            $query->where('pegawai.kode', $request->kode);
+        }
+
+        if ($request->filled('pegawai_id')) {
+            $query->where('keuangan_pengeluaran_dosen_kegiatan.pegawai_id', $request->pegawai_id);
+        }
+
+        $this->applyDateFilter($query, $request);
+        $this->applyRekapFilter($query, $request);
+
+        return $query;
     }
 
     private function rules(bool $isUpdate): array
@@ -491,7 +482,7 @@ class DosenKegiatanController extends Controller
             'transport' => 'nullable|numeric|min:0',
             'barokah' => 'nullable|numeric|min:0',
             'total' => 'nullable|numeric|min:0',
-            'jenis_pembayaran' => 'required|in:' . implode(',', self::JENIS_PEMBAYARAN),
+            'jenis_pembayaran' => 'required|in:'.implode(',', self::JENIS_PEMBAYARAN),
             'rekap_id' => $this->rekapIdRules(),
             'bukti_transfer' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:4096',
             'keterangan' => 'nullable|string',
