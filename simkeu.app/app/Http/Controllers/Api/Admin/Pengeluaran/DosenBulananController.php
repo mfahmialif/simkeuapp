@@ -109,7 +109,7 @@ class DosenBulananController extends Controller
 
         $data = new KeuanganPengeluaranPegawaiBulanan;
         $this->fillData($data, $request);
-        $data->save();
+        $this->savePengeluaranWithRekapValidation($data);
 
         return response()->json([
             'status' => true,
@@ -204,6 +204,8 @@ class DosenBulananController extends Controller
             $created = 0;
             $updated = 0;
             $deleted = 0;
+            $this->lockRekapRows([$payload['rekap_id']]);
+            $emptyFallbackAmounts = $this->snapshotRekapTotals([$payload['rekap_id']]);
             $pegawaiIds = collect($payload['items'])->pluck('pegawai_id')->unique()->values();
             $recordsByPegawai = KeuanganPengeluaranPegawaiBulanan::query()
                 ->where('rekap_id', $payload['rekap_id'])
@@ -273,6 +275,11 @@ class DosenBulananController extends Controller
                 }
             }
 
+            $this->validateAndSyncRekapTemporary(
+                [$payload['rekap_id']],
+                $emptyFallbackAmounts
+            );
+
             return compact('created', 'updated', 'deleted');
         });
 
@@ -326,7 +333,7 @@ class DosenBulananController extends Controller
         }
 
         $this->fillData($data, $request);
-        $data->save();
+        $this->savePengeluaranWithRekapValidation($data);
 
         return response()->json([
             'status' => true,
@@ -351,7 +358,7 @@ class DosenBulananController extends Controller
         }
 
         $this->deleteLampiran($data->lampiran);
-        $data->delete();
+        $this->deletePengeluaranWithRekapValidation($data);
 
         return response()->json([
             'status' => true,

@@ -12,6 +12,7 @@ class KeuanganPengeluaranDosenKegiatan extends Model
 
     protected $casts = [
         'lampiran' => 'array',
+        'nominal' => 'integer',
     ];
 
     public function pegawai()

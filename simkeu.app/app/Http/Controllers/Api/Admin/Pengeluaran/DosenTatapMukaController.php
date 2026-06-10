@@ -163,7 +163,7 @@ class DosenTatapMukaController extends Controller
         $isExistingData = (bool) $data;
         $data ??= new KeuanganPengeluaranDosen;
         $this->fillData($data, $request);
-        $data->save();
+        $this->savePengeluaranWithRekapValidation($data);
 
         return response()->json([
             'status' => true,
@@ -268,7 +268,7 @@ class DosenTatapMukaController extends Controller
         }
 
         $this->fillData($data, $request);
-        $data->save();
+        $this->savePengeluaranWithRekapValidation($data);
 
         return response()->json([
             'status' => true,
@@ -290,7 +290,7 @@ class DosenTatapMukaController extends Controller
 
         $this->deleteBuktiTransfer($data->bukti_transfer);
         $this->deleteLampiran($data->lampiran);
-        $data->delete();
+        $this->deletePengeluaranWithRekapValidation($data);
 
         return response()->json([
             'status' => true,

@@ -2,10 +2,12 @@
 
 namespace App\Http\Controllers\Api\Admin\Pengeluaran\Concerns;
 
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 trait ManagesPengeluaranRekap
 {
@@ -17,32 +19,65 @@ trait ManagesPengeluaranRekap
 
     abstract protected function newRekapBulkPengeluaranQuery(Request $request);
 
+    protected function requiresRekapForPengeluaran(): bool
+    {
+        return false;
+    }
+
     public function rekapIndex(Request $request)
     {
         $modelClass = $this->rekapModelClass();
-        $rekapTable = (new $modelClass())->getTable();
+        $rekapTable = (new $modelClass)->getTable();
+        $summary = $this->rekapSummaryQuery();
 
-        $query = $modelClass::query();
+        $query = $modelClass::query()
+            ->select([
+                "{$rekapTable}.*",
+                DB::raw('COALESCE(rekap_summary.jumlah_data, 0) as jumlah_data'),
+                DB::raw('COALESCE(rekap_summary.total_pengeluaran, 0) as total_pengeluaran'),
+                DB::raw($this->effectiveAmountSql($rekapTable).' as jumlah'),
+                DB::raw('CASE WHEN COALESCE(rekap_summary.jumlah_data, 0) = 0 THEN 1 ELSE 0 END as is_jumlah_sementara'),
+                DB::raw($this->temporaryDifferenceSql($rekapTable).' as selisih_sementara'),
+            ])
+            ->leftJoinSub(
+                $summary,
+                'rekap_summary',
+                'rekap_summary.rekap_id',
+                '=',
+                "{$rekapTable}.id"
+            );
 
         if ($request->filled('search')) {
             $search = $request->search;
-            $query->where(function ($q) use ($search) {
-                $q->where('nama', 'LIKE', "%{$search}%")
-                    ->orWhere('keterangan', 'LIKE', "%{$search}%");
+            $query->where(function ($q) use ($search, $rekapTable) {
+                $q->where("{$rekapTable}.nama", 'LIKE', "%{$search}%")
+                    ->orWhere("{$rekapTable}.keterangan", 'LIKE', "%{$search}%");
             });
         }
 
         if ($request->filled('bulan')) {
-            $query->whereMonth('bulan_tahun', (int) $request->bulan);
+            $query->whereMonth("{$rekapTable}.bulan_tahun", (int) $request->bulan);
         }
 
         if ($request->filled('tahun')) {
-            $query->whereYear('bulan_tahun', (int) $request->tahun);
+            $query->whereYear("{$rekapTable}.bulan_tahun", (int) $request->tahun);
+        }
+
+        if ($request->filled('tanggal_mulai')) {
+            $query->whereDate("{$rekapTable}.tanggal_rekap", '>=', $request->tanggal_mulai);
+        }
+
+        if ($request->filled('tanggal_akhir')) {
+            $query->whereDate("{$rekapTable}.tanggal_rekap", '<=', $request->tanggal_akhir);
         }
 
         $sortColumns = [
             'id' => "{$rekapTable}.id",
             'nama' => "{$rekapTable}.nama",
+            'tanggal_rekap' => "{$rekapTable}.tanggal_rekap",
+            'jumlah' => 'jumlah',
+            'jumlah_data' => 'jumlah_data',
+            'total_pengeluaran' => 'total_pengeluaran',
             'created_at' => "{$rekapTable}.created_at",
         ];
         $sortKey = $request->input('sort_key', 'id');
@@ -50,7 +85,7 @@ trait ManagesPengeluaranRekap
         $query->orderBy($sortColumns[$sortKey] ?? "{$rekapTable}.id", $sortOrder);
 
         $data = $query->paginate($request->get('limit', 10));
-        $this->appendRekapSummaries($data->getCollection());
+        $data->getCollection()->each(fn ($item) => $this->castRekapSummary($item));
 
         return response()->json([
             'status' => true,
@@ -62,16 +97,14 @@ trait ManagesPengeluaranRekap
     public function rekapStore(Request $request)
     {
         $modelClass = $this->rekapModelClass();
-        $rekapTable = (new $modelClass())->getTable();
-        $input = [
-            'nama' => trim((string) $request->input('nama')),
-            'bulan_tahun' => $request->input('bulan_tahun'),
-            'keterangan' => $request->input('keterangan'),
-        ];
+        $rekapTable = (new $modelClass)->getTable();
+        $input = $this->rekapInput($request);
 
         $validator = Validator::make($input, [
             'nama' => ['required', 'string', 'max:255', Rule::unique($rekapTable, 'nama')],
             'bulan_tahun' => ['required', 'date_format:Y-m'],
+            'tanggal_rekap' => ['required', 'date_format:Y-m-d'],
+            'jumlah_sementara' => ['required', 'integer', 'min:0'],
             'keterangan' => 'nullable|string',
         ]);
 
@@ -86,15 +119,72 @@ trait ManagesPengeluaranRekap
         $validated['bulan_tahun'] .= '-01';
 
         $data = $modelClass::create($validated);
-
-        $data->jumlah_data = 0;
-        $data->total_pengeluaran = 0;
+        $this->applyRekapSummary($data, [
+            'jumlah_data' => 0,
+            'total_pengeluaran' => 0,
+        ]);
 
         return response()->json([
             'status' => true,
             'data' => $data,
             'message' => 'Rekap created successfully',
         ], 201);
+    }
+
+    public function rekapUpdate(Request $request, $id)
+    {
+        $modelClass = $this->rekapModelClass();
+        $rekapTable = (new $modelClass)->getTable();
+        $data = $modelClass::find($id);
+
+        if (! $data) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Rekap not found',
+            ], 404);
+        }
+
+        $summary = $this->rekapSummary($data->id);
+        $hasDetails = $summary['jumlah_data'] > 0;
+        $input = $this->rekapInput($request);
+
+        $validator = Validator::make($input, [
+            'nama' => [
+                'required',
+                'string',
+                'max:255',
+                Rule::unique($rekapTable, 'nama')->ignore($data->id),
+            ],
+            'bulan_tahun' => ['required', 'date_format:Y-m'],
+            'tanggal_rekap' => ['required', 'date_format:Y-m-d'],
+            'jumlah_sementara' => $hasDetails
+                ? ['nullable', 'integer', 'min:0']
+                : ['required', 'integer', 'min:0'],
+            'keterangan' => 'nullable|string',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'message' => $validator->errors(),
+            ], 422);
+        }
+
+        $validated = $validator->validated();
+        $validated['bulan_tahun'] .= '-01';
+
+        if ($hasDetails) {
+            unset($validated['jumlah_sementara']);
+        }
+
+        $data->update($validated);
+        $this->applyRekapSummary($data, $summary);
+
+        return response()->json([
+            'status' => true,
+            'data' => $data,
+            'message' => 'Rekap updated successfully',
+        ]);
     }
 
     public function rekapShow($id)
@@ -109,9 +199,7 @@ trait ManagesPengeluaranRekap
             ], 404);
         }
 
-        $summary = $this->rekapSummary($data->id);
-        $data->jumlah_data = $summary['jumlah_data'];
-        $data->total_pengeluaran = $summary['total_pengeluaran'];
+        $this->applyRekapSummary($data, $this->rekapSummary($data->id));
 
         return response()->json([
             'status' => true,
@@ -124,8 +212,12 @@ trait ManagesPengeluaranRekap
     {
         $modelClass = $this->rekapModelClass();
 
+        $rekapIdRules = $this->requiresRekapForPengeluaran()
+            ? ['required', Rule::exists((new $modelClass)->getTable(), 'id')]
+            : ['present', 'nullable', Rule::exists((new $modelClass)->getTable(), 'id')];
+
         $validator = Validator::make($request->all(), [
-            'rekap_id' => ['present', 'nullable', Rule::exists((new $modelClass())->getTable(), 'id')],
+            'rekap_id' => $rekapIdRules,
             'all_pages' => 'nullable|boolean',
             'ids' => 'nullable|array',
             'ids.*' => 'integer',
@@ -141,16 +233,16 @@ trait ManagesPengeluaranRekap
 
         $ids = $request->boolean('all_pages')
             ? $this->newRekapBulkPengeluaranQuery(new Request($request->input('filters', [])))
-                ->pluck($this->pengeluaranTable() . '.id')
+                ->pluck($this->pengeluaranTable().'.id')
                 ->unique()
                 ->values()
                 ->all()
-            : $this->newRekapBulkPengeluaranQuery(new Request())
+            : $this->newRekapBulkPengeluaranQuery(new Request)
                 ->whereIn(
-                    $this->pengeluaranTable() . '.id',
+                    $this->pengeluaranTable().'.id',
                     collect($request->input('ids', []))->filter()->unique()->values()->all()
                 )
-                ->pluck($this->pengeluaranTable() . '.id')
+                ->pluck($this->pengeluaranTable().'.id')
                 ->unique()
                 ->values()
                 ->all();
@@ -164,12 +256,38 @@ trait ManagesPengeluaranRekap
             ], 422);
         }
 
-        $updated = DB::table($this->pengeluaranTable())
-            ->whereIn('id', $ids)
-            ->update([
-                'rekap_id' => $request->rekap_id,
-                'updated_at' => now(),
-            ]);
+        $updated = DB::transaction(function () use ($ids, $request) {
+            $this->lockAllRekapRows();
+
+            $oldRekapIds = DB::table($this->pengeluaranTable())
+                ->whereIn('id', $ids)
+                ->lockForUpdate()
+                ->pluck('rekap_id')
+                ->filter()
+                ->unique()
+                ->values()
+                ->all();
+            $affectedRekapIds = [
+                ...$oldRekapIds,
+                $request->rekap_id,
+            ];
+
+            $emptyFallbackAmounts = $this->snapshotRekapTotals($oldRekapIds);
+
+            $updated = DB::table($this->pengeluaranTable())
+                ->whereIn('id', $ids)
+                ->update([
+                    'rekap_id' => $request->rekap_id,
+                    'updated_at' => now(),
+                ]);
+
+            $this->validateAndSyncRekapTemporary(
+                $affectedRekapIds,
+                $emptyFallbackAmounts
+            );
+
+            return $updated;
+        });
 
         return response()->json([
             'status' => true,
@@ -184,6 +302,13 @@ trait ManagesPengeluaranRekap
 
     public function rekapRelease($id)
     {
+        if ($this->requiresRekapForPengeluaran()) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Data Pengeluaran Kegiatan wajib berada dalam rekap.',
+            ], 422);
+        }
+
         $modelClass = $this->rekapModelClass();
         $rekap = $modelClass::find($id);
 
@@ -194,12 +319,24 @@ trait ManagesPengeluaranRekap
             ], 404);
         }
 
-        $updated = DB::table($this->pengeluaranTable())
-            ->where('rekap_id', $rekap->id)
-            ->update([
-                'rekap_id' => null,
-                'updated_at' => now(),
-            ]);
+        $updated = DB::transaction(function () use ($rekap) {
+            $this->lockRekapRows([$rekap->id]);
+            $emptyFallbackAmounts = $this->snapshotRekapTotals([$rekap->id]);
+
+            $updated = DB::table($this->pengeluaranTable())
+                ->where('rekap_id', $rekap->id)
+                ->update([
+                    'rekap_id' => null,
+                    'updated_at' => now(),
+                ]);
+
+            $this->validateAndSyncRekapTemporary(
+                [$rekap->id],
+                $emptyFallbackAmounts
+            );
+
+            return $updated;
+        });
 
         return response()->json([
             'status' => true,
@@ -222,8 +359,8 @@ trait ManagesPengeluaranRekap
             ], 404);
         }
 
-        $jumlahData = DB::table($this->pengeluaranTable())
-            ->where('rekap_id', $rekap->id)
+        $jumlahData = $this->newRekapPengeluaranQuery()
+            ->where($this->pengeluaranTable().'.rekap_id', $rekap->id)
             ->count();
 
         if ($jumlahData > 0) {
@@ -246,17 +383,17 @@ trait ManagesPengeluaranRekap
     {
         $modelClass = $this->rekapModelClass();
         $query->leftJoin(
-            (new $modelClass())->getTable() . ' as pengeluaran_rekap',
+            (new $modelClass)->getTable().' as pengeluaran_rekap',
             'pengeluaran_rekap.id',
             '=',
-            $this->pengeluaranTable() . '.rekap_id'
+            $this->pengeluaranTable().'.rekap_id'
         );
     }
 
     protected function applyRekapFilter($query, Request $request): void
     {
         if ($request->filled('rekap_id')) {
-            $query->where($this->pengeluaranTable() . '.rekap_id', $request->rekap_id);
+            $query->where($this->pengeluaranTable().'.rekap_id', $request->rekap_id);
         }
     }
 
@@ -266,45 +403,201 @@ trait ManagesPengeluaranRekap
 
         return [
             'nullable',
-            Rule::exists((new $modelClass())->getTable(), 'id'),
+            Rule::exists((new $modelClass)->getTable(), 'id'),
         ];
     }
 
-    private function appendRekapSummaries($rekapCollection): void
+    protected function savePengeluaranWithRekapValidation(Model $data): void
     {
-        $ids = $rekapCollection->pluck('id')->filter()->values();
+        $oldRekapId = $data->exists ? $data->getOriginal('rekap_id') : null;
+
+        DB::transaction(function () use ($data, $oldRekapId) {
+            $affectedRekapIds = [$oldRekapId, $data->rekap_id];
+            $this->lockRekapRows($affectedRekapIds);
+            $emptyFallbackAmounts = $this->snapshotRekapTotals([$oldRekapId]);
+
+            $data->save();
+            $this->validateAndSyncRekapTemporary(
+                $affectedRekapIds,
+                $emptyFallbackAmounts
+            );
+        });
+    }
+
+    protected function deletePengeluaranWithRekapValidation(Model $data): void
+    {
+        $rekapId = $data->rekap_id;
+
+        DB::transaction(function () use ($data, $rekapId) {
+            $this->lockRekapRows([$rekapId]);
+            $emptyFallbackAmounts = $this->snapshotRekapTotals([$rekapId]);
+
+            $data->delete();
+            $this->validateAndSyncRekapTemporary(
+                [$rekapId],
+                $emptyFallbackAmounts
+            );
+        });
+    }
+
+    protected function lockRekapRows(array $rekapIds): void
+    {
+        $ids = $this->normalizeRekapIds($rekapIds);
 
         if ($ids->isEmpty()) {
             return;
         }
 
-        $summary = $this->newRekapPengeluaranQuery()
-            ->whereIn($this->pengeluaranTable() . '.rekap_id', $ids)
-            ->select([
-                $this->pengeluaranTable() . '.rekap_id',
-                DB::raw('COUNT(*) as jumlah_data'),
-                DB::raw('COALESCE(SUM(' . $this->pengeluaranTable() . '.total), 0) as total_pengeluaran'),
+        $modelClass = $this->rekapModelClass();
+        $modelClass::query()
+            ->whereIn('id', $ids)
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get();
+    }
+
+    protected function lockAllRekapRows(): void
+    {
+        $modelClass = $this->rekapModelClass();
+        $modelClass::query()
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get();
+    }
+
+    protected function snapshotRekapTotals(array $rekapIds): array
+    {
+        return $this->normalizeRekapIds($rekapIds)
+            ->mapWithKeys(fn ($id) => [
+                $id => $this->rekapSummary($id)['total_pengeluaran'],
             ])
-            ->groupBy($this->pengeluaranTable() . '.rekap_id')
+            ->all();
+    }
+
+    protected function validateAndSyncRekapTemporary(
+        array $rekapIds,
+        array $emptyFallbackAmounts = []
+    ): void {
+        $ids = $this->normalizeRekapIds($rekapIds);
+
+        if ($ids->isEmpty()) {
+            return;
+        }
+
+        $modelClass = $this->rekapModelClass();
+        $rekaps = $modelClass::query()
+            ->whereIn('id', $ids)
+            ->orderBy('id')
+            ->lockForUpdate()
             ->get()
-            ->keyBy('rekap_id');
+            ->keyBy('id');
 
-        $rekapCollection->transform(function ($item) use ($summary) {
-            $itemSummary = $summary->get($item->id);
-            $item->jumlah_data = (int) ($itemSummary->jumlah_data ?? 0);
-            $item->total_pengeluaran = (int) ($itemSummary->total_pengeluaran ?? 0);
+        foreach ($ids as $id) {
+            $rekap = $rekaps->get($id);
 
-            return $item;
-        });
+            if (! $rekap) {
+                continue;
+            }
+
+            $summary = $this->rekapSummary($id);
+
+            if (
+                $rekap->jumlah_sementara === null
+                && $summary['jumlah_data'] === 0
+                && array_key_exists($id, $emptyFallbackAmounts)
+            ) {
+                $rekap->jumlah_sementara = (int) $emptyFallbackAmounts[$id];
+                $rekap->save();
+            }
+
+            if ($rekap->jumlah_sementara === null) {
+                continue;
+            }
+
+            $temporaryAmount = (int) $rekap->jumlah_sementara;
+            $detailAmount = $summary['total_pengeluaran'];
+            $amounts = $this->resolveRekapAmounts(
+                $temporaryAmount,
+                $summary['jumlah_data'],
+                $detailAmount
+            );
+
+            if ($amounts['exceeds_temporary']) {
+                throw ValidationException::withMessages([
+                    'total' => [
+                        'Total detail Rp '.number_format($detailAmount, 0, ',', '.')
+                        .' melebihi jumlah sementara Rp '
+                        .number_format($temporaryAmount, 0, ',', '.')
+                        ." pada rekap {$rekap->nama}.",
+                    ],
+                ]);
+            }
+
+            if ($amounts['should_clear_temporary']) {
+                $rekap->jumlah_sementara = null;
+                $rekap->save();
+            }
+        }
+    }
+
+    protected function resolveRekapAmounts(
+        ?int $temporaryAmount,
+        int $detailCount,
+        int $detailAmount
+    ): array {
+        return [
+            'jumlah' => $detailCount > 0
+                ? $detailAmount
+                : ($temporaryAmount ?? 0),
+            'is_jumlah_sementara' => $detailCount === 0,
+            'selisih_sementara' => $temporaryAmount !== null
+                ? max(0, $temporaryAmount - $detailAmount)
+                : 0,
+            'exceeds_temporary' => $temporaryAmount !== null
+                && $detailAmount > $temporaryAmount,
+            'should_clear_temporary' => $temporaryAmount !== null
+                && $detailCount > 0
+                && $detailAmount === $temporaryAmount,
+        ];
+    }
+
+    private function rekapInput(Request $request): array
+    {
+        return [
+            'nama' => trim((string) $request->input('nama')),
+            'bulan_tahun' => $request->input('bulan_tahun'),
+            'tanggal_rekap' => $request->input('tanggal_rekap'),
+            'jumlah_sementara' => $request->input(
+                'jumlah_sementara',
+                $request->input('jumlah')
+            ),
+            'keterangan' => $request->input('keterangan'),
+        ];
+    }
+
+    private function rekapSummaryQuery()
+    {
+        return $this->newRekapPengeluaranQuery()
+            ->whereNotNull($this->pengeluaranTable().'.rekap_id')
+            ->select([
+                $this->pengeluaranTable().'.rekap_id',
+                DB::raw('COUNT(*) as jumlah_data'),
+                DB::raw(
+                    'COALESCE(SUM('.$this->pengeluaranTable().'.total), 0) as total_pengeluaran'
+                ),
+            ])
+            ->groupBy($this->pengeluaranTable().'.rekap_id');
     }
 
     private function rekapSummary($rekapId): array
     {
         $summary = $this->newRekapPengeluaranQuery()
-            ->where($this->pengeluaranTable() . '.rekap_id', $rekapId)
+            ->where($this->pengeluaranTable().'.rekap_id', $rekapId)
             ->select([
                 DB::raw('COUNT(*) as jumlah_data'),
-                DB::raw('COALESCE(SUM(' . $this->pengeluaranTable() . '.total), 0) as total_pengeluaran'),
+                DB::raw(
+                    'COALESCE(SUM('.$this->pengeluaranTable().'.total), 0) as total_pengeluaran'
+                ),
             ])
             ->first();
 
@@ -312,5 +605,60 @@ trait ManagesPengeluaranRekap
             'jumlah_data' => (int) ($summary->jumlah_data ?? 0),
             'total_pengeluaran' => (int) ($summary->total_pengeluaran ?? 0),
         ];
+    }
+
+    private function applyRekapSummary($data, array $summary): void
+    {
+        $amounts = $this->resolveRekapAmounts(
+            $data->jumlah_sementara === null ? null : (int) $data->jumlah_sementara,
+            (int) $summary['jumlah_data'],
+            (int) $summary['total_pengeluaran']
+        );
+
+        $data->jumlah_data = (int) $summary['jumlah_data'];
+        $data->total_pengeluaran = (int) $summary['total_pengeluaran'];
+        $data->jumlah = $amounts['jumlah'];
+        $data->is_jumlah_sementara = $amounts['is_jumlah_sementara'];
+        $data->selisih_sementara = $amounts['selisih_sementara'];
+    }
+
+    private function castRekapSummary($data): void
+    {
+        $data->jumlah_data = (int) $data->jumlah_data;
+        $data->total_pengeluaran = (int) $data->total_pengeluaran;
+        $data->jumlah = (int) $data->jumlah;
+        $data->is_jumlah_sementara = (bool) $data->is_jumlah_sementara;
+        $data->selisih_sementara = (int) $data->selisih_sementara;
+    }
+
+    private function effectiveAmountSql(string $rekapTable): string
+    {
+        return "CASE
+            WHEN COALESCE(rekap_summary.jumlah_data, 0) > 0
+                THEN COALESCE(rekap_summary.total_pengeluaran, 0)
+            ELSE COALESCE({$rekapTable}.jumlah_sementara, 0)
+        END";
+    }
+
+    private function temporaryDifferenceSql(string $rekapTable): string
+    {
+        return "CASE
+            WHEN {$rekapTable}.jumlah_sementara IS NOT NULL
+                AND {$rekapTable}.jumlah_sementara
+                    > COALESCE(rekap_summary.total_pengeluaran, 0)
+                THEN {$rekapTable}.jumlah_sementara
+                    - COALESCE(rekap_summary.total_pengeluaran, 0)
+            ELSE 0
+        END";
+    }
+
+    private function normalizeRekapIds(array $rekapIds)
+    {
+        return collect($rekapIds)
+            ->filter(fn ($id) => $id !== null && $id !== '')
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->sort()
+            ->values();
     }
 }

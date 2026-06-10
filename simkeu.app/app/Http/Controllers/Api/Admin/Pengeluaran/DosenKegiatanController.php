@@ -16,7 +16,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Rules\RequiredIf;
 use Maatwebsite\Excel\Facades\Excel;
+use Throwable;
 
 class DosenKegiatanController extends Controller
 {
@@ -25,7 +27,11 @@ class DosenKegiatanController extends Controller
     use ManagesLampiran;
     use ManagesPengeluaranRekap;
 
-    private const JENIS_PEMBAYARAN = ['CUS BSI', 'Transfer'];
+    private const KATEGORI_DETAIL = ['pegawai', 'non_pegawai'];
+
+    private const JENIS_PEMBAYARAN_PEGAWAI = ['CUS BSI', 'Transfer'];
+
+    private const JENIS_PEMBAYARAN_NON_PEGAWAI = ['Tunai', 'Transfer'];
 
     private const BUKTI_TRANSFER_DIR = 'kegiatan';
 
@@ -67,9 +73,11 @@ class DosenKegiatanController extends Controller
             'nama_pegawai' => 'pegawai.nama',
             'kode_dosen' => 'pegawai.kode',
             'nama_dosen' => 'pegawai.nama',
+            'kategori_detail' => 'keuangan_pengeluaran_dosen_kegiatan.kategori_detail',
             'nama_kegiatan' => 'keuangan_pengeluaran_dosen_kegiatan.nama_kegiatan',
             'transport' => 'keuangan_pengeluaran_dosen_kegiatan.transport',
             'barokah' => 'keuangan_pengeluaran_dosen_kegiatan.barokah',
+            'nominal' => 'keuangan_pengeluaran_dosen_kegiatan.nominal',
             'total' => 'keuangan_pengeluaran_dosen_kegiatan.total',
             'jenis_pembayaran' => 'keuangan_pengeluaran_dosen_kegiatan.jenis_pembayaran',
             'nama_rekap' => 'pengeluaran_rekap.nama',
@@ -97,7 +105,7 @@ class DosenKegiatanController extends Controller
 
     public function store(Request $request)
     {
-        $validator = Validator::make($request->all(), $this->rules(false));
+        $validator = Validator::make($request->all(), $this->rules($request));
 
         if ($validator->fails()) {
             return response()->json([
@@ -112,13 +120,290 @@ class DosenKegiatanController extends Controller
 
         $data = new KeuanganPengeluaranDosenKegiatan;
         $this->fillData($data, $request);
-        $data->save();
+        $this->savePengeluaranWithRekapValidation($data);
 
         return response()->json([
             'status' => true,
             'data' => $this->appendPengeluaranFiles($this->findWithDosen($data->id) ?? $data),
             'message' => 'Barokah Pegawai Kegiatan created successfully',
         ], 201);
+    }
+
+    public function batchStore(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'rekap_id' => [
+                'required',
+                Rule::exists((new KeuanganPengeluaranDosenKegiatanRekap)->getTable(), 'id'),
+            ],
+            'items' => ['required', 'array', 'min:1', 'max:100'],
+            'items.*.tanggal' => ['required', 'date'],
+            'items.*.kategori_detail' => ['required', Rule::in(self::KATEGORI_DETAIL)],
+            'items.*.pegawai_id' => ['nullable', Rule::exists('pegawai', 'id')],
+            'items.*.nama_kegiatan' => ['required', 'string', 'max:255'],
+            'items.*.transport' => ['nullable', 'numeric', 'min:0'],
+            'items.*.barokah' => ['nullable', 'numeric', 'min:0'],
+            'items.*.nominal' => ['nullable', 'numeric', 'min:0'],
+            'items.*.jenis_pembayaran' => ['required', 'string'],
+            'items.*.bukti_transfer' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:4096'],
+            'items.*.keterangan' => ['nullable', 'string'],
+        ]);
+
+        $validator->after(function ($validator) use ($request) {
+            foreach ($request->input('items', []) as $index => $item) {
+                $category = $item['kategori_detail'] ?? null;
+                $paymentType = $item['jenis_pembayaran'] ?? null;
+                $allowedPaymentTypes = $category === 'non_pegawai'
+                    ? self::JENIS_PEMBAYARAN_NON_PEGAWAI
+                    : self::JENIS_PEMBAYARAN_PEGAWAI;
+
+                if ($category === 'pegawai' && empty($item['pegawai_id'])) {
+                    $validator->errors()->add(
+                        "items.{$index}.pegawai_id",
+                        'Pegawai wajib dipilih untuk kategori Pegawai.'
+                    );
+                }
+
+                if ($category === 'non_pegawai' && ! isset($item['nominal'])) {
+                    $validator->errors()->add(
+                        "items.{$index}.nominal",
+                        'Nominal wajib diisi untuk kategori Nonpegawai.'
+                    );
+                }
+
+                if (! in_array($paymentType, $allowedPaymentTypes, true)) {
+                    $validator->errors()->add(
+                        "items.{$index}.jenis_pembayaran",
+                        'Jenis pembayaran tidak sesuai kategori.'
+                    );
+                }
+
+            }
+        });
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'message' => $validator->errors(),
+            ], 422);
+        }
+
+        $payload = $validator->validated();
+        $storedBuktiTransfer = [];
+
+        try {
+            $createdIds = DB::transaction(function () use (
+                $payload,
+                $request,
+                &$storedBuktiTransfer
+            ) {
+                $rekapId = $payload['rekap_id'];
+                $this->lockRekapRows([$rekapId]);
+                $createdIds = [];
+
+                foreach ($payload['items'] as $index => $item) {
+                    unset($item['bukti_transfer']);
+                    $item['rekap_id'] = $rekapId;
+                    $rowRequest = Request::create('/', 'POST', $item);
+                    $buktiTransfer = $request->file("items.{$index}.bukti_transfer");
+
+                    if ($buktiTransfer) {
+                        $rowRequest->files->set('bukti_transfer', $buktiTransfer);
+                    }
+
+                    $data = new KeuanganPengeluaranDosenKegiatan;
+                    $this->fillData($data, $rowRequest);
+
+                    if ($data->bukti_transfer) {
+                        $storedBuktiTransfer[] = $data->bukti_transfer;
+                    }
+
+                    $data->save();
+                    $createdIds[] = $data->id;
+                }
+
+                $this->validateAndSyncRekapTemporary([$rekapId]);
+
+                return $createdIds;
+            });
+        } catch (Throwable $exception) {
+            foreach ($storedBuktiTransfer as $path) {
+                $this->deleteBuktiTransfer($path);
+            }
+
+            throw $exception;
+        }
+
+        return response()->json([
+            'status' => true,
+            'data' => [
+                'created' => count($createdIds),
+                'ids' => $createdIds,
+            ],
+            'message' => count($createdIds).' data Pengeluaran Kegiatan berhasil ditambahkan.',
+        ], 201);
+    }
+
+    public function batchUpdate(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'rekap_id' => [
+                'required',
+                Rule::exists((new KeuanganPengeluaranDosenKegiatanRekap)->getTable(), 'id'),
+            ],
+            'deleted_ids' => ['nullable', 'array'],
+            'deleted_ids.*' => [
+                'integer',
+                Rule::exists((new KeuanganPengeluaranDosenKegiatan)->getTable(), 'id'),
+            ],
+            'items' => ['required', 'array', 'max:100'],
+            'items.*.id' => [
+                'nullable',
+                'integer',
+                Rule::exists((new KeuanganPengeluaranDosenKegiatan)->getTable(), 'id'),
+            ],
+            'items.*.tanggal' => ['required', 'date'],
+            'items.*.kategori_detail' => ['required', Rule::in(self::KATEGORI_DETAIL)],
+            'items.*.pegawai_id' => ['nullable', Rule::exists('pegawai', 'id')],
+            'items.*.nama_kegiatan' => ['required', 'string', 'max:255'],
+            'items.*.transport' => ['nullable', 'numeric', 'min:0'],
+            'items.*.barokah' => ['nullable', 'numeric', 'min:0'],
+            'items.*.nominal' => ['nullable', 'numeric', 'min:0'],
+            'items.*.jenis_pembayaran' => ['required', 'string'],
+            'items.*.bukti_transfer' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:4096'],
+            'items.*.keterangan' => ['nullable', 'string'],
+        ]);
+
+        $validator->after(function ($validator) use ($request) {
+            foreach ($request->input('items', []) as $index => $item) {
+                $category = $item['kategori_detail'] ?? null;
+                $paymentType = $item['jenis_pembayaran'] ?? null;
+                $allowedPaymentTypes = $category === 'non_pegawai'
+                    ? self::JENIS_PEMBAYARAN_NON_PEGAWAI
+                    : self::JENIS_PEMBAYARAN_PEGAWAI;
+
+                if ($category === 'pegawai' && empty($item['pegawai_id'])) {
+                    $validator->errors()->add(
+                        "items.{$index}.pegawai_id",
+                        'Pegawai wajib dipilih untuk kategori Pegawai.'
+                    );
+                }
+
+                if ($category === 'non_pegawai' && ! isset($item['nominal'])) {
+                    $validator->errors()->add(
+                        "items.{$index}.nominal",
+                        'Nominal wajib diisi untuk kategori Nonpegawai.'
+                    );
+                }
+
+                if (! in_array($paymentType, $allowedPaymentTypes, true)) {
+                    $validator->errors()->add(
+                        "items.{$index}.jenis_pembayaran",
+                        'Jenis pembayaran tidak sesuai kategori.'
+                    );
+                }
+            }
+        });
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'message' => $validator->errors(),
+            ], 422);
+        }
+
+        $payload = $validator->validated();
+        $storedBuktiTransfer = [];
+
+        try {
+            $result = DB::transaction(function () use (
+                $payload,
+                $request,
+                &$storedBuktiTransfer
+            ) {
+                $rekapId = $payload['rekap_id'];
+                $deletedIds = collect($payload['deleted_ids'] ?? [])->filter()->unique()->values();
+                $itemIds = collect($payload['items'] ?? [])->pluck('id')->filter()->unique()->values();
+                $existingRows = KeuanganPengeluaranDosenKegiatan::query()
+                    ->whereIn('id', $deletedIds->merge($itemIds)->unique()->values())
+                    ->get()
+                    ->keyBy('id');
+
+                $affectedRekapIds = collect([$rekapId])
+                    ->merge($existingRows->pluck('rekap_id'))
+                    ->filter()
+                    ->unique()
+                    ->values()
+                    ->all();
+
+                $this->lockRekapRows($affectedRekapIds);
+                $emptyFallbackAmounts = $this->snapshotRekapTotals(
+                    $existingRows->pluck('rekap_id')->filter()->unique()->values()->all()
+                );
+
+                $deleted = 0;
+                foreach ($deletedIds as $id) {
+                    $data = $existingRows->get($id);
+                    if (! $data) {
+                        continue;
+                    }
+
+                    $this->deleteBuktiTransfer($data->bukti_transfer);
+                    $this->deleteLampiran($data->lampiran);
+                    $data->delete();
+                    $deleted++;
+                }
+
+                $updated = 0;
+                $created = 0;
+                foreach ($payload['items'] as $index => $item) {
+                    unset($item['bukti_transfer']);
+                    $id = $item['id'] ?? null;
+                    unset($item['id']);
+                    $item['rekap_id'] = $rekapId;
+
+                    $rowRequest = Request::create('/', 'POST', $item);
+                    $buktiTransfer = $request->file("items.{$index}.bukti_transfer");
+
+                    if ($buktiTransfer) {
+                        $rowRequest->files->set('bukti_transfer', $buktiTransfer);
+                    }
+
+                    $data = $id
+                        ? $existingRows->get($id)
+                        : new KeuanganPengeluaranDosenKegiatan;
+
+                    if (! $data) {
+                        continue;
+                    }
+
+                    $this->fillData($data, $rowRequest);
+
+                    if ($data->bukti_transfer && $buktiTransfer) {
+                        $storedBuktiTransfer[] = $data->bukti_transfer;
+                    }
+
+                    $data->save();
+                    $id ? $updated++ : $created++;
+                }
+
+                $this->validateAndSyncRekapTemporary($affectedRekapIds, $emptyFallbackAmounts);
+
+                return compact('created', 'updated', 'deleted');
+            });
+        } catch (Throwable $exception) {
+            foreach ($storedBuktiTransfer as $path) {
+                $this->deleteBuktiTransfer($path);
+            }
+
+            throw $exception;
+        }
+
+        return response()->json([
+            'status' => true,
+            'data' => $result,
+            'message' => ($result['created'] + $result['updated']).' data Pengeluaran Kegiatan berhasil diperbarui.',
+        ]);
     }
 
     public function show($id)
@@ -189,6 +474,8 @@ class DosenKegiatanController extends Controller
             'keuangan_pengeluaran_dosen_kegiatan.nama_kegiatan',
             'keuangan_pengeluaran_dosen_kegiatan.transport',
             'keuangan_pengeluaran_dosen_kegiatan.barokah',
+            'keuangan_pengeluaran_dosen_kegiatan.kategori_detail',
+            'keuangan_pengeluaran_dosen_kegiatan.nominal',
             'keuangan_pengeluaran_dosen_kegiatan.total',
             'keuangan_pengeluaran_dosen_kegiatan.jenis_pembayaran',
             'keuangan_pengeluaran_dosen_kegiatan.keterangan',
@@ -250,6 +537,8 @@ class DosenKegiatanController extends Controller
 
         return $query
             ->where('keuangan_pengeluaran_dosen_kegiatan.jenis_pembayaran', 'CUS BSI')
+            ->where('keuangan_pengeluaran_dosen_kegiatan.kategori_detail', 'pegawai')
+            ->whereNotNull('keuangan_pengeluaran_dosen_kegiatan.pegawai_id')
             ->groupBy($this->bsiGroupColumns())
             ->orderBy('pegawai.nama')
             ->get();
@@ -280,7 +569,7 @@ class DosenKegiatanController extends Controller
             ], 404);
         }
 
-        $validator = Validator::make($request->all(), $this->rules(true));
+        $validator = Validator::make($request->all(), $this->rules($request));
 
         if ($validator->fails()) {
             return response()->json([
@@ -294,7 +583,7 @@ class DosenKegiatanController extends Controller
         }
 
         $this->fillData($data, $request);
-        $data->save();
+        $this->savePengeluaranWithRekapValidation($data);
 
         return response()->json([
             'status' => true,
@@ -316,11 +605,78 @@ class DosenKegiatanController extends Controller
 
         $this->deleteBuktiTransfer($data->bukti_transfer);
         $this->deleteLampiran($data->lampiran);
-        $data->delete();
+        $this->deletePengeluaranWithRekapValidation($data);
 
         return response()->json([
             'status' => true,
             'message' => 'Barokah Pegawai Kegiatan deleted successfully',
+        ]);
+    }
+
+    public function rekapDestroy($id)
+    {
+        $deletedFiles = [
+            'bukti_transfer' => [],
+            'lampiran' => [],
+        ];
+
+        $result = DB::transaction(function () use ($id, &$deletedFiles) {
+            $rekap = KeuanganPengeluaranDosenKegiatanRekap::query()
+                ->whereKey($id)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $rekap) {
+                return null;
+            }
+
+            $details = KeuanganPengeluaranDosenKegiatan::query()
+                ->where('rekap_id', $rekap->id)
+                ->lockForUpdate()
+                ->get();
+
+            foreach ($details as $detail) {
+                if ($detail->bukti_transfer) {
+                    $deletedFiles['bukti_transfer'][] = $detail->bukti_transfer;
+                }
+
+                $deletedFiles['lampiran'][] = $detail->lampiran;
+            }
+
+            $deletedDetails = KeuanganPengeluaranDosenKegiatan::query()
+                ->where('rekap_id', $rekap->id)
+                ->delete();
+
+            $nama = $rekap->nama;
+            $rekap->delete();
+
+            return [
+                'nama' => $nama,
+                'deleted_details' => $deletedDetails,
+            ];
+        });
+
+        if (! $result) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Rekap not found',
+            ], 404);
+        }
+
+        foreach ($deletedFiles['bukti_transfer'] as $path) {
+            $this->deleteBuktiTransfer($path);
+        }
+
+        foreach ($deletedFiles['lampiran'] as $lampiran) {
+            $this->deleteLampiran($lampiran);
+        }
+
+        return response()->json([
+            'status' => true,
+            'data' => [
+                'deleted_details' => $result['deleted_details'],
+            ],
+            'message' => "Rekap {$result['nama']} dan {$result['deleted_details']} data pengeluaran berhasil dihapus.",
         ]);
     }
 
@@ -361,6 +717,11 @@ class DosenKegiatanController extends Controller
         return $query;
     }
 
+    protected function requiresRekapForPengeluaran(): bool
+    {
+        return true;
+    }
+
     private function bsiBeneficiaryNameSelect()
     {
         if ($this->hasNamaPemilikRekeningColumn()) {
@@ -388,6 +749,8 @@ class DosenKegiatanController extends Controller
                 ->orWhere('keuangan_pengeluaran_dosen_kegiatan.nama_kegiatan', 'LIKE', "%{$search}%")
                 ->orWhere('keuangan_pengeluaran_dosen_kegiatan.transport', 'LIKE', "%{$search}%")
                 ->orWhere('keuangan_pengeluaran_dosen_kegiatan.barokah', 'LIKE', "%{$search}%")
+                ->orWhere('keuangan_pengeluaran_dosen_kegiatan.kategori_detail', 'LIKE', "%{$search}%")
+                ->orWhere('keuangan_pengeluaran_dosen_kegiatan.nominal', 'LIKE', "%{$search}%")
                 ->orWhere('keuangan_pengeluaran_dosen_kegiatan.total', 'LIKE', "%{$search}%")
                 ->orWhere('keuangan_pengeluaran_dosen_kegiatan.jenis_pembayaran', 'LIKE', "%{$search}%")
                 ->orWhere('keuangan_pengeluaran_dosen_kegiatan.keterangan', 'LIKE', "%{$search}%")
@@ -476,20 +839,36 @@ class DosenKegiatanController extends Controller
         return $query;
     }
 
-    private function rules(bool $isUpdate): array
+    private function rules(Request $request): array
     {
+        $kategoriDetail = $request->input('kategori_detail');
+        $jenisPembayaran = $kategoriDetail === 'non_pegawai'
+            ? self::JENIS_PEMBAYARAN_NON_PEGAWAI
+            : self::JENIS_PEMBAYARAN_PEGAWAI;
+
         return [
             'tanggal' => 'required|date',
+            'kategori_detail' => ['required', Rule::in(self::KATEGORI_DETAIL)],
             'pegawai_id' => [
-                $isUpdate ? 'nullable' : 'required',
+                'nullable',
+                new RequiredIf($kategoriDetail === 'pegawai'),
                 Rule::exists('pegawai', 'id'),
             ],
             'nama_kegiatan' => 'required|string|max:255',
             'transport' => 'nullable|numeric|min:0',
             'barokah' => 'nullable|numeric|min:0',
+            'nominal' => [
+                'nullable',
+                new RequiredIf($kategoriDetail === 'non_pegawai'),
+                'numeric',
+                'min:0',
+            ],
             'total' => 'nullable|numeric|min:0',
-            'jenis_pembayaran' => 'required|in:'.implode(',', self::JENIS_PEMBAYARAN),
-            'rekap_id' => $this->rekapIdRules(),
+            'jenis_pembayaran' => ['required', Rule::in($jenisPembayaran)],
+            'rekap_id' => [
+                'required',
+                Rule::exists((new KeuanganPengeluaranDosenKegiatanRekap)->getTable(), 'id'),
+            ],
             'bukti_transfer' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:4096',
             'keterangan' => 'nullable|string',
             ...$this->lampiranRules(),
@@ -498,21 +877,24 @@ class DosenKegiatanController extends Controller
 
     private function fillData(KeuanganPengeluaranDosenKegiatan $data, Request $request): void
     {
-        $transport = $this->number($request->transport);
-        $barokah = $this->number($request->barokah);
+        $kategoriDetail = $request->kategori_detail;
+        $isPegawai = $kategoriDetail === 'pegawai';
+        $transport = $isPegawai ? $this->number($request->transport) : 0;
+        $barokah = $isPegawai ? $this->number($request->barokah) : 0;
+        $nominal = $isPegawai ? null : (int) round($this->number($request->nominal));
 
         $data->tanggal = $request->tanggal;
-        if ($request->filled('pegawai_id')) {
-            $data->pegawai_id = $request->pegawai_id;
-        }
+        $data->kategori_detail = $kategoriDetail;
+        $data->pegawai_id = $isPegawai ? $request->pegawai_id : null;
         $data->nama_kegiatan = $request->nama_kegiatan;
         $data->transport = $transport;
         $data->barokah = $barokah;
-        $data->total = (int) round($transport + $barokah);
+        $data->nominal = $nominal;
+        $data->total = $isPegawai
+            ? (int) round($transport + $barokah)
+            : $nominal;
         $data->jenis_pembayaran = $request->jenis_pembayaran;
-        if ($request->has('rekap_id')) {
-            $data->rekap_id = $request->filled('rekap_id') ? $request->rekap_id : null;
-        }
+        $data->rekap_id = $request->rekap_id;
         $data->keterangan = $request->keterangan;
         $data->lampiran = $this->updateLampiran(
             $request,
@@ -537,9 +919,7 @@ class DosenKegiatanController extends Controller
 
     private function needsBuktiTransfer(Request $request, ?KeuanganPengeluaranDosenKegiatan $data): bool
     {
-        return $request->jenis_pembayaran === 'Transfer'
-            && ! $request->hasFile('bukti_transfer')
-            && ! ($data?->bukti_transfer);
+        return false;
     }
 
     private function buktiTransferRequiredResponse()

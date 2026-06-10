@@ -177,6 +177,7 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
         Route::post('/dosen/rekap', [DosenTatapMukaController::class, 'rekapStore']);
         Route::post('/dosen/rekap/bulk-update', [DosenTatapMukaController::class, 'rekapBulkUpdate']);
         Route::post('/dosen/rekap/{id}/release', [DosenTatapMukaController::class, 'rekapRelease']);
+        Route::put('/dosen/rekap/{id}', [DosenTatapMukaController::class, 'rekapUpdate']);
         Route::delete('/dosen/rekap/{id}', [DosenTatapMukaController::class, 'rekapDestroy']);
         Route::get('/dosen/rekap/{id}', [DosenTatapMukaController::class, 'rekapShow']);
         Route::apiResource('dosen', DosenTatapMukaController::class);
@@ -184,10 +185,13 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
         Route::get('/dosen-kegiatan/export-excel', [PengeluaranDosenKegiatanController::class, 'exportExcel']);
         Route::get('/dosen-kegiatan/export-bsi', [PengeluaranDosenKegiatanController::class, 'exportBsi']);
         Route::get('/dosen-kegiatan/copy-bsi', [PengeluaranDosenKegiatanController::class, 'copyBsi']);
+        Route::post('/dosen-kegiatan/batch-store', [PengeluaranDosenKegiatanController::class, 'batchStore']);
+        Route::post('/dosen-kegiatan/batch-update', [PengeluaranDosenKegiatanController::class, 'batchUpdate']);
         Route::get('/dosen-kegiatan/rekap', [PengeluaranDosenKegiatanController::class, 'rekapIndex']);
         Route::post('/dosen-kegiatan/rekap', [PengeluaranDosenKegiatanController::class, 'rekapStore']);
         Route::post('/dosen-kegiatan/rekap/bulk-update', [PengeluaranDosenKegiatanController::class, 'rekapBulkUpdate']);
         Route::post('/dosen-kegiatan/rekap/{id}/release', [PengeluaranDosenKegiatanController::class, 'rekapRelease']);
+        Route::put('/dosen-kegiatan/rekap/{id}', [PengeluaranDosenKegiatanController::class, 'rekapUpdate']);
         Route::delete('/dosen-kegiatan/rekap/{id}', [PengeluaranDosenKegiatanController::class, 'rekapDestroy']);
         Route::get('/dosen-kegiatan/rekap/{id}', [PengeluaranDosenKegiatanController::class, 'rekapShow']);
         Route::apiResource('dosen-kegiatan', PengeluaranDosenKegiatanController::class);
@@ -199,6 +203,7 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
         Route::post('dosen-bulanan/rekap', [DosenBulananController::class, 'rekapStore'])->middleware('role:admin,barokahdosen_bulanan');
         Route::post('dosen-bulanan/rekap/bulk-update', [DosenBulananController::class, 'rekapBulkUpdate'])->middleware('role:admin,barokahdosen_bulanan');
         Route::post('dosen-bulanan/rekap/{id}/release', [DosenBulananController::class, 'rekapRelease'])->middleware('role:admin,barokahdosen_bulanan');
+        Route::put('dosen-bulanan/rekap/{id}', [DosenBulananController::class, 'rekapUpdate'])->middleware('role:admin,barokahdosen_bulanan');
         Route::delete('dosen-bulanan/rekap/{id}', [DosenBulananController::class, 'rekapDestroy'])->middleware('role:admin,barokahdosen_bulanan');
         Route::get('dosen-bulanan/rekap/{id}', [DosenBulananController::class, 'rekapShow'])->middleware('role:admin,barokahdosen_bulanan');
         Route::apiResource('dosen-bulanan', DosenBulananController::class)->middleware('role:admin,barokahdosen_bulanan');
@@ -209,6 +214,7 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
         Route::post('staff-bulanan/rekap', [StaffBulananController::class, 'rekapStore'])->middleware('role:admin,barokahdosen_kegiatan');
         Route::post('staff-bulanan/rekap/bulk-update', [StaffBulananController::class, 'rekapBulkUpdate'])->middleware('role:admin,barokahdosen_kegiatan');
         Route::post('staff-bulanan/rekap/{id}/release', [StaffBulananController::class, 'rekapRelease'])->middleware('role:admin,barokahdosen_kegiatan');
+        Route::put('staff-bulanan/rekap/{id}', [StaffBulananController::class, 'rekapUpdate'])->middleware('role:admin,barokahdosen_kegiatan');
         Route::delete('staff-bulanan/rekap/{id}', [StaffBulananController::class, 'rekapDestroy'])->middleware('role:admin,barokahdosen_kegiatan');
         Route::get('staff-bulanan/rekap/{id}', [StaffBulananController::class, 'rekapShow'])->middleware('role:admin,barokahdosen_kegiatan');
         Route::apiResource('staff-bulanan', StaffBulananController::class)->middleware('role:admin,barokahdosen_kegiatan');
