@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api\Admin\Pengeluaran;
 use App\Exports\BsiPayrollExport;
 use App\Exports\ExcelExport;
 use App\Http\Controllers\Api\Admin\Pengeluaran\Concerns\BuildsPengeluaranIndex;
+use App\Http\Controllers\Api\Admin\Pengeluaran\Concerns\ManagesBuktiTransfer;
+use App\Http\Controllers\Api\Admin\Pengeluaran\Concerns\ManagesLampiran;
 use App\Http\Controllers\Api\Admin\Pengeluaran\Concerns\ManagesPengeluaranRekap;
 use App\Http\Controllers\Controller;
 use App\Models\KeuanganPengeluaranDosenBulananRekap;
@@ -20,6 +22,8 @@ use Maatwebsite\Excel\Facades\Excel;
 class DosenBulananController extends Controller
 {
     use BuildsPengeluaranIndex;
+    use ManagesBuktiTransfer;
+    use ManagesLampiran;
     use ManagesPengeluaranRekap;
 
     protected const PEGAWAI_TIPE = 'dosen';
@@ -31,6 +35,12 @@ class DosenBulananController extends Controller
     protected const JENIS_PEMBAYARAN = ['CUS BSI', 'Transfer'];
 
     protected const REQUIRE_PERIODE = false;
+
+    protected const SUPPORTS_BUKTI_TRANSFER = false;
+
+    protected const BUKTI_TRANSFER_DIR = '';
+
+    protected const LAMPIRAN_DIR = 'dosen-bulanan';
 
     protected const REKAP_MODEL = KeuanganPengeluaranDosenBulananRekap::class;
 
@@ -72,6 +82,8 @@ class DosenBulananController extends Controller
             $stats['keseluruhan']['jumlah']
         );
 
+        $data->getCollection()->transform(fn ($item) => $this->appendPengeluaranFiles($item));
+
         return response()->json([
             'status' => true,
             'data' => $data,
@@ -91,13 +103,17 @@ class DosenBulananController extends Controller
             ], 422);
         }
 
+        if ($this->needsBuktiTransfer($request, null)) {
+            return $this->buktiTransferRequiredResponse();
+        }
+
         $data = new KeuanganPengeluaranPegawaiBulanan;
         $this->fillData($data, $request);
         $data->save();
 
         return response()->json([
             'status' => true,
-            'data' => $this->findWithPegawai($data->id) ?? $data,
+            'data' => $this->appendPengeluaranFiles($this->findWithPegawai($data->id) ?? $data),
             'message' => static::MODULE_NAME.' created successfully',
         ], 201);
     }
@@ -173,6 +189,7 @@ class DosenBulananController extends Controller
             ],
             'items.*.barokah_dosen_tetap' => ['nullable', 'numeric', 'min:0'],
             'items.*.barokah_struktural' => ['nullable', 'numeric', 'min:0'],
+            ...$this->lampiranRules(),
         ]);
 
         if ($validator->fails()) {
@@ -183,7 +200,7 @@ class DosenBulananController extends Controller
         }
 
         $payload = $validator->validated();
-        $result = DB::transaction(function () use ($payload) {
+        $result = DB::transaction(function () use ($payload, $request) {
             $created = 0;
             $updated = 0;
             $deleted = 0;
@@ -203,6 +220,10 @@ class DosenBulananController extends Controller
 
                 if ($total === 0) {
                     if ($records->isNotEmpty()) {
+                        foreach ($records as $record) {
+                            $this->deleteLampiran($record->lampiran);
+                        }
+
                         $deleted += KeuanganPengeluaranPegawaiBulanan::query()
                             ->whereIn('id', $records->pluck('id'))
                             ->delete();
@@ -226,6 +247,11 @@ class DosenBulananController extends Controller
                 $data->barokah_struktural = $struktural;
                 $data->total = $total;
                 $data->jenis_pembayaran = $payload['jenis_pembayaran'];
+                $data->lampiran = $this->updateLampiran(
+                    $request,
+                    $data->lampiran,
+                    static::LAMPIRAN_DIR
+                );
                 $data->save();
 
                 if ($isNew) {
@@ -235,7 +261,12 @@ class DosenBulananController extends Controller
                 }
 
                 if ($records->count() > 1) {
-                    $duplicateIds = $records->skip(1)->pluck('id');
+                    $duplicates = $records->skip(1);
+                    foreach ($duplicates as $duplicate) {
+                        $this->deleteLampiran($duplicate->lampiran);
+                    }
+
+                    $duplicateIds = $duplicates->pluck('id');
                     $deleted += KeuanganPengeluaranPegawaiBulanan::query()
                         ->whereIn('id', $duplicateIds)
                         ->delete();
@@ -265,7 +296,7 @@ class DosenBulananController extends Controller
 
         return response()->json([
             'status' => true,
-            'data' => $data,
+            'data' => $this->appendPengeluaranFiles($data),
             'message' => static::MODULE_NAME.' retrieved successfully',
         ]);
     }
@@ -290,12 +321,16 @@ class DosenBulananController extends Controller
             ], 422);
         }
 
+        if ($this->needsBuktiTransfer($request, $data)) {
+            return $this->buktiTransferRequiredResponse();
+        }
+
         $this->fillData($data, $request);
         $data->save();
 
         return response()->json([
             'status' => true,
-            'data' => $this->findWithPegawai($data->id) ?? $data,
+            'data' => $this->appendPengeluaranFiles($this->findWithPegawai($data->id) ?? $data),
             'message' => static::MODULE_NAME.' updated successfully',
         ]);
     }
@@ -311,6 +346,11 @@ class DosenBulananController extends Controller
             ], 404);
         }
 
+        if (static::SUPPORTS_BUKTI_TRANSFER) {
+            $this->deleteBuktiTransfer($data->bukti_transfer);
+        }
+
+        $this->deleteLampiran($data->lampiran);
         $data->delete();
 
         return response()->json([
@@ -631,7 +671,7 @@ class DosenBulananController extends Controller
 
     protected function rules(bool $isUpdate): array
     {
-        return [
+        $rules = [
             'tanggal' => 'required|date',
             'bulan' => (static::REQUIRE_PERIODE ? 'required' : 'nullable').'|integer|min:1|max:12',
             'tahun' => (static::REQUIRE_PERIODE ? 'required' : 'nullable').'|integer|min:1900|max:2100',
@@ -648,7 +688,14 @@ class DosenBulananController extends Controller
             'jenis_pembayaran' => 'required|in:'.implode(',', static::JENIS_PEMBAYARAN),
             'rekap_id' => $this->rekapIdRules(),
             'keterangan' => 'nullable|string',
+            ...$this->lampiranRules(),
         ];
+
+        if (static::SUPPORTS_BUKTI_TRANSFER) {
+            $rules['bukti_transfer'] = 'nullable|file|mimes:jpg,jpeg,png,pdf|max:4096';
+        }
+
+        return $rules;
     }
 
     protected function fillData(KeuanganPengeluaranPegawaiBulanan $data, Request $request): void
@@ -686,6 +733,63 @@ class DosenBulananController extends Controller
             $data->rekap_id = $request->filled('rekap_id') ? $request->rekap_id : null;
         }
         $data->keterangan = $request->keterangan;
+        $data->lampiran = $this->updateLampiran(
+            $request,
+            $data->lampiran,
+            static::LAMPIRAN_DIR
+        );
+
+        if (! static::SUPPORTS_BUKTI_TRANSFER) {
+            return;
+        }
+
+        if ($request->hasFile('bukti_transfer')) {
+            $newBuktiTransfer = $this->storeBuktiTransfer(
+                $request->file('bukti_transfer'),
+                static::BUKTI_TRANSFER_DIR
+            );
+            $this->deleteBuktiTransfer($data->bukti_transfer);
+            $data->bukti_transfer = $newBuktiTransfer;
+        }
+
+        if ($request->jenis_pembayaran !== 'Transfer') {
+            $this->deleteBuktiTransfer($data->bukti_transfer);
+            $data->bukti_transfer = null;
+        }
+    }
+
+    protected function appendBuktiTransferUrl($data)
+    {
+        if (! static::SUPPORTS_BUKTI_TRANSFER) {
+            return $data;
+        }
+
+        $data->bukti_transfer_url = $this->buktiTransferUrl($data->bukti_transfer);
+
+        return $data;
+    }
+
+    protected function appendPengeluaranFiles($data)
+    {
+        return $this->appendLampiranUrls($this->appendBuktiTransferUrl($data));
+    }
+
+    protected function needsBuktiTransfer(Request $request, ?KeuanganPengeluaranPegawaiBulanan $data): bool
+    {
+        return static::SUPPORTS_BUKTI_TRANSFER
+            && $request->jenis_pembayaran === 'Transfer'
+            && ! $request->hasFile('bukti_transfer')
+            && ! ($data?->bukti_transfer);
+    }
+
+    protected function buktiTransferRequiredResponse()
+    {
+        return response()->json([
+            'status' => false,
+            'message' => [
+                'bukti_transfer' => ['Bukti transfer wajib diupload jika jenis pembayaran Transfer.'],
+            ],
+        ], 422);
     }
 
     protected function number($value): float

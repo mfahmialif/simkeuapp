@@ -10,7 +10,12 @@ class KeuanganSaldoPengeluaran extends Model
     use HasFactory;
 
     protected $table = 'keuangan_saldo_pengeluaran';
+
     protected $guarded = [];
+
+    protected $casts = [
+        'lampiran' => 'array',
+    ];
 
     public function saldo()
     {

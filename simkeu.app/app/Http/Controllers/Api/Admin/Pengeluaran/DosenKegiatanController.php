@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api\Admin\Pengeluaran;
 use App\Exports\BsiPayrollExport;
 use App\Exports\ExcelExport;
 use App\Http\Controllers\Api\Admin\Pengeluaran\Concerns\BuildsPengeluaranIndex;
+use App\Http\Controllers\Api\Admin\Pengeluaran\Concerns\ManagesBuktiTransfer;
+use App\Http\Controllers\Api\Admin\Pengeluaran\Concerns\ManagesLampiran;
 use App\Http\Controllers\Api\Admin\Pengeluaran\Concerns\ManagesPengeluaranRekap;
 use App\Http\Controllers\Controller;
 use App\Models\KeuanganPengeluaranDosenKegiatan;
@@ -12,7 +14,6 @@ use App\Models\KeuanganPengeluaranDosenKegiatanRekap;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Maatwebsite\Excel\Facades\Excel;
@@ -20,11 +21,15 @@ use Maatwebsite\Excel\Facades\Excel;
 class DosenKegiatanController extends Controller
 {
     use BuildsPengeluaranIndex;
+    use ManagesBuktiTransfer;
+    use ManagesLampiran;
     use ManagesPengeluaranRekap;
 
     private const JENIS_PEMBAYARAN = ['CUS BSI', 'Transfer'];
 
-    private const BUKTI_TRANSFER_DIR = 'bukti-transfer/barokah-dosen/kegiatan';
+    private const BUKTI_TRANSFER_DIR = 'kegiatan';
+
+    private const LAMPIRAN_DIR = 'kegiatan';
 
     public function index(Request $request)
     {
@@ -80,7 +85,7 @@ class DosenKegiatanController extends Controller
             $request,
             $stats['keseluruhan']['jumlah']
         );
-        $data->getCollection()->transform(fn ($item) => $this->appendBuktiTransferUrl($item));
+        $data->getCollection()->transform(fn ($item) => $this->appendPengeluaranFiles($item));
 
         return response()->json([
             'status' => true,
@@ -111,7 +116,7 @@ class DosenKegiatanController extends Controller
 
         return response()->json([
             'status' => true,
-            'data' => $this->appendBuktiTransferUrl($this->findWithDosen($data->id) ?? $data),
+            'data' => $this->appendPengeluaranFiles($this->findWithDosen($data->id) ?? $data),
             'message' => 'Barokah Pegawai Kegiatan created successfully',
         ], 201);
     }
@@ -129,7 +134,7 @@ class DosenKegiatanController extends Controller
 
         return response()->json([
             'status' => true,
-            'data' => $this->appendBuktiTransferUrl($data),
+            'data' => $this->appendPengeluaranFiles($data),
             'message' => 'Barokah Pegawai Kegiatan retrieved successfully',
         ], 200);
     }
@@ -162,7 +167,7 @@ class DosenKegiatanController extends Controller
 
         return response()->json([
             'status' => (bool) $data,
-            'data' => $data ? $this->appendBuktiTransferUrl($data) : null,
+            'data' => $data ? $this->appendPengeluaranFiles($data) : null,
             'message' => $data
                 ? 'Barokah Pegawai Kegiatan retrieved successfully'
                 : 'Barokah Pegawai Kegiatan not found for selected date',
@@ -293,7 +298,7 @@ class DosenKegiatanController extends Controller
 
         return response()->json([
             'status' => true,
-            'data' => $this->appendBuktiTransferUrl($this->findWithDosen($data->id) ?? $data),
+            'data' => $this->appendPengeluaranFiles($this->findWithDosen($data->id) ?? $data),
             'message' => 'Barokah Pegawai Kegiatan updated successfully',
         ]);
     }
@@ -310,6 +315,7 @@ class DosenKegiatanController extends Controller
         }
 
         $this->deleteBuktiTransfer($data->bukti_transfer);
+        $this->deleteLampiran($data->lampiran);
         $data->delete();
 
         return response()->json([
@@ -486,6 +492,7 @@ class DosenKegiatanController extends Controller
             'rekap_id' => $this->rekapIdRules(),
             'bukti_transfer' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:4096',
             'keterangan' => 'nullable|string',
+            ...$this->lampiranRules(),
         ];
     }
 
@@ -507,10 +514,19 @@ class DosenKegiatanController extends Controller
             $data->rekap_id = $request->filled('rekap_id') ? $request->rekap_id : null;
         }
         $data->keterangan = $request->keterangan;
+        $data->lampiran = $this->updateLampiran(
+            $request,
+            $data->lampiran,
+            self::LAMPIRAN_DIR
+        );
 
         if ($request->hasFile('bukti_transfer')) {
+            $newBuktiTransfer = $this->storeBuktiTransfer(
+                $request->file('bukti_transfer'),
+                self::BUKTI_TRANSFER_DIR
+            );
             $this->deleteBuktiTransfer($data->bukti_transfer);
-            $data->bukti_transfer = $request->file('bukti_transfer')->store(self::BUKTI_TRANSFER_DIR, 'public');
+            $data->bukti_transfer = $newBuktiTransfer;
         }
 
         if ($request->jenis_pembayaran !== 'Transfer') {
@@ -538,18 +554,26 @@ class DosenKegiatanController extends Controller
 
     private function appendBuktiTransferUrl($data)
     {
-        $data->bukti_transfer_url = $data->bukti_transfer
-            ? Storage::disk('public')->url($data->bukti_transfer)
-            : null;
+        $path = $this->migrateLegacyBuktiTransfer(
+            $data->bukti_transfer,
+            self::BUKTI_TRANSFER_DIR
+        );
+
+        if ($path !== $data->bukti_transfer) {
+            KeuanganPengeluaranDosenKegiatan::whereKey($data->id)->update([
+                'bukti_transfer' => $path,
+            ]);
+            $data->bukti_transfer = $path;
+        }
+
+        $data->bukti_transfer_url = $this->buktiTransferUrl($path);
 
         return $data;
     }
 
-    private function deleteBuktiTransfer(?string $path): void
+    private function appendPengeluaranFiles($data)
     {
-        if ($path) {
-            Storage::disk('public')->delete($path);
-        }
+        return $this->appendLampiranUrls($this->appendBuktiTransferUrl($data));
     }
 
     private function number($value): float

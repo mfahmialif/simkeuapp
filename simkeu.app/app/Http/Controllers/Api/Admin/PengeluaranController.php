@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\Admin;
 
+use App\Http\Controllers\Api\Admin\Pengeluaran\Concerns\ManagesLampiran;
 use App\Http\Controllers\Controller;
 use App\Models\KeuanganSaldoPengeluaran;
 use Illuminate\Http\Request;
@@ -9,6 +10,10 @@ use Illuminate\Support\Facades\Validator;
 
 class PengeluaranController extends Controller
 {
+    use ManagesLampiran;
+
+    private const LAMPIRAN_DIR = 'umum';
+
     /**
      * Display a listing of the resource.
      */
@@ -26,15 +31,16 @@ class PengeluaranController extends Controller
         }
 
         // Sorting biarkan apa adanya
-        $sortKey   = $request->input('sort_key', 'id');
+        $sortKey = $request->input('sort_key', 'id');
         $sortOrder = $request->input('sort_order', 'desc');
         $query->orderBy($sortKey, $sortOrder);
 
         $data = $query->paginate($request->get('limit', 10));
+        $data->getCollection()->transform(fn ($item) => $this->appendLampiranUrls($item));
 
         return response()->json([
-            'status'  => true,
-            'data'    => $data,
+            'status' => true,
+            'data' => $data,
             'message' => 'Keuangan Saldo Pemasukan retrieved successfully',
         ]);
     }
@@ -45,29 +51,31 @@ class PengeluaranController extends Controller
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'saldo_id'       => 'required|exists:keuangan_saldo,id',
-            'jumlah'      => 'required|numeric|min:0',
+            'saldo_id' => 'required|exists:keuangan_saldo,id',
+            'jumlah' => 'required|numeric|min:0',
             'tanggal' => 'required|date',
             'keterangan' => 'required|string',
+            ...$this->lampiranRules(),
         ]);
 
         if ($validator->fails()) {
             return response()->json([
-                'status'  => false,
+                'status' => false,
                 'message' => $validator->errors(),
             ], 422);
         }
 
-        $data = new KeuanganSaldoPengeluaran();
-        $data->saldo_id       = $request->saldo_id;
-        $data->jumlah      = (float) $request->jumlah;
+        $data = new KeuanganSaldoPengeluaran;
+        $data->saldo_id = $request->saldo_id;
+        $data->jumlah = (float) $request->jumlah;
         $data->tanggal = $request->tanggal;
         $data->keterangan = $request->keterangan;
+        $data->lampiran = $this->updateLampiran($request, null, self::LAMPIRAN_DIR);
         $data->save();
 
         return response()->json([
-            'status'  => true,
-            'data'    => $data,
+            'status' => true,
+            'data' => $this->appendLampiranUrls($data),
             'message' => 'Keuangan Saldo Pemasukan created successfully',
         ], 201);
     }
@@ -81,12 +89,12 @@ class PengeluaranController extends Controller
 
         if (! $data) {
             return response()->json([
-                'status'  => false,
+                'status' => false,
                 'message' => 'Keuangan Saldo Pemasukan not found',
             ], 404);
         }
 
-        return response()->json($data, 200);
+        return response()->json($this->appendLampiranUrls($data), 200);
     }
 
     /**
@@ -97,34 +105,40 @@ class PengeluaranController extends Controller
         $data = KeuanganSaldoPengeluaran::find($id);
         if (! $data) {
             return response()->json([
-                'status'  => false,
+                'status' => false,
                 'message' => 'Keuangan Saldo Pemasukan not found',
             ], 404);
         }
 
         $validator = Validator::make($request->all(), [
-            'saldo_id'       => 'required|exists:keuangan_saldo,id',
-            'jumlah'      => 'required|numeric|min:0',
+            'saldo_id' => 'required|exists:keuangan_saldo,id',
+            'jumlah' => 'required|numeric|min:0',
             'tanggal' => 'required|date',
             'keterangan' => 'required|string',
+            ...$this->lampiranRules(),
         ]);
 
         if ($validator->fails()) {
             return response()->json([
-                'status'  => false,
+                'status' => false,
                 'message' => $validator->errors(),
             ], 422);
         }
 
-        $data->saldo_id       = $request->saldo_id;
-        $data->jumlah      = (float) $request->jumlah;
+        $data->saldo_id = $request->saldo_id;
+        $data->jumlah = (float) $request->jumlah;
         $data->tanggal = $request->tanggal;
         $data->keterangan = $request->keterangan;
+        $data->lampiran = $this->updateLampiran(
+            $request,
+            $data->lampiran,
+            self::LAMPIRAN_DIR
+        );
         $data->save();
 
         return response()->json([
-            'status'  => true,
-            'data'    => $data,
+            'status' => true,
+            'data' => $this->appendLampiranUrls($data),
             'message' => 'Keuangan Saldo Pemasukan updated successfully',
         ]);
     }
@@ -138,15 +152,16 @@ class PengeluaranController extends Controller
 
         if (! $data) {
             return response()->json([
-                'status'  => false,
+                'status' => false,
                 'message' => 'Keuangan Saldo Pemasukan not found',
             ], 404);
         }
 
+        $this->deleteLampiran($data->lampiran);
         $data->delete();
 
         return response()->json([
-            'status'  => true,
+            'status' => true,
             'message' => 'Keuangan Saldo Pemasukan deleted successfully',
         ]);
     }
