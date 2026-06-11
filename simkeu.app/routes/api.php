@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\Admin\AbsensiController;
 use App\Models\FormSchadule;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\BsiPaymentController as PublicBsiPaymentController;
 use App\Http\Controllers\Api\HelperController;
 use App\Http\Controllers\Api\Admin\RefController;
 use App\Http\Controllers\Api\Admin\RoleController;
@@ -39,11 +40,25 @@ use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\DispensasiTagihanControll
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\PembayaranTambahanController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\PemasukanPengeluaranController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\SemesterPendekController;
+use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\BsiPaymentController;
 use App\Http\Controllers\Api\Admin\Pengeluaran\DosenTatapMukaController;
 use App\Http\Controllers\Api\Admin\Pengeluaran\DosenBulananController;
 use App\Http\Controllers\Api\Admin\Pengeluaran\StaffBulananController;
 use App\Http\Controllers\Api\Admin\Pengeluaran\RabController;
 use App\Http\Controllers\Api\Admin\Pengeluaran\DosenKegiatanController as PengeluaranDosenKegiatanController;
+
+Route::prefix('bsi')->group(function () {
+    Route::get('tagihan', [PublicBsiPaymentController::class, 'tagihan'])
+        ->middleware('simkeuv2.apikey');
+    Route::get('tagihan/{nim}', [PublicBsiPaymentController::class, 'tagihan'])
+        ->middleware('simkeuv2.apikey');
+    Route::post('pembayaran', [PublicBsiPaymentController::class, 'store'])
+        ->middleware('simkeuv2.apikey');
+    Route::get('pembayaran/{requestId}', [PublicBsiPaymentController::class, 'show'])
+        ->middleware('simkeuv2.apikey');
+    Route::post('callback', [PublicBsiPaymentController::class, 'callback'])
+        ->middleware('bsi.callback');
+});
 
 Route::prefix('auth')->group(function () {
     Route::post('/login', [AuthController::class, 'login']);
@@ -104,6 +119,15 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
             Route::get('pembayaran-statistic-detail-prodi', [PembayaranController::class, 'statisticDetailProdi'])->name('admin.pemasukan.mahasiswa.pembayaran.statistic-detail-prodi');
             Route::get('wisuda/tahun', [PembayaranController::class, 'tahunWisuda'])->name('admin.pemasukan.mahasiswa.wisuda.tahun');
             Route::apiResource('pembayaran', PembayaranController::class);
+
+            Route::prefix('pembayaran-bsi')->middleware('role:admin,pimpinan,keuangan')->group(function () {
+                Route::get('/', [BsiPaymentController::class, 'index']);
+                Route::get('{paymentBsi}', [BsiPaymentController::class, 'show']);
+                Route::post('{paymentBsi}/post', [BsiPaymentController::class, 'post'])
+                    ->middleware('role:admin,keuangan');
+                Route::post('{paymentBsi}/reject', [BsiPaymentController::class, 'reject'])
+                    ->middleware('role:admin,keuangan');
+            });
 
             Route::get('pembayaran-tambahan/kwitansi/{id}', [PembayaranTambahanController::class, 'kwitansi'])->name('admin.pemasukan.mahasiswa.pembayaran-tambahan.kwitansi');
             Route::get('pembayaran-tambahan/kwitansi/{id}/view', [PembayaranTambahanController::class, 'kwitansiPreview'])->name('admin.pemasukan.mahasiswa.pembayaran-tambahan.kwitansi.view');
@@ -274,6 +298,16 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
 
 Route::prefix('helper')->group(function () {
     Route::get('/get-enum-values', [HelperController::class, 'getEnumValues'])->middleware('auth:sanctum');
+    Route::prefix('bsi')->group(function () {
+        Route::get('tagihan', [PublicBsiPaymentController::class, 'tagihan'])
+            ->middleware('simkeuv2.apikey');
+        Route::post('pembayaran', [PublicBsiPaymentController::class, 'store'])
+            ->middleware('simkeuv2.apikey');
+        Route::get('pembayaran/{requestId}', [PublicBsiPaymentController::class, 'show'])
+            ->middleware('simkeuv2.apikey');
+        Route::post('callback', [PublicBsiPaymentController::class, 'callback'])
+            ->middleware('bsi.callback');
+    });
     Route::post('tagihan-perorangan', [HelperController::class, 'createTagihanPerorangan'])->middleware('simkeuv2.apikey');
     Route::delete('tagihan-perorangan', [HelperController::class, 'deleteTagihanPerorangan'])->middleware('simkeuv2.apikey');
     Route::get('pembayaran-wisuda', [HelperController::class, 'getDataPembayaranWisuda'])->middleware('simkeuv2.apikey');

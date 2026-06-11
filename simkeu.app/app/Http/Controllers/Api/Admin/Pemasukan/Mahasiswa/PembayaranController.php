@@ -575,6 +575,7 @@ class PembayaranController extends Controller
             );
 
             $nim = strtoupper($dataValidated['nim']);
+            $this->ensureManualJenisPembayaran($dataValidated['jenis_pembayaran']);
             $this->ensureTagihanCanBePaid($nim, $dataValidated['list_tagihan_id']);
 
             DB::beginTransaction();
@@ -846,6 +847,15 @@ class PembayaranController extends Controller
                 ], 404);
             }
 
+            if (! $this->isEditableManualPayment($pembayaran)) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Pembayaran dari BSI tidak dapat diedit melalui pembayaran manual.',
+                ], 403);
+            }
+
+            $this->ensureManualJenisPembayaran($request->input('jenis_pembayaran'));
+
             KeuanganJenisPembayaranDetail::where('pembayaran_id', $pembayaran->id)->update([
                 'jenis_pembayaran_id' => $request->input('jenis_pembayaran'),
             ]);
@@ -864,6 +874,12 @@ class PembayaranController extends Controller
                 'message' => 'Berhasil mengupdate data.',
                 'code'     => 200,
             ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'status' => false,
+                'message' => $e->errors(),
+                'code' => 422,
+            ], 422);
         } catch (\Throwable $th) {
             return response()->json([
                 'status'  => false,
@@ -887,6 +903,13 @@ class PembayaranController extends Controller
                     "code" => 404,
                     "message" => "Data tidak ditemukan",
                 ];
+            }
+
+            if (! $this->isEditableManualPayment($pembayaran)) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Pembayaran dari BSI tidak dapat dihapus melalui pembayaran manual.',
+                ], 403);
             }
 
             $pembayaran->delete();
@@ -982,6 +1005,22 @@ class PembayaranController extends Controller
                 'list_tagihan_id' => 'Tagihan ' . implode(', ', $blocked) . ' belum memenuhi syarat dan tidak bisa dibayar.',
             ]);
         }
+    }
+
+    private function ensureManualJenisPembayaran($jenisPembayaranId): void
+    {
+        $jenisPembayaran = KeuanganJenisPembayaran::find($jenisPembayaranId);
+
+        if (! $jenisPembayaran || ! $jenisPembayaran->is_manual) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'jenis_pembayaran' => 'Jenis pembayaran ini tidak dapat digunakan untuk pembayaran manual.',
+            ]);
+        }
+    }
+
+    private function isEditableManualPayment(KeuanganPembayaran $pembayaran): bool
+    {
+        return strtolower((string) $pembayaran->sumber) !== 'bsi';
     }
 
     private function normalizeKeringananJenis($jenis): ?string

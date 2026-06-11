@@ -20,6 +20,10 @@ class JenisPembayaranController extends Controller
 
         $query = KeuanganJenisPembayaran::query();
 
+        if ($request->boolean('manual_only')) {
+            $query->where('is_manual', true);
+        }
+
         if ($request->filled('nama')) {
             $query->where('nama', 'like', '%' . $request->nama . '%');
         }
@@ -90,11 +94,14 @@ class JenisPembayaranController extends Controller
             ]);
         }
 
+        $validated = $validator->validated();
+
         $data                 = new KeuanganJenisPembayaran();
-        $data->nama           = $request->nama;
-        $data->nomer_rekening = $request->nomer_rekening;
-        $data->kategori       = $request->category;
-        $data->keterangan     = $request->keterangan;
+        $data->nama           = $validated['nama'];
+        $data->nomer_rekening = $validated['nomer_rekening'] ?? null;
+        $data->kategori       = $validated['kategori'] ?? null;
+        $data->keterangan     = $validated['keterangan'] ?? null;
+        $data->is_manual      = true;
 
         $data->save();
 
@@ -157,6 +164,13 @@ class JenisPembayaranController extends Controller
             ], 404);
         }
 
+        if (! $data->is_manual) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Jenis pembayaran sistem tidak dapat diubah dari menu manual.',
+            ], 403);
+        }
+
         $data->nama           = $request->nama;
         $data->nomer_rekening = $request->nomer_rekening;
         $data->kategori       = $request->kategori;
@@ -186,6 +200,13 @@ class JenisPembayaranController extends Controller
                 'status'  => false,
                 'message' => 'Jenis Pembayaran Not Found',
             ], 404);
+        }
+
+        if (! $data->is_manual) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Jenis pembayaran sistem tidak dapat dihapus.',
+            ], 403);
         }
 
         $data->delete();

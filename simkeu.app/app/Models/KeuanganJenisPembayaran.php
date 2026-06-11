@@ -10,5 +10,10 @@ class KeuanganJenisPembayaran extends Model
     use HasFactory;
 
     protected $table = 'keuangan_jenis_pembayaran';
+
     protected $guarded = [];
+
+    protected $casts = [
+        'is_manual' => 'boolean',
+    ];
 }

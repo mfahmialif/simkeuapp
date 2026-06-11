@@ -82,6 +82,8 @@ class PembayaranTambahanController extends Controller
                 'nama'                => 'required',
             ]);
 
+            $this->ensureManualJenisPembayaranName($dataValidated['jenis_pembayaran']);
+
             DB::beginTransaction();
 
             $jk = $dataValidated['jenis_kelamin'];
@@ -212,6 +214,8 @@ class PembayaranTambahanController extends Controller
                 ], 404);
             }
 
+            $this->ensureManualJenisPembayaranName($request->jenis_pembayaran);
+
             $pembayaran->update([
                 "tanggal" => $request->tanggal,
                 "tagihan" => $request->list_tagihan,
@@ -236,6 +240,12 @@ class PembayaranTambahanController extends Controller
                 'code'     => 200,
                 'req' => $request->all()
             ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'status' => false,
+                'message' => $e->errors(),
+                'code' => 422,
+            ], 422);
         } catch (\Throwable $th) {
             return response()->json([
                 'status'  => false,
@@ -280,5 +290,18 @@ class PembayaranTambahanController extends Controller
     {
         $keuanganPembayaran = KeuanganPembayaranTambahan::findOrFail($id);
         return KwitansiPreviewPdf::pdf($keuanganPembayaran);
+    }
+
+    private function ensureManualJenisPembayaranName(string $nama): void
+    {
+        $jenisPembayaran = KeuanganJenisPembayaran::whereRaw('LOWER(TRIM(nama)) = ?', [
+            strtolower(trim($nama)),
+        ])->first();
+
+        if ($jenisPembayaran && ! $jenisPembayaran->is_manual) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'jenis_pembayaran' => 'Jenis pembayaran ini tidak dapat digunakan untuk pembayaran manual.',
+            ]);
+        }
     }
 }

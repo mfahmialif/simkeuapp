@@ -509,6 +509,8 @@ class SemesterPendekController extends Controller
     private function resolveJenisPembayaranId(Request $request): int|string
     {
         if (! $this->isDhomin($request)) {
+            $this->ensureManualJenisPembayaran($request->jenis_pembayaran_id);
+
             return $request->jenis_pembayaran_id;
         }
 
@@ -523,6 +525,15 @@ class SemesterPendekController extends Controller
         }
 
         return $jenisPembayaran->id;
+    }
+
+    private function ensureManualJenisPembayaran($jenisPembayaranId): void
+    {
+        $jenisPembayaran = KeuanganJenisPembayaran::find($jenisPembayaranId);
+
+        if (! $jenisPembayaran || ! $jenisPembayaran->is_manual) {
+            throw new \Exception('Jenis pembayaran ini tidak dapat digunakan untuk pembayaran manual.');
+        }
     }
 
     private function resolveTargetLunasKrs($krsId, $fallbackJumlah = 0): float
