@@ -31,7 +31,7 @@ class DosenKegiatanController extends Controller
 
     private const JENIS_PEMBAYARAN_PEGAWAI = ['CUS BSI', 'Transfer'];
 
-    private const JENIS_PEMBAYARAN_NON_PEGAWAI = ['Tunai', 'Transfer'];
+    private const JENIS_PEMBAYARAN_NON_PEGAWAI = ['Tunai', 'CUS BSI', 'Transfer'];
 
     private const BUKTI_TRANSFER_DIR = 'kegiatan';
 
@@ -147,6 +147,12 @@ class DosenKegiatanController extends Controller
             'items.*.jenis_pembayaran' => ['required', 'string'],
             'items.*.bukti_transfer' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:4096'],
             'items.*.keterangan' => ['nullable', 'string'],
+            'items.*.lampiran' => ['nullable', 'array', 'max:10'],
+            'items.*.lampiran.*' => [
+                'file',
+                'mimes:jpg,jpeg,png,pdf,doc,docx,xls,xlsx',
+                'max:10240',
+            ],
         ]);
 
         $validator->after(function ($validator) use ($request) {
@@ -190,19 +196,21 @@ class DosenKegiatanController extends Controller
 
         $payload = $validator->validated();
         $storedBuktiTransfer = [];
+        $storedLampiran = [];
 
         try {
             $createdIds = DB::transaction(function () use (
                 $payload,
                 $request,
-                &$storedBuktiTransfer
+                &$storedBuktiTransfer,
+                &$storedLampiran
             ) {
                 $rekapId = $payload['rekap_id'];
                 $this->lockRekapRows([$rekapId]);
                 $createdIds = [];
 
                 foreach ($payload['items'] as $index => $item) {
-                    unset($item['bukti_transfer']);
+                    unset($item['bukti_transfer'], $item['lampiran']);
                     $item['rekap_id'] = $rekapId;
                     $rowRequest = Request::create('/', 'POST', $item);
                     $buktiTransfer = $request->file("items.{$index}.bukti_transfer");
@@ -211,12 +219,18 @@ class DosenKegiatanController extends Controller
                         $rowRequest->files->set('bukti_transfer', $buktiTransfer);
                     }
 
+                    $rowLampiran = $request->file("items.{$index}.lampiran", []);
+                    if ($rowLampiran) {
+                        $rowRequest->files->set('lampiran', $rowLampiran);
+                    }
+
                     $data = new KeuanganPengeluaranDosenKegiatan;
                     $this->fillData($data, $rowRequest);
 
                     if ($data->bukti_transfer) {
                         $storedBuktiTransfer[] = $data->bukti_transfer;
                     }
+                    $storedLampiran[] = $data->lampiran;
 
                     $data->save();
                     $createdIds[] = $data->id;
@@ -229,6 +243,9 @@ class DosenKegiatanController extends Controller
         } catch (Throwable $exception) {
             foreach ($storedBuktiTransfer as $path) {
                 $this->deleteBuktiTransfer($path);
+            }
+            foreach ($storedLampiran as $lampiran) {
+                $this->deleteLampiran($lampiran);
             }
 
             throw $exception;
@@ -272,6 +289,14 @@ class DosenKegiatanController extends Controller
             'items.*.jenis_pembayaran' => ['required', 'string'],
             'items.*.bukti_transfer' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:4096'],
             'items.*.keterangan' => ['nullable', 'string'],
+            'items.*.lampiran' => ['nullable', 'array', 'max:10'],
+            'items.*.lampiran.*' => [
+                'file',
+                'mimes:jpg,jpeg,png,pdf,doc,docx,xls,xlsx',
+                'max:10240',
+            ],
+            'items.*.hapus_lampiran' => ['nullable', 'array'],
+            'items.*.hapus_lampiran.*' => ['string', 'max:500'],
         ]);
 
         $validator->after(function ($validator) use ($request) {
@@ -314,12 +339,14 @@ class DosenKegiatanController extends Controller
 
         $payload = $validator->validated();
         $storedBuktiTransfer = [];
+        $storedLampiran = [];
 
         try {
             $result = DB::transaction(function () use (
                 $payload,
                 $request,
-                &$storedBuktiTransfer
+                &$storedBuktiTransfer,
+                &$storedLampiran
             ) {
                 $rekapId = $payload['rekap_id'];
                 $deletedIds = collect($payload['deleted_ids'] ?? [])->filter()->unique()->values();
@@ -357,7 +384,7 @@ class DosenKegiatanController extends Controller
                 $updated = 0;
                 $created = 0;
                 foreach ($payload['items'] as $index => $item) {
-                    unset($item['bukti_transfer']);
+                    unset($item['bukti_transfer'], $item['lampiran']);
                     $id = $item['id'] ?? null;
                     unset($item['id']);
                     $item['rekap_id'] = $rekapId;
@@ -369,6 +396,11 @@ class DosenKegiatanController extends Controller
                         $rowRequest->files->set('bukti_transfer', $buktiTransfer);
                     }
 
+                    $rowLampiran = $request->file("items.{$index}.lampiran", []);
+                    if ($rowLampiran) {
+                        $rowRequest->files->set('lampiran', $rowLampiran);
+                    }
+
                     $data = $id
                         ? $existingRows->get($id)
                         : new KeuanganPengeluaranDosenKegiatan;
@@ -377,10 +409,20 @@ class DosenKegiatanController extends Controller
                         continue;
                     }
 
+                    $existingLampiranPaths = collect($data->lampiran ?? [])
+                        ->pluck('path')
+                        ->filter();
                     $this->fillData($data, $rowRequest);
 
                     if ($data->bukti_transfer && $buktiTransfer) {
                         $storedBuktiTransfer[] = $data->bukti_transfer;
+                    }
+                    $newLampiran = collect($data->lampiran ?? [])
+                        ->reject(fn ($lampiran) => $existingLampiranPaths->contains($lampiran['path'] ?? null))
+                        ->values()
+                        ->all();
+                    if ($newLampiran) {
+                        $storedLampiran[] = $newLampiran;
                     }
 
                     $data->save();
@@ -394,6 +436,9 @@ class DosenKegiatanController extends Controller
         } catch (Throwable $exception) {
             foreach ($storedBuktiTransfer as $path) {
                 $this->deleteBuktiTransfer($path);
+            }
+            foreach ($storedLampiran as $lampiran) {
+                $this->deleteLampiran($lampiran);
             }
 
             throw $exception;
