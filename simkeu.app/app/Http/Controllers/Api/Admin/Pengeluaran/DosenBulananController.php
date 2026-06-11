@@ -64,6 +64,7 @@ class DosenBulananController extends Controller
         $query->where('keuangan_pengeluaran_pegawai_bulanan.pegawai_tipe', static::PEGAWAI_TIPE);
         $this->applySearchFilter($query, $request);
         $this->applyPegawaiFilter($query, $request);
+        $this->applyPetugasFilter($query, $request);
 
         $this->applyPeriodFilter($query, $request);
         $this->applyDateFilter($query, $request);
@@ -237,6 +238,7 @@ class DosenBulananController extends Controller
                 $data = $records->first() ?? new KeuanganPengeluaranPegawaiBulanan;
                 $isNew = ! $data->exists;
                 $data->pegawai_id = $item['pegawai_id'];
+                $data->petugas_id = auth()->id();
                 $data->pegawai_tipe = 'dosen';
                 $data->rekap_id = $payload['rekap_id'];
                 $data->tanggal = $payload['tanggal'];
@@ -397,6 +399,7 @@ class DosenBulananController extends Controller
         $query->where('keuangan_pengeluaran_pegawai_bulanan.pegawai_tipe', static::PEGAWAI_TIPE);
         $this->applySearchFilter($query, $request);
         $this->applyPegawaiFilter($query, $request);
+        $this->applyPetugasFilter($query, $request);
         $this->applyPeriodFilter($query, $request);
         $this->applyDateFilter($query, $request);
         $this->applyRekapFilter($query, $request);
@@ -446,6 +449,7 @@ class DosenBulananController extends Controller
         $query->where('keuangan_pengeluaran_pegawai_bulanan.pegawai_tipe', static::PEGAWAI_TIPE);
         $this->applySearchFilter($query, $request);
         $this->applyPegawaiFilter($query, $request);
+        $this->applyPetugasFilter($query, $request);
         $this->applyPeriodFilter($query, $request);
         $this->applyDateFilter($query, $request);
         $this->applyRekapFilter($query, $request);
@@ -517,6 +521,7 @@ class DosenBulananController extends Controller
         $query->where('keuangan_pengeluaran_pegawai_bulanan.pegawai_tipe', static::PEGAWAI_TIPE);
         $this->applySearchFilter($query, $request);
         $this->applyPegawaiFilter($query, $request);
+        $this->applyPetugasFilter($query, $request);
         $this->applyPeriodFilter($query, $request);
         $this->applyDateFilter($query, $request);
         $this->applyRekapFilter($query, $request);
@@ -669,6 +674,7 @@ class DosenBulananController extends Controller
         }
 
         $this->applyPegawaiFilter($query, $request);
+        $this->applyPetugasFilter($query, $request);
         $this->applyPeriodFilter($query, $request);
         $this->applyDateFilter($query, $request);
         $this->applyRekapFilter($query, $request);
@@ -720,6 +726,7 @@ class DosenBulananController extends Controller
         if ($request->filled('pegawai_id')) {
             $data->pegawai_id = $request->pegawai_id;
         }
+        $data->petugas_id = auth()->id();
         $data->pegawai_tipe = static::PEGAWAI_TIPE;
 
         if (static::PEGAWAI_TIPE === 'dosen') {

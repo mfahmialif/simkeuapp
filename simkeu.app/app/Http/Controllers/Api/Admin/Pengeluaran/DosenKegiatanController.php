@@ -59,6 +59,7 @@ class DosenKegiatanController extends Controller
         $this->applyPegawaiFilter($query, $request);
         $this->applyDateFilter($query, $request);
         $this->applyRekapFilter($query, $request);
+        $this->applyPetugasFilter($query, $request);
 
         $stats = $this->aggregatePengeluaranStats(
             $this->newIndexStatsQuery($request),
@@ -532,6 +533,7 @@ class DosenKegiatanController extends Controller
         $this->applyPegawaiFilter($query, $request);
         $this->applyDateFilter($query, $request);
         $this->applyRekapFilter($query, $request);
+        $this->applyPetugasFilter($query, $request);
 
         $data = $query
             ->orderBy('keuangan_pengeluaran_dosen_kegiatan.tanggal', 'desc')
@@ -579,6 +581,7 @@ class DosenKegiatanController extends Controller
         $this->applyPegawaiFilter($query, $request);
         $this->applyDateFilter($query, $request);
         $this->applyRekapFilter($query, $request);
+        $this->applyPetugasFilter($query, $request);
 
         return $query
             ->where('keuangan_pengeluaran_dosen_kegiatan.jenis_pembayaran', 'CUS BSI')
@@ -758,6 +761,7 @@ class DosenKegiatanController extends Controller
         $this->applyPegawaiFilter($query, $request);
         $this->applyDateFilter($query, $request);
         $this->applyRekapFilter($query, $request);
+        $this->applyPetugasFilter($query, $request);
 
         return $query;
     }
@@ -880,6 +884,7 @@ class DosenKegiatanController extends Controller
 
         $this->applyDateFilter($query, $request);
         $this->applyRekapFilter($query, $request);
+        $this->applyPetugasFilter($query, $request);
 
         return $query;
     }
@@ -931,6 +936,7 @@ class DosenKegiatanController extends Controller
         $data->tanggal = $request->tanggal;
         $data->kategori_detail = $kategoriDetail;
         $data->pegawai_id = $isPegawai ? $request->pegawai_id : null;
+        $data->petugas_id = auth()->id();
         $data->nama_kegiatan = $request->nama_kegiatan;
         $data->transport = $transport;
         $data->barokah = $barokah;

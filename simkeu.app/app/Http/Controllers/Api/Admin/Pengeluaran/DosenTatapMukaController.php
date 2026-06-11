@@ -88,6 +88,7 @@ class DosenTatapMukaController extends Controller
 
         $this->applyDateFilter($query, $request);
         $this->applyRekapFilter($query, $request);
+        $this->applyPetugasFilter($query, $request);
 
         $stats = $this->aggregatePengeluaranStats(
             $this->newIndexStatsQuery($request),
@@ -381,6 +382,7 @@ class DosenTatapMukaController extends Controller
 
         $this->applyDateFilter($query, $request);
         $this->applyRekapFilter($query, $request);
+        $this->applyPetugasFilter($query, $request);
 
         if ($request->filled('kode')) {
             $query->where('pegawai.kode', $request->kode);
@@ -469,6 +471,7 @@ class DosenTatapMukaController extends Controller
 
         $this->applyDateFilter($query, $request);
         $this->applyRekapFilter($query, $request);
+        $this->applyPetugasFilter($query, $request);
 
         if ($request->filled('kode')) {
             $query->where('pegawai.kode', $request->kode);
@@ -540,6 +543,7 @@ class DosenTatapMukaController extends Controller
 
         $this->applyDateFilter($query, $request);
         $this->applyRekapFilter($query, $request);
+        $this->applyPetugasFilter($query, $request);
 
         return $query;
     }
@@ -653,6 +657,7 @@ class DosenTatapMukaController extends Controller
 
         $this->applyDateFilter($query, $request);
         $this->applyRekapFilter($query, $request);
+        $this->applyPetugasFilter($query, $request);
 
         return $query;
     }
@@ -739,6 +744,7 @@ class DosenTatapMukaController extends Controller
         if ($request->filled('pegawai_id')) {
             $data->pegawai_id = $request->pegawai_id;
         }
+        $data->petugas_id = auth()->id();
         $data->hari = $hari;
         $data->hari_transport_motor = $hariTransportMotor;
         $data->hari_transport_mobil = $hariTransportMobil;

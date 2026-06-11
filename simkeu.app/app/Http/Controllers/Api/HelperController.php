@@ -1114,4 +1114,73 @@ class HelperController extends Controller
             ], 500);
         }
     }
+
+    public function petugasPengeluaran(Request $request)
+    {
+        try {
+            $roleNames = $this->pengeluaranPetugasRoles(
+                $request->input('module', $request->input('module_key'))
+            );
+
+            $query = \App\Models\User::with('role:id,name')
+                ->whereHas('role', fn ($role) => $role->whereIn('name', $roleNames));
+
+            if ($request->filled('search')) {
+                $search = trim((string) $request->search);
+                $query->where(function ($q) use ($search) {
+                    $q->where('name', 'LIKE', "%{$search}%")
+                        ->orWhere('jenis_kelamin', 'LIKE', "%{$search}%");
+                });
+            }
+
+            $users = $query
+                ->orderBy('name')
+                ->get(['id', 'name', 'jenis_kelamin', 'role_id'])
+                ->map(fn ($user) => [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'jenis_kelamin' => $user->jenis_kelamin,
+                    'role_name' => $user->role?->name,
+                ])
+                ->values();
+
+            return response()->json([
+                'status' => true,
+                'data' => $users,
+            ]);
+        } catch (\Throwable $th) {
+            return response()->json([
+                'status' => false,
+                'message' => $th->getMessage(),
+            ], 500);
+        }
+    }
+
+    private function pengeluaranPetugasRoles(?string $module): array
+    {
+        $moduleKey = str_replace('-', '_', strtolower((string) $module));
+
+        $roles = [
+            'umum' => ['rumahtangga'],
+            'dosen' => ['barokahdosen_tatapmuka'],
+            'tatap_muka' => ['barokahdosen_tatapmuka'],
+            'dosen_tatapmuka' => ['barokahdosen_tatapmuka'],
+            'dosen_tatap_muka' => ['barokahdosen_tatapmuka'],
+            'kegiatan' => ['barokahdosen_kegiatan'],
+            'dosen_kegiatan' => ['barokahdosen_kegiatan'],
+            'staff_bulanan' => ['barokahdosen_kegiatan'],
+            'dosen_bulanan' => ['barokahdosen_bulanan'],
+            'rab' => [
+                'barokahdosen_tatapmuka',
+                'barokahdosen_kegiatan',
+                'barokahdosen_bulanan',
+            ],
+        ];
+
+        if (array_key_exists($moduleKey, $roles)) {
+            return $roles[$moduleKey];
+        }
+
+        return $roles['rab'];
+    }
 }

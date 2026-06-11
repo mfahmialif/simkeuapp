@@ -1067,48 +1067,8 @@ class DatabaseSeeder extends Seeder
         //     ],
         // ]);
 
-        DB::table('keuangan_saldo')->insert([
-            [
-                'nama'       => 'Perpustakaan',
-                'kode'       => 'PERPUS',
-                'saldo'      => 1500000,
-                'keterangan' => 'Saldo awal untuk kebutuhan perpustakaan',
-                'created_at' => now(),
-                'updated_at' => now(),
-            ],
-            [
-                'nama'       => 'IT',
-                'kode'       => 'IT',
-                'saldo'      => 2500000,
-                'keterangan' => 'Saldo untuk pemeliharaan dan pengembangan sistem IT',
-                'created_at' => now(),
-                'updated_at' => now(),
-            ],
-            [
-                'nama'       => 'Rumah Tangga',
-                'kode'       => 'RT',
-                'saldo'      => 3000000,
-                'keterangan' => 'Saldo untuk kebutuhan operasional rumah tangga kampus',
-                'created_at' => now(),
-                'updated_at' => now(),
-            ],
-            [
-                'nama'       => 'Sarpras',
-                'kode'       => 'SARPRAS',
-                'saldo'      => 2000000,
-                'keterangan' => 'Saldo untuk sarana dan prasarana kampus',
-                'created_at' => now(),
-                'updated_at' => now(),
-            ],
-            [
-                'nama'       => 'Acara',
-                'kode'       => 'ACARA',
-                'saldo'      => 1000000,
-                'keterangan' => 'Saldo untuk kegiatan dan acara kampus',
-                'created_at' => now(),
-                'updated_at' => now(),
-            ],
-        ]);
+        // keuangan_saldo seed removed — table will be remade
+
 
         // DB::table('keuangan_jenis_pengeluaran')->insert([
         //     [

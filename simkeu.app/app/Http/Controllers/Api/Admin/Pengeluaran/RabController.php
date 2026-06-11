@@ -7,6 +7,9 @@ use Illuminate\Database\Query\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 
 class RabController extends Controller
 {
@@ -14,6 +17,7 @@ class RabController extends Controller
         'tatap_muka' => [
             'rekap_table' => 'keuangan_pengeluaran_dosen_rekap',
             'detail_table' => 'keuangan_pengeluaran_dosen',
+            'lpj_table' => 'keuangan_pengeluaran_dosen_lpj',
             'module_name' => 'Dosen Tatap Muka',
             'detail_path' => '/admin/pengeluaran/dosen-tatapmuka/rekap/',
             'pegawai_tipe' => null,
@@ -21,6 +25,7 @@ class RabController extends Controller
         'kegiatan' => [
             'rekap_table' => 'keuangan_pengeluaran_dosen_kegiatan_rekap',
             'detail_table' => 'keuangan_pengeluaran_dosen_kegiatan',
+            'lpj_table' => 'keuangan_pengeluaran_dosen_kegiatan_lpj',
             'module_name' => 'Pegawai Kegiatan',
             'detail_path' => '/admin/pengeluaran/dosen-kegiatan/rekap/',
             'pegawai_tipe' => null,
@@ -28,6 +33,7 @@ class RabController extends Controller
         'dosen_bulanan' => [
             'rekap_table' => 'keuangan_pengeluaran_dosen_bulanan_rekap',
             'detail_table' => 'keuangan_pengeluaran_pegawai_bulanan',
+            'lpj_table' => 'keuangan_pengeluaran_pegawai_bulanan_lpj',
             'module_name' => 'Dosen Bulanan',
             'detail_path' => '/admin/pengeluaran/dosen-bulanan/rekap/',
             'pegawai_tipe' => 'dosen',
@@ -35,6 +41,7 @@ class RabController extends Controller
         'staff_bulanan' => [
             'rekap_table' => 'keuangan_pengeluaran_staff_bulanan_rekap',
             'detail_table' => 'keuangan_pengeluaran_pegawai_bulanan',
+            'lpj_table' => 'keuangan_pengeluaran_pegawai_bulanan_lpj',
             'module_name' => 'Staff Bulanan',
             'detail_path' => '/admin/pengeluaran/staff-bulanan/rekap/',
             'pegawai_tipe' => 'staff',
@@ -43,6 +50,8 @@ class RabController extends Controller
 
     public function index(Request $request)
     {
+        $this->forceOwnPetugasForBarokah($request);
+
         $filteredRekaps = $this->filteredRekapQuery($request);
         $rekapStats = DB::query()
             ->fromSub(clone $filteredRekaps, 'rab')
@@ -114,28 +123,184 @@ class RabController extends Controller
         ]);
     }
 
+    public function kas(Request $request)
+    {
+        $this->forceOwnPetugasForBarokah($request);
+
+        $rows = collect(self::SOURCES)
+            ->map(function (array $source, string $moduleKey) use ($request) {
+                if ($request->filled('module_key') && $request->module_key !== $moduleKey) {
+                    return null;
+                }
+
+                $rabQuery = DB::query()->fromSub($this->rekapSourceQuery($moduleKey, $source, $request), 'rab');
+                $this->applyFilters($rabQuery, $request);
+
+                $totalRab = (int) (clone $rabQuery)->sum('jumlah');
+                $lpjStats = $this->lpjStatsForRabQuery($rabQuery, $source, $moduleKey, $request);
+                $manual = $this->manualKasSummary($request, $moduleKey);
+
+                return [
+                    'module_key' => $moduleKey,
+                    'module_name' => $source['module_name'],
+                    'total_rab' => $totalRab,
+                    'total_lpj' => $lpjStats['total_lpj'],
+                    'jumlah_lpj' => $lpjStats['jumlah_lpj'],
+                    'manual_masuk' => $manual['masuk'],
+                    'manual_keluar' => $manual['keluar'],
+                    'saldo_kas' => $totalRab - $lpjStats['total_lpj'] + $manual['masuk'] - $manual['keluar'],
+                ];
+            })
+            ->filter()
+            ->values();
+
+        $totals = [
+            'total_rab' => (int) $rows->sum('total_rab'),
+            'total_lpj' => (int) $rows->sum('total_lpj'),
+            'manual_masuk' => (int) $rows->sum('manual_masuk'),
+            'manual_keluar' => (int) $rows->sum('manual_keluar'),
+            'saldo_kas' => (int) $rows->sum('saldo_kas'),
+        ];
+
+        return response()->json([
+            'status' => true,
+            'data' => [
+                'summary' => $rows,
+                'totals' => $totals,
+                'manual' => $this->manualKasRows($request),
+                'petugas' => $this->selectedPetugas($request),
+            ],
+            'filters' => [
+                'modules' => $this->moduleOptions(),
+            ],
+            'message' => 'Kas RAB retrieved successfully',
+        ]);
+    }
+
+    public function storeKasManual(Request $request)
+    {
+        $this->forceOwnPetugasForBarokah($request);
+
+        $validator = Validator::make($request->all(), [
+            'petugas_id' => ['required', 'integer', 'exists:users,id'],
+            'module_key' => ['required', Rule::in(array_keys(self::SOURCES))],
+            'tanggal' => ['required', 'date_format:Y-m-d'],
+            'tipe' => ['required', Rule::in(['masuk', 'keluar'])],
+            'nominal' => ['required', 'integer', 'min:1'],
+            'keterangan' => ['required', 'string', 'max:1000'],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'message' => $validator->errors(),
+            ], 422);
+        }
+
+        $data = DB::table('keuangan_pengeluaran_saldo')->insertGetId([
+            ...$validator->validated(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        return response()->json([
+            'status' => true,
+            'data' => [
+                'id' => $data,
+            ],
+            'message' => 'Kas manual berhasil ditambahkan.',
+        ], 201);
+    }
+
+    public function updateKasManual(Request $request, $id)
+    {
+        $this->forceOwnPetugasForBarokah($request);
+
+        $validator = Validator::make($request->all(), [
+            'petugas_id' => ['required', 'integer', 'exists:users,id'],
+            'module_key' => ['required', Rule::in(array_keys(self::SOURCES))],
+            'tanggal' => ['required', 'date_format:Y-m-d'],
+            'tipe' => ['required', Rule::in(['masuk', 'keluar'])],
+            'nominal' => ['required', 'integer', 'min:1'],
+            'keterangan' => ['required', 'string', 'max:1000'],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'message' => $validator->errors(),
+            ], 422);
+        }
+
+        $query = DB::table('keuangan_pengeluaran_saldo')->where('id', $id);
+
+        if ($this->shouldForceOwnPetugas()) {
+            $query->where('petugas_id', auth()->id());
+        }
+
+        $updated = $query->update([
+            ...$validator->validated(),
+            'updated_at' => now(),
+        ]);
+
+        if (! $updated) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Kas manual not found',
+            ], 404);
+        }
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Kas manual berhasil diperbarui.',
+        ]);
+    }
+
+    public function destroyKasManual($id)
+    {
+        $query = DB::table('keuangan_pengeluaran_saldo')->where('id', $id);
+
+        if ($this->shouldForceOwnPetugas()) {
+            $query->where('petugas_id', auth()->id());
+        }
+
+        $deleted = $query->delete();
+
+        if (! $deleted) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Kas manual not found',
+            ], 404);
+        }
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Kas manual berhasil dihapus.',
+        ]);
+    }
+
     private function filteredRekapQuery(Request $request): Builder
     {
-        $query = DB::query()->fromSub($this->rekapUnionQuery(), 'rab');
+        $query = DB::query()->fromSub($this->rekapUnionQuery($request), 'rab');
         $this->applyFilters($query, $request);
 
         return $query;
     }
 
-    private function rekapUnionQuery(): Builder
+    private function rekapUnionQuery(?Request $request = null): Builder
     {
         $queries = [];
 
         foreach (self::SOURCES as $moduleKey => $source) {
-            $queries[] = $this->rekapSourceQuery($moduleKey, $source);
+            $queries[] = $this->rekapSourceQuery($moduleKey, $source, $request);
         }
 
         return $this->unionAll($queries);
     }
 
-    private function rekapSourceQuery(string $moduleKey, array $source): Builder
+    private function rekapSourceQuery(string $moduleKey, array $source, ?Request $request = null): Builder
     {
-        $summary = $this->detailSummaryQuery($source);
+        $summary = $this->detailSummaryQuery($source, $request);
         $effectiveAmount = 'CASE
             WHEN COALESCE(summary.jumlah_data, 0) > 0
                 THEN COALESCE(summary.total_pengeluaran, 0)
@@ -156,6 +321,7 @@ class RabController extends Controller
                 'rekap.bulan_tahun',
                 'rekap.tanggal_rekap',
                 'rekap.jumlah_sementara',
+                'rekap.petugas_id',
                 DB::raw("{$effectiveAmount} as jumlah"),
                 'rekap.keterangan',
                 'rekap.created_at',
@@ -170,7 +336,7 @@ class RabController extends Controller
             ]);
     }
 
-    private function detailSummaryQuery(array $source): Builder
+    private function detailSummaryQuery(array $source, ?Request $request = null): Builder
     {
         $query = DB::table("{$source['detail_table']} as detail")
             ->select([
@@ -185,7 +351,136 @@ class RabController extends Controller
             $query->where('detail.pegawai_tipe', $source['pegawai_tipe']);
         }
 
+        if (
+            $request?->filled('petugas_id')
+            && Schema::hasColumn($source['detail_table'], 'petugas_id')
+        ) {
+            $query->where('detail.petugas_id', $request->petugas_id);
+        }
+
         return $query;
+    }
+
+    private function lpjSummaryQuery(array $source, ?Request $request = null): Builder
+    {
+        $query = DB::table("{$source['lpj_table']} as detail")
+            ->select([
+                'detail.rekap_id',
+                DB::raw('COUNT(*) as jumlah_data'),
+                DB::raw('COALESCE(SUM(detail.total), 0) as total_lpj'),
+            ])
+            ->whereNotNull('detail.rekap_id')
+            ->groupBy('detail.rekap_id');
+
+        if ($source['pegawai_tipe']) {
+            $query->where('detail.pegawai_tipe', $source['pegawai_tipe']);
+        }
+
+        if (
+            $request?->filled('petugas_id')
+            && Schema::hasColumn($source['lpj_table'], 'petugas_id')
+        ) {
+            $query->where('detail.petugas_id', $request->petugas_id);
+        }
+
+        return $query;
+    }
+
+    private function lpjStatsForRabQuery(Builder $rabQuery, array $source, string $moduleKey, Request $request): array
+    {
+        $sameAsRabAmount = $request->filled('petugas_id')
+            ? 'rab_filtered.jumlah'
+            : 'COALESCE(NULLIF(lpj_status.total_lpj, 0), rab_filtered.jumlah)';
+
+        $stats = DB::query()
+            ->fromSub(clone $rabQuery, 'rab_filtered')
+            ->leftJoinSub($this->lpjSummaryQuery($source, $request), 'lpj_summary', 'lpj_summary.rekap_id', '=', 'rab_filtered.id')
+            ->leftJoin('keuangan_pengeluaran_lpj_rekap_status as lpj_status', function ($join) use ($moduleKey) {
+                $join->on('lpj_status.rekap_id', '=', 'rab_filtered.id')
+                    ->where('lpj_status.module_key', '=', $moduleKey);
+            })
+            ->selectRaw(
+                "COALESCE(SUM(
+                    CASE
+                        WHEN COALESCE(lpj_summary.jumlah_data, 0) > 0
+                            THEN COALESCE(lpj_summary.total_lpj, 0)
+                        WHEN COALESCE(lpj_status.sama_dengan_rab, 0) = 1
+                            THEN {$sameAsRabAmount}
+                        ELSE 0
+                    END
+                ), 0) as total_lpj,
+                COALESCE(SUM(COALESCE(lpj_summary.jumlah_data, 0)), 0) as jumlah_lpj"
+            )
+            ->first();
+
+        return [
+            'total_lpj' => (int) ($stats->total_lpj ?? 0),
+            'jumlah_lpj' => (int) ($stats->jumlah_lpj ?? 0),
+        ];
+    }
+
+    private function manualKasSummary(Request $request, string $moduleKey): array
+    {
+        $query = DB::table('keuangan_pengeluaran_saldo')
+            ->where('module_key', $moduleKey);
+
+        if (
+            $request->filled('petugas_id')
+            && Schema::hasColumn('keuangan_pengeluaran_saldo', 'petugas_id')
+        ) {
+            $query->where('petugas_id', $request->petugas_id);
+        }
+
+        $this->applyPeriodFilter($query, $request, 'tanggal');
+
+        $summary = $query
+            ->selectRaw(
+                "COALESCE(SUM(CASE WHEN tipe = 'masuk' THEN nominal ELSE 0 END), 0) as masuk,
+                COALESCE(SUM(CASE WHEN tipe = 'keluar' THEN nominal ELSE 0 END), 0) as keluar"
+            )
+            ->first();
+
+        return [
+            'masuk' => (int) ($summary->masuk ?? 0),
+            'keluar' => (int) ($summary->keluar ?? 0),
+        ];
+    }
+
+    private function manualKasRows(Request $request)
+    {
+        $query = DB::table('keuangan_pengeluaran_saldo as kas')
+            ->leftJoin('users as petugas', 'petugas.id', '=', 'kas.petugas_id')
+            ->select([
+                'kas.*',
+                'petugas.name as petugas_nama',
+            ]);
+
+        if ($request->filled('module_key')) {
+            $query->where('kas.module_key', $request->module_key);
+        }
+
+        if (
+            $request->filled('petugas_id')
+            && Schema::hasColumn('keuangan_pengeluaran_saldo', 'petugas_id')
+        ) {
+            $query->where('kas.petugas_id', $request->petugas_id);
+        }
+
+        $this->applyPeriodFilter($query, $request, 'kas.tanggal');
+
+        return $query
+            ->orderByDesc('kas.tanggal')
+            ->orderByDesc('kas.id')
+            ->limit(100)
+            ->get()
+            ->map(function ($item) {
+                $item->module_name = self::SOURCES[$item->module_key]['module_name'] ?? $item->module_key;
+                $item->id = (int) $item->id;
+                $item->petugas_id = $item->petugas_id === null ? null : (int) $item->petugas_id;
+                $item->nominal = (int) $item->nominal;
+
+                return $item;
+            });
     }
 
     private function detailStats(Request $request): array
@@ -208,6 +503,13 @@ class RabController extends Controller
                         $join->where('detail.pegawai_tipe', '=', $source['pegawai_tipe']);
                     }
                 });
+
+            if (
+                $request->filled('petugas_id')
+                && Schema::hasColumn($source['detail_table'], 'petugas_id')
+            ) {
+                $query->where('detail.petugas_id', $request->petugas_id);
+            }
 
             $queries[] = $query->selectRaw(
                 'COUNT(detail.id) as total_data,
@@ -252,11 +554,16 @@ class RabController extends Controller
                 'rekap.bulan_tahun',
                 'rekap.tanggal_rekap',
                 'rekap.jumlah_sementara',
+                'rekap.petugas_id',
                 'rekap.keterangan',
                 'rekap.created_at',
             ]);
 
         $this->applyPeriodFilter($query, $request, 'rekap.bulan_tahun');
+
+        if ($request->filled('petugas_id')) {
+            $query->where('rekap.petugas_id', $request->petugas_id);
+        }
 
         if ($request->filled('search')) {
             $search = trim((string) $request->search);
@@ -278,6 +585,10 @@ class RabController extends Controller
 
         if ($request->filled('module_key')) {
             $query->where('module_key', $request->module_key);
+        }
+
+        if ($request->filled('petugas_id')) {
+            $query->where('petugas_id', $request->petugas_id);
         }
 
         if ($request->filled('search')) {
@@ -338,6 +649,50 @@ class RabController extends Controller
         }
 
         return $union;
+    }
+
+    private function forceOwnPetugasForBarokah(Request $request): void
+    {
+        if ($this->shouldForceOwnPetugas()) {
+            $request->merge([
+                'petugas_id' => auth()->id(),
+            ]);
+        }
+    }
+
+    private function shouldForceOwnPetugas(): bool
+    {
+        $roleName = strtolower((string) (auth()->user()?->role?->name ?? ''));
+
+        return in_array($roleName, [
+            'barokahdosen_tatapmuka',
+            'barokahdosen_kegiatan',
+            'barokahdosen_bulanan',
+        ], true);
+    }
+
+    private function selectedPetugas(Request $request): ?object
+    {
+        if (! $request->filled('petugas_id')) {
+            return null;
+        }
+
+        $petugas = DB::table('users')
+            ->leftJoin('role', 'role.id', '=', 'users.role_id')
+            ->where('users.id', $request->petugas_id)
+            ->first([
+                'users.id',
+                'users.name',
+                'role.name as role_name',
+            ]);
+
+        if (! $petugas) {
+            return null;
+        }
+
+        $petugas->id = (int) $petugas->id;
+
+        return $petugas;
     }
 
     private function moduleOptions(): array

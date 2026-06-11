@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Admin\Pengeluaran\Concerns;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -28,17 +29,31 @@ trait ManagesPengeluaranRekap
     {
         $modelClass = $this->rekapModelClass();
         $rekapTable = (new $modelClass)->getTable();
-        $summary = $this->rekapSummaryQuery();
+        $summary = $this->rekapSummaryQuery($request);
+        $lpjSummary = $this->lpjSummaryQuery($request);
+        $lpjModuleKey = $this->lpjModuleKey($rekapTable);
+
+        $select = [
+            "{$rekapTable}.*",
+            DB::raw('COALESCE(rekap_summary.jumlah_data, 0) as jumlah_data'),
+            DB::raw('COALESCE(rekap_summary.total_pengeluaran, 0) as total_pengeluaran'),
+            DB::raw($this->effectiveAmountSql($rekapTable).' as jumlah'),
+            DB::raw('CASE WHEN COALESCE(rekap_summary.jumlah_data, 0) = 0 THEN 1 ELSE 0 END as is_jumlah_sementara'),
+            DB::raw($this->temporaryDifferenceSql($rekapTable).' as selisih_sementara'),
+        ];
+
+        if ($lpjSummary && $lpjModuleKey && Schema::hasTable('keuangan_pengeluaran_lpj_rekap_status')) {
+            $select[] = DB::raw('COALESCE(lpj_summary.jumlah_lpj, 0) as jumlah_lpj');
+            $select[] = DB::raw($this->effectiveLpjAmountSql($rekapTable, $request->filled('petugas_id')).' as total_lpj');
+            $select[] = DB::raw('COALESCE(lpj_status.sama_dengan_rab, 0) as lpj_sama_dengan_rab');
+        } else {
+            $select[] = DB::raw('0 as jumlah_lpj');
+            $select[] = DB::raw('0 as total_lpj');
+            $select[] = DB::raw('0 as lpj_sama_dengan_rab');
+        }
 
         $query = $modelClass::query()
-            ->select([
-                "{$rekapTable}.*",
-                DB::raw('COALESCE(rekap_summary.jumlah_data, 0) as jumlah_data'),
-                DB::raw('COALESCE(rekap_summary.total_pengeluaran, 0) as total_pengeluaran'),
-                DB::raw($this->effectiveAmountSql($rekapTable).' as jumlah'),
-                DB::raw('CASE WHEN COALESCE(rekap_summary.jumlah_data, 0) = 0 THEN 1 ELSE 0 END as is_jumlah_sementara'),
-                DB::raw($this->temporaryDifferenceSql($rekapTable).' as selisih_sementara'),
-            ])
+            ->select($select)
             ->leftJoinSub(
                 $summary,
                 'rekap_summary',
@@ -46,6 +61,21 @@ trait ManagesPengeluaranRekap
                 '=',
                 "{$rekapTable}.id"
             );
+
+        if ($lpjSummary && $lpjModuleKey && Schema::hasTable('keuangan_pengeluaran_lpj_rekap_status')) {
+            $query
+                ->leftJoinSub(
+                    $lpjSummary,
+                    'lpj_summary',
+                    'lpj_summary.rekap_id',
+                    '=',
+                    "{$rekapTable}.id"
+                )
+                ->leftJoin('keuangan_pengeluaran_lpj_rekap_status as lpj_status', function ($join) use ($rekapTable, $lpjModuleKey) {
+                    $join->on('lpj_status.rekap_id', '=', "{$rekapTable}.id")
+                        ->where('lpj_status.module_key', '=', $lpjModuleKey);
+                });
+        }
 
         if ($request->filled('search')) {
             $search = $request->search;
@@ -70,6 +100,8 @@ trait ManagesPengeluaranRekap
         if ($request->filled('tanggal_akhir')) {
             $query->whereDate("{$rekapTable}.tanggal_rekap", '<=', $request->tanggal_akhir);
         }
+
+        $this->applyRekapPetugasFilter($query, $request, $rekapTable);
 
         $sortColumns = [
             'id' => "{$rekapTable}.id",
@@ -117,6 +149,7 @@ trait ManagesPengeluaranRekap
 
         $validated = $validator->validated();
         $validated['bulan_tahun'] .= '-01';
+        $validated['petugas_id'] = auth()->id();
 
         $data = $modelClass::create($validated);
         $this->applyRekapSummary($data, [
@@ -397,6 +430,30 @@ trait ManagesPengeluaranRekap
         }
     }
 
+    protected function applyPetugasFilter($query, Request $request, ?string $table = null): void
+    {
+        $tableName = $table ?? $this->pengeluaranTable();
+
+        if (
+            ! $request->filled('petugas_id')
+            || ! Schema::hasColumn($tableName, 'petugas_id')
+        ) {
+            return;
+        }
+
+        $query->where("{$tableName}.petugas_id", $request->petugas_id);
+    }
+
+    protected function applyRekapPetugasFilter($query, Request $request, string $rekapTable): void
+    {
+        if (
+            $request->filled('petugas_id')
+            && Schema::hasColumn($rekapTable, 'petugas_id')
+        ) {
+            $query->where("{$rekapTable}.petugas_id", $request->petugas_id);
+        }
+    }
+
     protected function rekapIdRules(): array
     {
         $modelClass = $this->rekapModelClass();
@@ -575,9 +632,12 @@ trait ManagesPengeluaranRekap
         ];
     }
 
-    private function rekapSummaryQuery()
+    private function rekapSummaryQuery(Request $request)
     {
-        return $this->newRekapPengeluaranQuery()
+        $query = $this->newRekapPengeluaranQuery();
+        $this->applyPetugasFilter($query, $request);
+
+        return $query
             ->whereNotNull($this->pengeluaranTable().'.rekap_id')
             ->select([
                 $this->pengeluaranTable().'.rekap_id',
@@ -587,6 +647,37 @@ trait ManagesPengeluaranRekap
                 ),
             ])
             ->groupBy($this->pengeluaranTable().'.rekap_id');
+    }
+
+    private function lpjSummaryQuery(Request $request)
+    {
+        $lpjTable = $this->lpjPengeluaranTable();
+
+        if (! Schema::hasTable($lpjTable)) {
+            return null;
+        }
+
+        $query = DB::table("{$lpjTable} as lpj_detail")
+            ->whereNotNull('lpj_detail.rekap_id')
+            ->select([
+                'lpj_detail.rekap_id',
+                DB::raw('COUNT(*) as jumlah_lpj'),
+                DB::raw('COALESCE(SUM(lpj_detail.total), 0) as total_lpj'),
+            ]);
+
+        $pegawaiTipe = $this->pegawaiTipeForLpj();
+        if ($pegawaiTipe && Schema::hasColumn($lpjTable, 'pegawai_tipe')) {
+            $query->where('lpj_detail.pegawai_tipe', $pegawaiTipe);
+        }
+
+        if (
+            $request->filled('petugas_id')
+            && Schema::hasColumn($lpjTable, 'petugas_id')
+        ) {
+            $query->where('lpj_detail.petugas_id', $request->petugas_id);
+        }
+
+        return $query->groupBy('lpj_detail.rekap_id');
     }
 
     private function rekapSummary($rekapId): array
@@ -629,6 +720,9 @@ trait ManagesPengeluaranRekap
         $data->jumlah = (int) $data->jumlah;
         $data->is_jumlah_sementara = (bool) $data->is_jumlah_sementara;
         $data->selisih_sementara = (int) $data->selisih_sementara;
+        $data->jumlah_lpj = (int) ($data->jumlah_lpj ?? 0);
+        $data->total_lpj = (int) ($data->total_lpj ?? 0);
+        $data->lpj_sama_dengan_rab = (bool) ($data->lpj_sama_dengan_rab ?? false);
     }
 
     private function effectiveAmountSql(string $rekapTable): string
@@ -650,6 +744,45 @@ trait ManagesPengeluaranRekap
                     - COALESCE(rekap_summary.total_pengeluaran, 0)
             ELSE 0
         END";
+    }
+
+    private function effectiveLpjAmountSql(string $rekapTable, bool $useFilteredRabAmount = false): string
+    {
+        $sameAsRabAmount = $useFilteredRabAmount
+            ? $this->effectiveAmountSql($rekapTable)
+            : "COALESCE(NULLIF(lpj_status.total_lpj, 0), {$this->effectiveAmountSql($rekapTable)})";
+
+        return "COALESCE(
+            CASE
+                WHEN COALESCE(lpj_summary.jumlah_lpj, 0) > 0
+                    THEN COALESCE(lpj_summary.total_lpj, 0)
+                WHEN COALESCE(lpj_status.sama_dengan_rab, 0) = 1
+                    THEN {$sameAsRabAmount}
+                ELSE 0
+            END,
+            0
+        )";
+    }
+
+    private function lpjPengeluaranTable(): string
+    {
+        return $this->pengeluaranTable().'_lpj';
+    }
+
+    private function lpjModuleKey(string $rekapTable): ?string
+    {
+        return match ($rekapTable) {
+            'keuangan_pengeluaran_dosen_rekap' => 'tatap_muka',
+            'keuangan_pengeluaran_dosen_kegiatan_rekap' => 'kegiatan',
+            'keuangan_pengeluaran_dosen_bulanan_rekap' => 'dosen_bulanan',
+            'keuangan_pengeluaran_staff_bulanan_rekap' => 'staff_bulanan',
+            default => null,
+        };
+    }
+
+    private function pegawaiTipeForLpj(): ?string
+    {
+        return defined(static::class.'::PEGAWAI_TIPE') ? static::PEGAWAI_TIPE : null;
     }
 
     private function normalizeRekapIds(array $rekapIds)

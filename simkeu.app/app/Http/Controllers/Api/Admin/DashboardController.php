@@ -5,12 +5,9 @@ namespace App\Http\Controllers\Api\Admin;
 use Carbon\Carbon;
 use App\Models\User;
 use Illuminate\Http\Request;
-use App\Models\KeuanganSaldo;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
 use App\Http\Controllers\Controller;
-use App\Models\KeuanganSaldoPemasukan;
-use App\Models\KeuanganSaldoPengeluaran;
 use App\Services\Helper;
 use App\Services\MataUangFormatter;
 
@@ -83,20 +80,8 @@ class DashboardController extends Controller
                 'bulanan' => 0, 'count_bulanan' => 0,
             ];
 
-            if ($jkUser->id === '%') {
-                $selectRawUmum = "
-                    COALESCE(SUM(jumlah), 0) as semua,
-                    COUNT(*) as count_semua,
-                    COALESCE(SUM(CASE WHEN DATE(tanggal) = ? THEN jumlah ELSE 0 END), 0) as harian,
-                    SUM(CASE WHEN DATE(tanggal) = ? THEN 1 ELSE 0 END) as count_harian,
-                    COALESCE(SUM(CASE WHEN DATE(tanggal) >= ? THEN jumlah ELSE 0 END), 0) as mingguan,
-                    SUM(CASE WHEN DATE(tanggal) >= ? THEN 1 ELSE 0 END) as count_mingguan,
-                    COALESCE(SUM(CASE WHEN DATE(tanggal) >= ? THEN jumlah ELSE 0 END), 0) as bulanan,
-                    SUM(CASE WHEN DATE(tanggal) >= ? THEN 1 ELSE 0 END) as count_bulanan
-                ";
-                $bindingsUmum = [$today, $today, $startOfWeek, $startOfWeek, $startOfMonth, $startOfMonth];
-                $umum = KeuanganSaldoPemasukan::selectRaw($selectRawUmum, $bindingsUmum)->first();
-            }
+            // KeuanganSaldoPemasukan removed — will be remade
+            // $umum stays as zero-initialized object above
 
             $defaultCurrency = MataUangFormatter::defaultCurrency();
             $legacyIdrTotal = function (array $totals): float {
@@ -202,8 +187,9 @@ class DashboardController extends Controller
                 'Semua' => $buildPeriod('semua'),
             ];
 
-            $saldoData = KeuanganSaldo::selectRaw('COALESCE(SUM(saldo), 0) as total_saldo, COUNT(*) as jumlah')->first();
-            $pengeluaranUmumData = KeuanganSaldoPengeluaran::selectRaw('COALESCE(SUM(jumlah), 0) as total, COUNT(*) as jumlah')->first();
+            // KeuanganSaldo & KeuanganSaldoPengeluaran removed — will be remade
+            $saldoData = (object) ['total_saldo' => 0, 'jumlah' => 0];
+            $pengeluaranUmumData = (object) ['total' => 0, 'jumlah' => 0];
             $pengeluaranDosenData = DB::table('keuangan_pengeluaran_dosen')->selectRaw('COALESCE(SUM(total), 0) as total, COUNT(*) as jumlah')->first();
             $jumlahUser = User::count();
             $saldo = (float) $saldoData->total_saldo;
@@ -667,34 +653,7 @@ class DashboardController extends Controller
                             ->whereBetween('tanggal', [$startDate, $endDate])
                             ->groupBy(DB::raw('DATE(tanggal)'))
                     )
-                    ->unionAll(
-                        DB::table('keuangan_saldo_pemasukan')
-                            ->selectRaw("
-                                DATE(keuangan_saldo_pemasukan.tanggal) AS tanggal,
-                                SUM(keuangan_saldo_pemasukan.jumlah) AS nominal,
-                                'in' AS tipe,
-                                0 as mata_uang_id,
-                                'IDR' as mata_uang_kode,
-                                'Rupiah' as mata_uang_nama,
-                                'Rp' as mata_uang_simbol
-                            ")
-                            ->whereBetween('keuangan_saldo_pemasukan.tanggal', [$startDate, $endDate])
-                            ->groupBy(DB::raw('DATE(keuangan_saldo_pemasukan.tanggal)'))
-                    )
-                    ->unionAll(
-                        DB::table('keuangan_saldo_pengeluaran')
-                            ->selectRaw("
-                                DATE(keuangan_saldo_pengeluaran.tanggal) AS tanggal,
-                                SUM(keuangan_saldo_pengeluaran.jumlah) AS nominal,
-                                'out' AS tipe,
-                                0 as mata_uang_id,
-                                'IDR' as mata_uang_kode,
-                                'Rupiah' as mata_uang_nama,
-                                'Rp' as mata_uang_simbol
-                            ")
-                            ->whereBetween('keuangan_saldo_pengeluaran.tanggal', [$startDate, $endDate])
-                            ->groupBy(DB::raw('DATE(keuangan_saldo_pengeluaran.tanggal)'))
-                    )
+                    // keuangan_saldo_pemasukan & keuangan_saldo_pengeluaran unions removed — tables will be remade
                     ->get();
 
                 $period = new \DatePeriod($startDate, new \DateInterval('P1D'), $endDate->copy()->addDay());
