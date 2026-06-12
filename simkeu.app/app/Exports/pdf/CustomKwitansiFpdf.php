@@ -64,7 +64,7 @@ class CustomKwitansiFpdf extends Fpdf
         // $mahasiswa = Mahasiswa::nim($data->nim);
         // $namaMahasiswa = $mahasiswa->nama ?? '-';
         // $nimMahasiswa = $mahasiswa->nim ?? $data->nim;
-        $mahasiswa = Mahasiswa::nim($data->nim);
+        // $mahasiswa = Mahasiswa::nim($data->nim);
         // $namaMahasiswa = $mahasiswa->nama ?? '-';
         $nimMahasiswa = $data->nim;
         //    Data Biodata Mahasiswa
