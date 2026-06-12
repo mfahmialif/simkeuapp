@@ -61,9 +61,12 @@ class CustomKwitansiFpdf extends Fpdf
         $this->Line(10, 32, 210 - 10, 32);
         
         $data = $this->data;
+        // $mahasiswa = Mahasiswa::nim($data->nim);
+        // $namaMahasiswa = $mahasiswa->nama ?? '-';
+        // $nimMahasiswa = $mahasiswa->nim ?? $data->nim;
         $mahasiswa = Mahasiswa::nim($data->nim);
-        $namaMahasiswa = $mahasiswa->nama ?? '-';
-        $nimMahasiswa = $mahasiswa->nim ?? $data->nim;
+        // $namaMahasiswa = $mahasiswa->nama ?? '-';
+        $nimMahasiswa = $data->nim;
         //    Data Biodata Mahasiswa
         $this->SetFont('Courier', '', 9);
         $this->Cell(0, 1, "", 0, 1, 'L');
@@ -94,7 +97,8 @@ class CustomKwitansiFpdf extends Fpdf
         $this->Cell(40, 5, "NIM", 0, 0, 'L');
 
         $this->SetFontSpacing(0);
-        $this->Cell(95, 5, ": $data->nim (" . $namaMahasiswa . ")", 0, 0, 'L');
+        // $this->Cell(95, 5, ": $data->nim (" . $namaMahasiswa . ")", 0, 0, 'L');
+        $this->Cell(95, 5, ": $data->nim", 0, 0, 'L');
 
         $this->SetFontSpacing(0);
         $tanggal = ($depositData) ? "Tgl Deposit    : " . date('d-m-Y', strtotime($depositData->updated_at)) : null;

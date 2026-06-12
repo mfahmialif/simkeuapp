@@ -22,7 +22,10 @@ class TestingController extends Controller
 {
     public function index()
     {
-        dd($this->testingBayarWisuda());
+        // $mahasiswa = Mahasiswa::nim("202485200040");
+        // dd($mahasiswa);
+        // dd('asd');
+        // dd($this->testingBayarWisuda());
         // dd(Mahasiswa::nim("202385020016"));
         // dd($this->tesInputWisuda());
         // dd($this->syncPembayaranSP());
