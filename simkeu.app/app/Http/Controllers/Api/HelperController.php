@@ -1163,6 +1163,9 @@ class HelperController extends Controller
         $roles = [
             'umum' => ['rumahtangga'],
             'rumah_tangga' => ['rumahtangga'],
+            'sarana_prasarana' => ['sarpras'],
+            'sarpras' => ['sarpras'],
+            'transportasi' => ['transportasi'],
             'dosen' => ['barokahdosen_tatapmuka'],
             'tatap_muka' => ['barokahdosen_tatapmuka'],
             'dosen_tatapmuka' => ['barokahdosen_tatapmuka'],
@@ -1173,6 +1176,8 @@ class HelperController extends Controller
             'dosen_bulanan' => ['barokahdosen_bulanan'],
             'rab' => [
                 'rumahtangga',
+                'sarpras',
+                'transportasi',
                 'barokahdosen_tatapmuka',
                 'barokahdosen_kegiatan',
                 'barokahdosen_bulanan',

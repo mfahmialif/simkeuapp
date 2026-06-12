@@ -69,6 +69,18 @@ class DatabaseSeeder extends Seeder
                 'keterangan' => 'Barokah Dosen Bulanan',
             ]
         );
+        DB::table('role')->insert(
+            [
+                'name' => 'sarpras',
+                'keterangan' => 'Sarana Prasarana',
+            ]
+        );
+        DB::table('role')->insert(
+            [
+                'name' => 'transportasi',
+                'keterangan' => 'Transportasi',
+            ]
+        );
 
         DB::table('users')->insert([
             'id'            => 8,
@@ -200,6 +212,26 @@ class DatabaseSeeder extends Seeder
                 'email'         => 'rt@gmail.com',
                 'password'      => bcrypt('k3uangan2025v2'),
                 'role_id'       => 6,
+                'jenis_kelamin' => 'Laki-laki',
+                'avatar'        => '/images/avatars/avatar-9.png',
+            ],
+            [
+                'id'            => 10784,
+                'username'      => 'sarpras',
+                'name'          => 'Sarana Prasarana',
+                'email'         => 'sarpras@gmail.com',
+                'password'      => bcrypt('dalwa123'),
+                'role_id'       => 11,
+                'jenis_kelamin' => 'Laki-laki',
+                'avatar'        => '/images/avatars/avatar-9.png',
+            ],
+            [
+                'id'            => 10785,
+                'username'      => 'transportasi',
+                'name'          => 'Transportasi',
+                'email'         => 'transportasi@gmail.com',
+                'password'      => bcrypt('dalwa123'),
+                'role_id'       => 12,
                 'jenis_kelamin' => 'Laki-laki',
                 'avatar'        => '/images/avatars/avatar-9.png',
             ],

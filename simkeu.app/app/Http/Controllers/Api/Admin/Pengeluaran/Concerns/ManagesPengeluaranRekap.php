@@ -775,6 +775,8 @@ trait ManagesPengeluaranRekap
             'keuangan_pengeluaran_dosen_rekap' => 'tatap_muka',
             'keuangan_pengeluaran_dosen_kegiatan_rekap' => 'kegiatan',
             'keuangan_pengeluaran_rumah_tangga_rekap' => 'rumah_tangga',
+            'keuangan_pengeluaran_sarana_prasarana_rekap' => 'sarana_prasarana',
+            'keuangan_pengeluaran_transportasi_rekap' => 'transportasi',
             'keuangan_pengeluaran_dosen_bulanan_rekap' => 'dosen_bulanan',
             'keuangan_pengeluaran_staff_bulanan_rekap' => 'staff_bulanan',
             default => null,

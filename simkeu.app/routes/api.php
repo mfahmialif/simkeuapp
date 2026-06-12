@@ -45,6 +45,8 @@ use App\Http\Controllers\Api\Admin\Pengeluaran\RabController;
 use App\Http\Controllers\Api\Admin\Pengeluaran\LpjController;
 use App\Http\Controllers\Api\Admin\Pengeluaran\DosenKegiatanController as PengeluaranDosenKegiatanController;
 use App\Http\Controllers\Api\Admin\Pengeluaran\RumahTanggaController as PengeluaranRumahTanggaController;
+use App\Http\Controllers\Api\Admin\Pengeluaran\SaranaPrasaranaController as PengeluaranSaranaPrasaranaController;
+use App\Http\Controllers\Api\Admin\Pengeluaran\TransportasiController as PengeluaranTransportasiController;
 
 Route::prefix('bsi')->group(function () {
     Route::get('tagihan', [PublicBsiPaymentController::class, 'tagihan'])
@@ -76,7 +78,7 @@ Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
     Route::get('pegawai/{pegawai}', [PegawaiController::class, 'show']);
 });
 
-Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuangan,kabag,staff,rumahtangga,barokahdosen_tatapmuka,barokahdosen_kegiatan,barokahdosen_bulanan'])->group(function () {
+Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuangan,kabag,staff,rumahtangga,sarpras,transportasi,barokahdosen_tatapmuka,barokahdosen_kegiatan,barokahdosen_bulanan'])->group(function () {
 // Route::prefix('admin')->group(function () {
     Route::prefix('dashboard')->group(function () {
         Route::get('/widget', [DashboardController::class, 'widget'])->name('admin.dashboard.widget');
@@ -232,6 +234,34 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
         Route::put('/rumah-tangga/rekap/{id}/lpj', [LpjController::class, 'rumahTanggaUpdate']);
         Route::get('/rumah-tangga/rekap/{id}', [PengeluaranRumahTanggaController::class, 'rekapShow']);
         Route::apiResource('rumah-tangga', PengeluaranRumahTanggaController::class);
+        Route::get('/sarana-prasarana/export-excel', [PengeluaranSaranaPrasaranaController::class, 'exportExcel']);
+        Route::post('/sarana-prasarana/batch-store', [PengeluaranSaranaPrasaranaController::class, 'batchStore']);
+        Route::post('/sarana-prasarana/batch-update', [PengeluaranSaranaPrasaranaController::class, 'batchUpdate']);
+        Route::get('/sarana-prasarana/rekap', [PengeluaranSaranaPrasaranaController::class, 'rekapIndex']);
+        Route::post('/sarana-prasarana/rekap', [PengeluaranSaranaPrasaranaController::class, 'rekapStore']);
+        Route::post('/sarana-prasarana/rekap/bulk-update', [PengeluaranSaranaPrasaranaController::class, 'rekapBulkUpdate']);
+        Route::post('/sarana-prasarana/rekap/{id}/release', [PengeluaranSaranaPrasaranaController::class, 'rekapRelease']);
+        Route::put('/sarana-prasarana/rekap/{id}', [PengeluaranSaranaPrasaranaController::class, 'rekapUpdate']);
+        Route::delete('/sarana-prasarana/rekap/{id}', [PengeluaranSaranaPrasaranaController::class, 'rekapDestroy']);
+        Route::get('/sarana-prasarana/rekap/{id}/lpj', [LpjController::class, 'saranaPrasaranaShow']);
+        Route::post('/sarana-prasarana/rekap/{id}/lpj/copy', [LpjController::class, 'saranaPrasaranaCopy']);
+        Route::put('/sarana-prasarana/rekap/{id}/lpj', [LpjController::class, 'saranaPrasaranaUpdate']);
+        Route::get('/sarana-prasarana/rekap/{id}', [PengeluaranSaranaPrasaranaController::class, 'rekapShow']);
+        Route::apiResource('sarana-prasarana', PengeluaranSaranaPrasaranaController::class);
+        Route::get('/transportasi/export-excel', [PengeluaranTransportasiController::class, 'exportExcel']);
+        Route::post('/transportasi/batch-store', [PengeluaranTransportasiController::class, 'batchStore']);
+        Route::post('/transportasi/batch-update', [PengeluaranTransportasiController::class, 'batchUpdate']);
+        Route::get('/transportasi/rekap', [PengeluaranTransportasiController::class, 'rekapIndex']);
+        Route::post('/transportasi/rekap', [PengeluaranTransportasiController::class, 'rekapStore']);
+        Route::post('/transportasi/rekap/bulk-update', [PengeluaranTransportasiController::class, 'rekapBulkUpdate']);
+        Route::post('/transportasi/rekap/{id}/release', [PengeluaranTransportasiController::class, 'rekapRelease']);
+        Route::put('/transportasi/rekap/{id}', [PengeluaranTransportasiController::class, 'rekapUpdate']);
+        Route::delete('/transportasi/rekap/{id}', [PengeluaranTransportasiController::class, 'rekapDestroy']);
+        Route::get('/transportasi/rekap/{id}/lpj', [LpjController::class, 'transportasiShow']);
+        Route::post('/transportasi/rekap/{id}/lpj/copy', [LpjController::class, 'transportasiCopy']);
+        Route::put('/transportasi/rekap/{id}/lpj', [LpjController::class, 'transportasiUpdate']);
+        Route::get('/transportasi/rekap/{id}', [PengeluaranTransportasiController::class, 'rekapShow']);
+        Route::apiResource('transportasi', PengeluaranTransportasiController::class);
         Route::get('dosen-bulanan/export-bsi', [DosenBulananController::class, 'exportBsi'])->middleware('role:admin,barokahdosen_bulanan');
         Route::get('dosen-bulanan/copy-bsi', [DosenBulananController::class, 'copyBsi'])->middleware('role:admin,barokahdosen_bulanan');
         Route::get('dosen-bulanan/form-data', [DosenBulananController::class, 'formData'])->middleware('role:admin,barokahdosen_bulanan');

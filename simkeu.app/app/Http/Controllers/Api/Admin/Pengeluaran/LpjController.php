@@ -8,6 +8,7 @@ use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 
 class LpjController extends Controller
 {
@@ -38,6 +39,24 @@ class LpjController extends Controller
             'lpj_table' => 'keuangan_pengeluaran_rumah_tangga_lpj',
             'pegawai_tipe' => null,
             'type' => 'rumah-tangga',
+        ],
+        'sarana_prasarana' => [
+            'module_key' => 'sarana_prasarana',
+            'title' => 'Sarana Prasarana',
+            'rekap_table' => 'keuangan_pengeluaran_sarana_prasarana_rekap',
+            'detail_table' => 'keuangan_pengeluaran_sarana_prasarana',
+            'lpj_table' => 'keuangan_pengeluaran_sarana_prasarana_lpj',
+            'pegawai_tipe' => null,
+            'type' => 'sarana-prasarana',
+        ],
+        'transportasi' => [
+            'module_key' => 'transportasi',
+            'title' => 'Transportasi',
+            'rekap_table' => 'keuangan_pengeluaran_transportasi_rekap',
+            'detail_table' => 'keuangan_pengeluaran_transportasi',
+            'lpj_table' => 'keuangan_pengeluaran_transportasi_lpj',
+            'pegawai_tipe' => null,
+            'type' => 'transportasi',
         ],
         'dosen_bulanan' => [
             'module_key' => 'dosen_bulanan',
@@ -74,6 +93,16 @@ class LpjController extends Controller
         return $this->showModule('rumah_tangga', $id);
     }
 
+    public function saranaPrasaranaShow(Request $request, $id)
+    {
+        return $this->showModule('sarana_prasarana', $id);
+    }
+
+    public function transportasiShow(Request $request, $id)
+    {
+        return $this->showModule('transportasi', $id);
+    }
+
     public function dosenBulananShow(Request $request, $id)
     {
         return $this->showModule('dosen_bulanan', $id);
@@ -99,6 +128,16 @@ class LpjController extends Controller
         return $this->copyModule($request, 'rumah_tangga', $id);
     }
 
+    public function saranaPrasaranaCopy(Request $request, $id)
+    {
+        return $this->copyModule($request, 'sarana_prasarana', $id);
+    }
+
+    public function transportasiCopy(Request $request, $id)
+    {
+        return $this->copyModule($request, 'transportasi', $id);
+    }
+
     public function dosenBulananCopy(Request $request, $id)
     {
         return $this->copyModule($request, 'dosen_bulanan', $id);
@@ -122,6 +161,16 @@ class LpjController extends Controller
     public function rumahTanggaUpdate(Request $request, $id)
     {
         return $this->updateModule($request, 'rumah_tangga', $id);
+    }
+
+    public function saranaPrasaranaUpdate(Request $request, $id)
+    {
+        return $this->updateModule($request, 'sarana_prasarana', $id);
+    }
+
+    public function transportasiUpdate(Request $request, $id)
+    {
+        return $this->updateModule($request, 'transportasi', $id);
     }
 
     public function dosenBulananUpdate(Request $request, $id)
@@ -258,8 +307,11 @@ class LpjController extends Controller
             'items' => ['present', 'array', 'max:500'],
         ];
 
-        if ($source['type'] === 'rumah-tangga') {
+        if (in_array($source['type'], ['rumah-tangga', 'sarana-prasarana'], true)) {
             $rules['items.*.kelompok_anggaran'] = ['required', 'string', 'max:255', 'not_regex:/^\s*$/'];
+        }
+        if ($source['type'] === 'transportasi') {
+            $rules['items.*.prioritas'] = ['required', Rule::in(['Tinggi', 'Sedang', 'Rendah', 'tinggi', 'sedang', 'rendah'])];
         }
 
         $validator = Validator::make($request->all(), $rules);
@@ -496,6 +548,8 @@ class LpjController extends Controller
             'tatapmuka' => $this->tatapmukaRow($item),
             'kegiatan' => $this->kegiatanRow($item),
             'rumah-tangga' => $this->rumahTanggaRow($item),
+            'sarana-prasarana' => $this->saranaPrasaranaRow($item),
+            'transportasi' => $this->transportasiRow($item),
             'dosen-bulanan' => $this->dosenBulananRow($item),
             default => $this->staffBulananRow($item),
         };
@@ -616,6 +670,57 @@ class LpjController extends Controller
             'keterangan' => $item['keterangan'] ?? null,
             'lampiran' => $item['lampiran'] ?? [],
         ];
+    }
+
+    private function saranaPrasaranaRow(array $item): array
+    {
+        $nominal = (int) round($this->number($item['nominal'] ?? $item['total'] ?? 0));
+        $volume = $this->nullableInt($item['volume'] ?? null);
+        $satuan = $this->nullableString($item['satuan'] ?? null);
+
+        return [
+            'tanggal' => $item['tanggal'] ?? now()->toDateString(),
+            'kelompok_anggaran' => trim((string) ($item['kelompok_anggaran'] ?? '')),
+            'nama_kegiatan' => $item['nama_kegiatan'] ?? 'LPJ Sarana Prasarana',
+            'nominal' => $nominal,
+            'volume' => $volume,
+            'satuan' => $satuan,
+            'total' => $nominal * ($volume ?? 1),
+            'jenis_pembayaran' => $item['jenis_pembayaran'] ?? 'Tunai',
+            'bukti_transfer' => $item['bukti_transfer'] ?? null,
+            'keterangan' => $item['keterangan'] ?? null,
+            'lampiran' => $item['lampiran'] ?? [],
+        ];
+    }
+
+    private function transportasiRow(array $item): array
+    {
+        $nominal = (int) round($this->number($item['nominal'] ?? $item['total'] ?? 0));
+        $volume = $this->nullableInt($item['volume'] ?? null);
+        $satuan = $this->nullableString($item['satuan'] ?? null);
+
+        return [
+            'tanggal' => $item['tanggal'] ?? now()->toDateString(),
+            'prioritas' => $this->normalizePrioritas($item['prioritas'] ?? 'Sedang'),
+            'nama_kegiatan' => $item['nama_kegiatan'] ?? 'LPJ Transportasi',
+            'nominal' => $nominal,
+            'volume' => $volume,
+            'satuan' => $satuan,
+            'total' => $nominal * ($volume ?? 1),
+            'jenis_pembayaran' => $item['jenis_pembayaran'] ?? 'Tunai',
+            'bukti_transfer' => $item['bukti_transfer'] ?? null,
+            'keterangan' => $item['keterangan'] ?? null,
+            'lampiran' => $item['lampiran'] ?? [],
+        ];
+    }
+
+    private function normalizePrioritas($value): string
+    {
+        return match (strtolower(trim((string) $value))) {
+            'tinggi' => 'Tinggi',
+            'rendah' => 'Rendah',
+            default => 'Sedang',
+        };
     }
 
     private function nullableString($value): ?string

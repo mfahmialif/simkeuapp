@@ -38,6 +38,22 @@ class RabController extends Controller
             'detail_path' => '/admin/pengeluaran/rumah-tangga/rekap/',
             'pegawai_tipe' => null,
         ],
+        'sarana_prasarana' => [
+            'rekap_table' => 'keuangan_pengeluaran_sarana_prasarana_rekap',
+            'detail_table' => 'keuangan_pengeluaran_sarana_prasarana',
+            'lpj_table' => 'keuangan_pengeluaran_sarana_prasarana_lpj',
+            'module_name' => 'Sarana Prasarana',
+            'detail_path' => '/admin/pengeluaran/sarana-prasarana/rekap/',
+            'pegawai_tipe' => null,
+        ],
+        'transportasi' => [
+            'rekap_table' => 'keuangan_pengeluaran_transportasi_rekap',
+            'detail_table' => 'keuangan_pengeluaran_transportasi',
+            'lpj_table' => 'keuangan_pengeluaran_transportasi_lpj',
+            'module_name' => 'Transportasi',
+            'detail_path' => '/admin/pengeluaran/transportasi/rekap/',
+            'pegawai_tipe' => null,
+        ],
         'dosen_bulanan' => [
             'rekap_table' => 'keuangan_pengeluaran_dosen_bulanan_rekap',
             'detail_table' => 'keuangan_pengeluaran_pegawai_bulanan',
@@ -709,6 +725,8 @@ class RabController extends Controller
             ['title' => 'Dosen Tatap Muka', 'value' => 'tatap_muka'],
             ['title' => 'Pegawai Kegiatan', 'value' => 'kegiatan'],
             ['title' => 'Rumah Tangga', 'value' => 'rumah_tangga'],
+            ['title' => 'Sarana Prasarana', 'value' => 'sarana_prasarana'],
+            ['title' => 'Transportasi', 'value' => 'transportasi'],
             ['title' => 'Dosen Bulanan', 'value' => 'dosen_bulanan'],
             ['title' => 'Staff Bulanan', 'value' => 'staff_bulanan'],
         ];
