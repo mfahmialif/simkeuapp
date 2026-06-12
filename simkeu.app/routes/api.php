@@ -44,6 +44,7 @@ use App\Http\Controllers\Api\Admin\Pengeluaran\StaffBulananController;
 use App\Http\Controllers\Api\Admin\Pengeluaran\RabController;
 use App\Http\Controllers\Api\Admin\Pengeluaran\LpjController;
 use App\Http\Controllers\Api\Admin\Pengeluaran\DosenKegiatanController as PengeluaranDosenKegiatanController;
+use App\Http\Controllers\Api\Admin\Pengeluaran\RumahTanggaController as PengeluaranRumahTanggaController;
 
 Route::prefix('bsi')->group(function () {
     Route::get('tagihan', [PublicBsiPaymentController::class, 'tagihan'])
@@ -217,6 +218,20 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
         Route::put('/dosen-kegiatan/rekap/{id}/lpj', [LpjController::class, 'kegiatanUpdate']);
         Route::get('/dosen-kegiatan/rekap/{id}', [PengeluaranDosenKegiatanController::class, 'rekapShow']);
         Route::apiResource('dosen-kegiatan', PengeluaranDosenKegiatanController::class);
+        Route::get('/rumah-tangga/export-excel', [PengeluaranRumahTanggaController::class, 'exportExcel']);
+        Route::post('/rumah-tangga/batch-store', [PengeluaranRumahTanggaController::class, 'batchStore']);
+        Route::post('/rumah-tangga/batch-update', [PengeluaranRumahTanggaController::class, 'batchUpdate']);
+        Route::get('/rumah-tangga/rekap', [PengeluaranRumahTanggaController::class, 'rekapIndex']);
+        Route::post('/rumah-tangga/rekap', [PengeluaranRumahTanggaController::class, 'rekapStore']);
+        Route::post('/rumah-tangga/rekap/bulk-update', [PengeluaranRumahTanggaController::class, 'rekapBulkUpdate']);
+        Route::post('/rumah-tangga/rekap/{id}/release', [PengeluaranRumahTanggaController::class, 'rekapRelease']);
+        Route::put('/rumah-tangga/rekap/{id}', [PengeluaranRumahTanggaController::class, 'rekapUpdate']);
+        Route::delete('/rumah-tangga/rekap/{id}', [PengeluaranRumahTanggaController::class, 'rekapDestroy']);
+        Route::get('/rumah-tangga/rekap/{id}/lpj', [LpjController::class, 'rumahTanggaShow']);
+        Route::post('/rumah-tangga/rekap/{id}/lpj/copy', [LpjController::class, 'rumahTanggaCopy']);
+        Route::put('/rumah-tangga/rekap/{id}/lpj', [LpjController::class, 'rumahTanggaUpdate']);
+        Route::get('/rumah-tangga/rekap/{id}', [PengeluaranRumahTanggaController::class, 'rekapShow']);
+        Route::apiResource('rumah-tangga', PengeluaranRumahTanggaController::class);
         Route::get('dosen-bulanan/export-bsi', [DosenBulananController::class, 'exportBsi'])->middleware('role:admin,barokahdosen_bulanan');
         Route::get('dosen-bulanan/copy-bsi', [DosenBulananController::class, 'copyBsi'])->middleware('role:admin,barokahdosen_bulanan');
         Route::get('dosen-bulanan/form-data', [DosenBulananController::class, 'formData'])->middleware('role:admin,barokahdosen_bulanan');

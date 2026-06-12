@@ -30,6 +30,15 @@ class LpjController extends Controller
             'pegawai_tipe' => null,
             'type' => 'kegiatan',
         ],
+        'rumah_tangga' => [
+            'module_key' => 'rumah_tangga',
+            'title' => 'Rumah Tangga',
+            'rekap_table' => 'keuangan_pengeluaran_rumah_tangga_rekap',
+            'detail_table' => 'keuangan_pengeluaran_rumah_tangga',
+            'lpj_table' => 'keuangan_pengeluaran_rumah_tangga_lpj',
+            'pegawai_tipe' => null,
+            'type' => 'rumah-tangga',
+        ],
         'dosen_bulanan' => [
             'module_key' => 'dosen_bulanan',
             'title' => 'Barokah Dosen Bulanan',
@@ -60,6 +69,11 @@ class LpjController extends Controller
         return $this->showModule('kegiatan', $id);
     }
 
+    public function rumahTanggaShow(Request $request, $id)
+    {
+        return $this->showModule('rumah_tangga', $id);
+    }
+
     public function dosenBulananShow(Request $request, $id)
     {
         return $this->showModule('dosen_bulanan', $id);
@@ -80,6 +94,11 @@ class LpjController extends Controller
         return $this->copyModule($request, 'kegiatan', $id);
     }
 
+    public function rumahTanggaCopy(Request $request, $id)
+    {
+        return $this->copyModule($request, 'rumah_tangga', $id);
+    }
+
     public function dosenBulananCopy(Request $request, $id)
     {
         return $this->copyModule($request, 'dosen_bulanan', $id);
@@ -98,6 +117,11 @@ class LpjController extends Controller
     public function kegiatanUpdate(Request $request, $id)
     {
         return $this->updateModule($request, 'kegiatan', $id);
+    }
+
+    public function rumahTanggaUpdate(Request $request, $id)
+    {
+        return $this->updateModule($request, 'rumah_tangga', $id);
     }
 
     public function dosenBulananUpdate(Request $request, $id)
@@ -229,9 +253,16 @@ class LpjController extends Controller
 
     private function updateModule(Request $request, string $module, $rekapId)
     {
-        $validator = Validator::make($request->all(), [
+        $source = $this->source($module);
+        $rules = [
             'items' => ['present', 'array', 'max:500'],
-        ]);
+        ];
+
+        if ($source['type'] === 'rumah-tangga') {
+            $rules['items.*.kelompok_anggaran'] = ['required', 'string', 'max:255', 'not_regex:/^\s*$/'];
+        }
+
+        $validator = Validator::make($request->all(), $rules);
 
         if ($validator->fails()) {
             return response()->json([
@@ -239,8 +270,6 @@ class LpjController extends Controller
                 'message' => $validator->errors(),
             ], 422);
         }
-
-        $source = $this->source($module);
 
         $result = DB::transaction(function () use ($request, $source, $rekapId) {
             $rekap = DB::table($source['rekap_table'])
@@ -406,22 +435,38 @@ class LpjController extends Controller
 
     private function lpjRows(array $source, $rekapId)
     {
+        $select = [
+            'lpj.*',
+        ];
+
         $query = DB::table("{$source['lpj_table']} as lpj")
-            ->leftJoin('pegawai', 'pegawai.id', '=', 'lpj.pegawai_id')
-            ->leftJoin('dosen', 'dosen.pegawai_id', '=', 'pegawai.id')
-            ->leftJoin('staff', 'staff.pegawai_id', '=', 'pegawai.id')
-            ->leftJoin('prodi', 'prodi.id', '=', 'dosen.prodi_id')
-            ->where('lpj.rekap_id', $rekapId)
-            ->select([
-                'lpj.*',
-                'pegawai.nama as nama_pegawai',
-                'pegawai.kode as kode_pegawai',
-                'pegawai.tipe as tipe_pegawai',
-                'pegawai.nama as nama_dosen',
-                'pegawai.kode as kode_dosen',
-                'prodi.nama as nama_prodi_dosen',
-                'staff.jabatan as jabatan_staff',
-            ]);
+            ->where('lpj.rekap_id', $rekapId);
+
+        if (Schema::hasColumn($source['lpj_table'], 'pegawai_id')) {
+            $query
+                ->leftJoin('pegawai', 'pegawai.id', '=', 'lpj.pegawai_id')
+                ->leftJoin('dosen', 'dosen.pegawai_id', '=', 'pegawai.id')
+                ->leftJoin('staff', 'staff.pegawai_id', '=', 'pegawai.id')
+                ->leftJoin('prodi', 'prodi.id', '=', 'dosen.prodi_id');
+
+            $select[] = 'pegawai.nama as nama_pegawai';
+            $select[] = 'pegawai.kode as kode_pegawai';
+            $select[] = 'pegawai.tipe as tipe_pegawai';
+            $select[] = 'pegawai.nama as nama_dosen';
+            $select[] = 'pegawai.kode as kode_dosen';
+            $select[] = 'prodi.nama as nama_prodi_dosen';
+            $select[] = 'staff.jabatan as jabatan_staff';
+        } else {
+            $select[] = DB::raw('NULL as nama_pegawai');
+            $select[] = DB::raw('NULL as kode_pegawai');
+            $select[] = DB::raw('NULL as tipe_pegawai');
+            $select[] = DB::raw('NULL as nama_dosen');
+            $select[] = DB::raw('NULL as kode_dosen');
+            $select[] = DB::raw('NULL as nama_prodi_dosen');
+            $select[] = DB::raw('NULL as jabatan_staff');
+        }
+
+        $query->select($select);
 
         if ($source['pegawai_tipe'] && Schema::hasColumn($source['lpj_table'], 'pegawai_tipe')) {
             $query->where('lpj.pegawai_tipe', $source['pegawai_tipe']);
@@ -450,6 +495,7 @@ class LpjController extends Controller
         $row = match ($source['type']) {
             'tatapmuka' => $this->tatapmukaRow($item),
             'kegiatan' => $this->kegiatanRow($item),
+            'rumah-tangga' => $this->rumahTanggaRow($item),
             'dosen-bulanan' => $this->dosenBulananRow($item),
             default => $this->staffBulananRow($item),
         };
@@ -549,6 +595,34 @@ class LpjController extends Controller
             'keterangan' => $item['keterangan'] ?? null,
             'lampiran' => $item['lampiran'] ?? [],
         ];
+    }
+
+    private function rumahTanggaRow(array $item): array
+    {
+        $nominal = (int) round($this->number($item['nominal'] ?? $item['total'] ?? 0));
+        $volume = $this->nullableInt($item['volume'] ?? null);
+        $satuan = $this->nullableString($item['satuan'] ?? null);
+
+        return [
+            'tanggal' => $item['tanggal'] ?? now()->toDateString(),
+            'kelompok_anggaran' => trim((string) ($item['kelompok_anggaran'] ?? '')),
+            'nama_kegiatan' => $item['nama_kegiatan'] ?? 'LPJ Rumah Tangga',
+            'nominal' => $nominal,
+            'volume' => $volume,
+            'satuan' => $satuan,
+            'total' => $nominal * ($volume ?? 1),
+            'jenis_pembayaran' => $item['jenis_pembayaran'] ?? 'Tunai',
+            'bukti_transfer' => $item['bukti_transfer'] ?? null,
+            'keterangan' => $item['keterangan'] ?? null,
+            'lampiran' => $item['lampiran'] ?? [],
+        ];
+    }
+
+    private function nullableString($value): ?string
+    {
+        $value = trim((string) $value);
+
+        return $value === '' ? null : $value;
     }
 
     private function dosenBulananRow(array $item): array

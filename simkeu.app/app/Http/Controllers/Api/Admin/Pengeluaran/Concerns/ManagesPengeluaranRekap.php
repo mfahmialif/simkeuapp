@@ -774,6 +774,7 @@ trait ManagesPengeluaranRekap
         return match ($rekapTable) {
             'keuangan_pengeluaran_dosen_rekap' => 'tatap_muka',
             'keuangan_pengeluaran_dosen_kegiatan_rekap' => 'kegiatan',
+            'keuangan_pengeluaran_rumah_tangga_rekap' => 'rumah_tangga',
             'keuangan_pengeluaran_dosen_bulanan_rekap' => 'dosen_bulanan',
             'keuangan_pengeluaran_staff_bulanan_rekap' => 'staff_bulanan',
             default => null,

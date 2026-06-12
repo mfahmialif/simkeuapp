@@ -30,6 +30,14 @@ class RabController extends Controller
             'detail_path' => '/admin/pengeluaran/dosen-kegiatan/rekap/',
             'pegawai_tipe' => null,
         ],
+        'rumah_tangga' => [
+            'rekap_table' => 'keuangan_pengeluaran_rumah_tangga_rekap',
+            'detail_table' => 'keuangan_pengeluaran_rumah_tangga',
+            'lpj_table' => 'keuangan_pengeluaran_rumah_tangga_lpj',
+            'module_name' => 'Rumah Tangga',
+            'detail_path' => '/admin/pengeluaran/rumah-tangga/rekap/',
+            'pegawai_tipe' => null,
+        ],
         'dosen_bulanan' => [
             'rekap_table' => 'keuangan_pengeluaran_dosen_bulanan_rekap',
             'detail_table' => 'keuangan_pengeluaran_pegawai_bulanan',
@@ -700,6 +708,7 @@ class RabController extends Controller
         return [
             ['title' => 'Dosen Tatap Muka', 'value' => 'tatap_muka'],
             ['title' => 'Pegawai Kegiatan', 'value' => 'kegiatan'],
+            ['title' => 'Rumah Tangga', 'value' => 'rumah_tangga'],
             ['title' => 'Dosen Bulanan', 'value' => 'dosen_bulanan'],
             ['title' => 'Staff Bulanan', 'value' => 'staff_bulanan'],
         ];
