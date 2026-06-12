@@ -5,6 +5,7 @@ namespace App\Exports\pdf;
 use App\Models\KeuanganPembayaran;
 use App\Exports\pdf\CustomKwitansiFpdf;
 use App\Services\MataUangFormatter;
+use App\Services\TagihanMahasiswa;
 
 class KwitansiPdf
 {
@@ -31,6 +32,10 @@ class KwitansiPdf
                 ->get();
             $nomor = $data->keuanganNota->nota;
         }
+
+        // Filter skripsi dari kwitansi jika nilai belum lolos
+        $transaksi = self::filterSkripsiIfNeeded($transaksi, $data->nim);
+
         self::body($transaksi, $fpdf);
 
         // // Save File PDF
@@ -104,5 +109,34 @@ class KwitansiPdf
         }
 
         return MataUangFormatter::totalsByCurrency($transaksi);
+    }
+
+    /**
+     * Filter pembayaran skripsi dari kwitansi jika nilai mahasiswa belum lolos.
+     * Jika sudah lolos atau tidak ada skripsi, kembalikan transaksi apa adanya.
+     */
+    private static function filterSkripsiIfNeeded($transaksi, $nim)
+    {
+        $hasSkripsi = $transaksi->contains(fn ($t) =>
+            TagihanMahasiswa::isSkripsiTagihan($t->tagihan)
+        );
+
+        if (!$hasSkripsi) {
+            return $transaksi;
+        }
+
+        $nilaiLolos = TagihanMahasiswa::resolveCekNilai(
+            $nim,
+            $transaksi->pluck('tagihan')->toArray()
+        );
+
+        if ($nilaiLolos) {
+            return $transaksi;
+        }
+
+        // Filter out pembayaran skripsi
+        return $transaksi->filter(fn ($t) =>
+            !TagihanMahasiswa::isSkripsiTagihan($t->tagihan)
+        )->values();
     }
 }

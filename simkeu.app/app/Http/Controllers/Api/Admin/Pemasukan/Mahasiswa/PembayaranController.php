@@ -994,8 +994,9 @@ class PembayaranController extends Controller
 
         $tagihan = KeuanganTagihan::whereIn('id', $ids)->get(['id', 'nama']);
         $tagihan = TagihanMahasiswa::markPaymentEligibility($tagihan, $nim);
+        // Skripsi boleh dibayar meskipun nilai belum lolos (tidak dicetak di kwitansi sampai lolos)
         $blocked = collect($tagihan)
-            ->filter(fn ($item) => ! empty($item->tidak_bisa_dibayar))
+            ->filter(fn ($item) => ! empty($item->tidak_bisa_dibayar) && ! TagihanMahasiswa::isSkripsiTagihan($item))
             ->pluck('nama')
             ->values()
             ->all();

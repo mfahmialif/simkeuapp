@@ -22,6 +22,25 @@ class TestingController extends Controller
 {
     public function index()
     {
+        $nota = "120626-00001-L-9469";
+        $transaksi = null;
+        if ($nota) {
+            $transaksi = KeuanganPembayaran::with(['tagihan.mata_uang', 'jenisPembayaranDetail.jenisPembayaran', 'user'])
+                ->leftJoin('keuangan_nota as kn', 'kn.pembayaran_id', 'keuangan_pembayaran.id')
+                ->where('nota', $nota)
+                ->select('keuangan_pembayaran.*', 'kn.nota', 'kn.pembayaran_id')
+                ->get();
+        }
+
+        // Filter skripsi dari footer jika nilai belum lolos
+        $hasSkripsi = $transaksi->contains(fn($t) => TagihanMahasiswa::isSkripsiTagihan($t->tagihan));
+        if ($hasSkripsi) {
+            $nilaiLolos = TagihanMahasiswa::resolveCekNilai("202185010079", $transaksi->pluck('tagihan')->toArray());
+            if (!$nilaiLolos) {
+                $transaksi = $transaksi->filter(fn($t) => !TagihanMahasiswa::isSkripsiTagihan($t->tagihan))->values();
+            }
+        }
+        dd($nilaiLolos);
         // $mahasiswa = Mahasiswa::nim("202485200040");
         // dd($mahasiswa);
         // dd('asd');
@@ -713,15 +732,9 @@ class TestingController extends Controller
                                 $tagihan,
                                 $nomorSama,
                             );
-                        $result["summary"][
-                            "total_sudah_terinput_nomor_sama"
-                        ]++;
-                        $result["summary"][
-                            "jumlah_sudah_terinput_nomor_sama_sp"
-                        ] += (float) $pembayaranSp->jumlah;
-                        $result["summary"][
-                            "jumlah_sudah_terinput_nomor_sama_baru"
-                        ] += (float) $nomorSama->jumlah;
+                        $result["summary"]["total_sudah_terinput_nomor_sama"]++;
+                        $result["summary"]["jumlah_sudah_terinput_nomor_sama_sp"] += (float) $pembayaranSp->jumlah;
+                        $result["summary"]["jumlah_sudah_terinput_nomor_sama_baru"] += (float) $nomorSama->jumlah;
                         continue;
                     }
 
@@ -733,47 +746,29 @@ class TestingController extends Controller
                                 $tagihan,
                                 $nomorBeda,
                             );
-                        $result["summary"][
-                            "total_sudah_terinput_nomor_beda"
-                        ]++;
-                        $result["summary"][
-                            "jumlah_sudah_terinput_nomor_beda_sp"
-                        ] += (float) $pembayaranSp->jumlah;
-                        $result["summary"][
-                            "jumlah_sudah_terinput_nomor_beda_baru"
-                        ] += (float) $nomorBeda->jumlah;
+                        $result["summary"]["total_sudah_terinput_nomor_beda"]++;
+                        $result["summary"]["jumlah_sudah_terinput_nomor_beda_sp"] += (float) $pembayaranSp->jumlah;
+                        $result["summary"]["jumlah_sudah_terinput_nomor_beda_baru"] += (float) $nomorBeda->jumlah;
                     }
 
                     if ($pembayaranBaruTanpaJumlah->isEmpty()) {
-                        $result["data"][
-                            "belum_terinput_tanpa_where_jumlah"
-                        ][] = $this->formatListPembayaranSPItem(
+                        $result["data"]["belum_terinput_tanpa_where_jumlah"][] = $this->formatListPembayaranSPItem(
                             $pembayaranSp,
                             $tagihan,
                             null,
                         );
-                        $result["summary"][
-                            "total_belum_terinput_tanpa_where_jumlah"
-                        ]++;
-                        $result["summary"][
-                            "jumlah_belum_terinput_tanpa_where_jumlah_sp"
-                        ] += (float) $pembayaranSp->jumlah;
+                        $result["summary"]["total_belum_terinput_tanpa_where_jumlah"]++;
+                        $result["summary"]["jumlah_belum_terinput_tanpa_where_jumlah_sp"] += (float) $pembayaranSp->jumlah;
                     }
 
                     if ($pembayaranBaruPakaiJumlah->isEmpty()) {
-                        $result["data"][
-                            "belum_terinput_pakai_where_jumlah"
-                        ][] = $this->formatListPembayaranSPItem(
+                        $result["data"]["belum_terinput_pakai_where_jumlah"][] = $this->formatListPembayaranSPItem(
                             $pembayaranSp,
                             $tagihan,
                             $pembayaranBaruTanpaJumlah->first(),
                         );
-                        $result["summary"][
-                            "total_belum_terinput_pakai_where_jumlah"
-                        ]++;
-                        $result["summary"][
-                            "jumlah_belum_terinput_pakai_where_jumlah_sp"
-                        ] += (float) $pembayaranSp->jumlah;
+                        $result["summary"]["total_belum_terinput_pakai_where_jumlah"]++;
+                        $result["summary"]["jumlah_belum_terinput_pakai_where_jumlah_sp"] += (float) $pembayaranSp->jumlah;
                     }
                 }
             },
@@ -787,9 +782,7 @@ class TestingController extends Controller
     {
         $listPembayaranSp = $this->listPembayaranSP()->getData(true);
         $data =
-            $listPembayaranSp["data"][
-                "belum_terinput_tanpa_where_jumlah"
-            ] ??
+            $listPembayaranSp["data"]["belum_terinput_tanpa_where_jumlah"] ??
             [];
         $groupedData = [];
 
@@ -834,7 +827,6 @@ class TestingController extends Controller
                 })
                 ->values()
                 ->all();
-
         }
         unset($group);
 
@@ -886,16 +878,12 @@ class TestingController extends Controller
         dd([
             "status" => true,
             "message" =>
-                "List pembayaran semester pendek belum terinput tanpa where jumlah.",
+            "List pembayaran semester pendek belum terinput tanpa where jumlah.",
             "summary" => [
                 "total_belum_terinput_tanpa_where_jumlah" =>
-                    $listPembayaranSp["summary"][
-                        "total_belum_terinput_tanpa_where_jumlah"
-                    ] ?? count($data),
+                $listPembayaranSp["summary"]["total_belum_terinput_tanpa_where_jumlah"] ?? count($data),
                 "jumlah_belum_terinput_tanpa_where_jumlah_sp" =>
-                    $listPembayaranSp["summary"][
-                        "jumlah_belum_terinput_tanpa_where_jumlah_sp"
-                    ] ?? collect($data)->sum("pembayaran_sp.jumlah"),
+                $listPembayaranSp["summary"]["jumlah_belum_terinput_tanpa_where_jumlah_sp"] ?? collect($data)->sum("pembayaran_sp.jumlah"),
             ],
             "data" => $groupedData,
             "data_bandingan" => $dataBandingan,
@@ -943,7 +931,7 @@ class TestingController extends Controller
         return response()->json([
             "status" => true,
             "message" =>
-                "List tagihan semester pendek yang belum dibayar sama sekali.",
+            "List tagihan semester pendek yang belum dibayar sama sekali.",
             "summary" => [
                 "total_tagihan" => $tagihanBelumDibayar->count(),
                 "jumlah_tagihan" => $tagihanBelumDibayar->sum("jumlah"),
@@ -957,7 +945,7 @@ class TestingController extends Controller
         $summary = [
             "status" => true,
             "message" =>
-                "Input pembayaran semester pendek belum terinput selesai.",
+            "Input pembayaran semester pendek belum terinput selesai.",
             "processed" => 0,
             "migrated" => 0,
             "skipped_existing_tagihan" => 0,
@@ -1013,11 +1001,11 @@ class TestingController extends Controller
 
                             $pembayaran = KeuanganPembayaran::create([
                                 "nomor" =>
-                                    $pembayaranSp->nomor ?:
+                                $pembayaranSp->nomor ?:
                                     Helper::generateNumber(),
                                 "tanggal" => $pembayaranSp->tanggal,
                                 "th_akademik_id" =>
-                                    $tagihan->th_akademik_id ?:
+                                $tagihan->th_akademik_id ?:
                                     $pembayaranSp->th_akademik_id,
                                 "tagihan_id" => $tagihan->id,
                                 "nim" => $nim,
@@ -1035,7 +1023,7 @@ class TestingController extends Controller
                                     ],
                                     [
                                         "jenis_pembayaran_id" =>
-                                            $pembayaranSp->jenis_pembayaran_id,
+                                        $pembayaranSp->jenis_pembayaran_id,
                                     ] + $timestamps,
                                 );
                             }
@@ -1046,7 +1034,7 @@ class TestingController extends Controller
                                 ],
                                 [
                                     "nota" =>
-                                        $pembayaranSp->nomor ?:
+                                    $pembayaranSp->nomor ?:
                                         $pembayaran->nomor,
                                 ] + $timestamps,
                             );
@@ -1102,7 +1090,7 @@ class TestingController extends Controller
         $summary = [
             "status" => true,
             "message" =>
-                "Rollback input pembayaran semester pendek selesai.",
+            "Rollback input pembayaran semester pendek selesai.",
             "start_id" => $startId,
             "end_id" => $endId,
             "requested" => 0,
@@ -1266,11 +1254,11 @@ class TestingController extends Controller
 
                             $pembayaran = KeuanganPembayaran::create([
                                 "nomor" =>
-                                    $pembayaranSp->nomor ?:
+                                $pembayaranSp->nomor ?:
                                     Helper::generateNumber(),
                                 "tanggal" => $pembayaranSp->tanggal,
                                 "th_akademik_id" =>
-                                    $tagihan->th_akademik_id ?:
+                                $tagihan->th_akademik_id ?:
                                     $pembayaranSp->th_akademik_id,
                                 "tagihan_id" => $tagihan->id,
                                 "nim" => $nim,
@@ -1288,7 +1276,7 @@ class TestingController extends Controller
                                     ],
                                     [
                                         "jenis_pembayaran_id" =>
-                                            $pembayaranSp->jenis_pembayaran_id,
+                                        $pembayaranSp->jenis_pembayaran_id,
                                     ] + $timestamps,
                                 );
                             }
@@ -1299,7 +1287,7 @@ class TestingController extends Controller
                                 ],
                                 [
                                     "nota" =>
-                                        $pembayaranSp->nomor ?:
+                                    $pembayaranSp->nomor ?:
                                         $pembayaran->nomor,
                                 ] + $timestamps,
                             );

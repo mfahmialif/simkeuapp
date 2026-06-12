@@ -5,6 +5,7 @@ namespace App\Exports\pdf;
 use App\Services\Helper;
 use App\Services\Mahasiswa;
 use App\Services\MataUangFormatter;
+use App\Services\TagihanMahasiswa;
 use Codedge\Fpdf\Fpdf\Fpdf;
 use App\Models\KeuanganDeposit;
 use App\Models\KeuanganKamarMhs;
@@ -153,6 +154,19 @@ class CustomKwitansiFpdf extends Fpdf
                 ->select('keuangan_pembayaran.*', 'kn.nota', 'kn.pembayaran_id')
                 ->get();
         }
+
+        // Simpan nama petugas dari transaksi asli (sebelum filter)
+        $namaPetugas = $transaksi->first()?->user?->name ?? '-';
+
+        // Filter skripsi dari footer jika nilai belum lolos
+        $hasSkripsi = $transaksi->contains(fn ($t) => TagihanMahasiswa::isSkripsiTagihan($t->tagihan));
+        if ($hasSkripsi) {
+            $nilaiLolos = TagihanMahasiswa::resolveCekNilai($data->nim, $transaksi->pluck('tagihan')->toArray());
+            if (!$nilaiLolos) {
+                $transaksi = $transaksi->filter(fn ($t) => !TagihanMahasiswa::isSkripsiTagihan($t->tagihan))->values();
+            }
+        }
+
         $totals = MataUangFormatter::totalsByCurrency($transaksi, true);
 
         $this->setY(-45);
@@ -175,7 +189,7 @@ class CustomKwitansiFpdf extends Fpdf
         $this->MultiCell(150, 4, "Terimakasih Atas Pembayaran Anda", 0, 'L', );
         $posX += 150;
         $this->setXY($posX, $posY);
-        $this->MultiCell(40, 4, '(' . $transaksi[0]->user->name . ')', 0, 'C');
+        $this->MultiCell(40, 4, '(' . $namaPetugas . ')', 0, 'C');
     }
 
 }
