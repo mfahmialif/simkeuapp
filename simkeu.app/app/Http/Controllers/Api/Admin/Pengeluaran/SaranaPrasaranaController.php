@@ -36,6 +36,7 @@ class SaranaPrasaranaController extends Controller
             ->select([
                 'keuangan_pengeluaran_sarana_prasarana.*',
                 'pengeluaran_rekap.nama as nama_rekap',
+                'petugas.name as petugas_nama',
             ]);
 
         $this->joinRekap($query);
@@ -47,6 +48,13 @@ class SaranaPrasaranaController extends Controller
         $stats = $this->aggregatePengeluaranStats(
             $this->newIndexStatsQuery($request),
             'keuangan_pengeluaran_sarana_prasarana'
+        );
+
+        $stats['saldo'] = $this->indexSaldoStats(
+            $request,
+            'keuangan_pengeluaran_sarana_prasarana',
+            'keuangan_pengeluaran_sarana_prasarana_rekap',
+            'sarana_prasarana'
         );
 
         $sortColumns = [

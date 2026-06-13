@@ -29,8 +29,27 @@ trait ManagesPengeluaranRekap
     {
         $modelClass = $this->rekapModelClass();
         $rekapTable = (new $modelClass)->getTable();
-        $summary = $this->rekapSummaryQuery($request);
-        $lpjSummary = $this->lpjSummaryQuery($request);
+
+        if ($request->input('mode') === 'simple') {
+            return $this->simpleRekapIndex($request, $modelClass, $rekapTable);
+        }
+
+        $filteredRekaps = $this->filteredRekapBaseQuery($request, $modelClass, $rekapTable);
+        $sortKey = $request->input('sort_key', 'id');
+        $sortOrder = $request->input('sort_order', 'desc') === 'asc' ? 'asc' : 'desc';
+        $baseSortColumns = [
+            'id' => "{$rekapTable}.id",
+            'nama' => "{$rekapTable}.nama",
+            'tanggal_rekap' => "{$rekapTable}.tanggal_rekap",
+            'created_at' => "{$rekapTable}.created_at",
+        ];
+
+        if (isset($baseSortColumns[$sortKey])) {
+            return $this->fastRekapIndex($request, $filteredRekaps, $baseSortColumns[$sortKey], $sortOrder);
+        }
+
+        $summary = $this->rekapSummaryQuery($request, $filteredRekaps);
+        $lpjSummary = $this->lpjSummaryQuery($request, $filteredRekaps);
         $lpjModuleKey = $this->lpjModuleKey($rekapTable);
 
         $select = [
@@ -52,7 +71,8 @@ trait ManagesPengeluaranRekap
             $select[] = DB::raw('0 as lpj_sama_dengan_rab');
         }
 
-        $query = $modelClass::query()
+        $query = DB::query()
+            ->fromSub($filteredRekaps, $rekapTable)
             ->select($select)
             ->leftJoinSub(
                 $summary,
@@ -77,8 +97,89 @@ trait ManagesPengeluaranRekap
                 });
         }
 
+        $sortColumns = [
+            'id' => "{$rekapTable}.id",
+            'nama' => "{$rekapTable}.nama",
+            'tanggal_rekap' => "{$rekapTable}.tanggal_rekap",
+            'jumlah' => 'jumlah',
+            'jumlah_data' => 'jumlah_data',
+            'total_pengeluaran' => 'total_pengeluaran',
+            'created_at' => "{$rekapTable}.created_at",
+        ];
+        $query->orderBy($sortColumns[$sortKey] ?? "{$rekapTable}.id", $sortOrder);
+
+        $data = $query->paginate($request->get('limit', 10));
+        $data->getCollection()->each(fn ($item) => $this->castRekapSummary($item));
+
+        return response()->json([
+            'status' => true,
+            'data' => $data,
+            'message' => 'Rekap retrieved successfully',
+        ]);
+    }
+
+    private function fastRekapIndex(Request $request, $filteredRekaps, string $sortColumn, string $sortOrder)
+    {
+        $data = (clone $filteredRekaps)
+            ->orderBy($sortColumn, $sortOrder)
+            ->paginate($request->get('limit', 10));
+
+        $ids = $data->getCollection()->pluck('id')->filter()->values();
+        $summaries = $this->rekapSummariesForIds($request, $ids->all());
+        $lpjSummaries = $this->lpjSummariesForIds($request, $ids->all());
+        $lpjStatuses = $this->lpjStatusesForIds($ids->all());
+
+        $data->getCollection()->each(function ($item) use ($summaries, $lpjSummaries, $lpjStatuses) {
+            $summary = $summaries->get($item->id);
+            $jumlahData = (int) ($summary->jumlah_data ?? 0);
+            $totalPengeluaran = (int) ($summary->total_pengeluaran ?? 0);
+            $amounts = $this->resolveRekapAmounts(
+                $item->jumlah_sementara === null ? null : (int) $item->jumlah_sementara,
+                $jumlahData,
+                $totalPengeluaran
+            );
+            $lpjSummary = $lpjSummaries->get($item->id);
+            $lpjStatus = $lpjStatuses->get($item->id);
+            $jumlahLpj = (int) ($lpjSummary->jumlah_lpj ?? 0);
+            $sameAsRab = (bool) ($lpjStatus->sama_dengan_rab ?? false);
+
+            $item->jumlah_data = $jumlahData;
+            $item->total_pengeluaran = $totalPengeluaran;
+            $item->jumlah = $amounts['jumlah'];
+            $item->is_jumlah_sementara = $amounts['is_jumlah_sementara'];
+            $item->selisih_sementara = $amounts['selisih_sementara'];
+            $item->jumlah_lpj = $jumlahLpj;
+            $item->total_lpj = $jumlahLpj > 0
+                ? (int) ($lpjSummary->total_lpj ?? 0)
+                : ($sameAsRab ? (int) (($lpjStatus->total_lpj ?? 0) ?: $item->jumlah) : 0);
+            $item->lpj_sama_dengan_rab = $sameAsRab;
+            $this->castRekapSummary($item);
+        });
+
+        return response()->json([
+            'status' => true,
+            'data' => $data,
+            'message' => 'Rekap retrieved successfully',
+        ]);
+    }
+
+    private function simpleRekapIndex(Request $request, string $modelClass, string $rekapTable)
+    {
+        $query = $modelClass::query()
+            ->leftJoin('users as petugas', 'petugas.id', '=', "{$rekapTable}.petugas_id")
+            ->select([
+                "{$rekapTable}.id",
+                "{$rekapTable}.nama",
+                "{$rekapTable}.bulan_tahun",
+                "{$rekapTable}.tanggal_rekap",
+                "{$rekapTable}.jumlah_sementara",
+                "{$rekapTable}.keterangan",
+                'petugas.name as petugas_nama',
+            ]);
+
         if ($request->filled('search')) {
-            $search = $request->search;
+            $search = trim((string) $request->search);
+
             $query->where(function ($q) use ($search, $rekapTable) {
                 $q->where("{$rekapTable}.nama", 'LIKE', "%{$search}%")
                     ->orWhere("{$rekapTable}.keterangan", 'LIKE', "%{$search}%");
@@ -93,35 +194,24 @@ trait ManagesPengeluaranRekap
             $query->whereYear("{$rekapTable}.bulan_tahun", (int) $request->tahun);
         }
 
-        if ($request->filled('tanggal_mulai')) {
-            $query->whereDate("{$rekapTable}.tanggal_rekap", '>=', $request->tanggal_mulai);
-        }
-
-        if ($request->filled('tanggal_akhir')) {
-            $query->whereDate("{$rekapTable}.tanggal_rekap", '<=', $request->tanggal_akhir);
-        }
-
         $this->applyRekapPetugasFilter($query, $request, $rekapTable);
 
-        $sortColumns = [
-            'id' => "{$rekapTable}.id",
-            'nama' => "{$rekapTable}.nama",
-            'tanggal_rekap' => "{$rekapTable}.tanggal_rekap",
-            'jumlah' => 'jumlah',
-            'jumlah_data' => 'jumlah_data',
-            'total_pengeluaran' => 'total_pengeluaran',
-            'created_at' => "{$rekapTable}.created_at",
-        ];
-        $sortKey = $request->input('sort_key', 'id');
-        $sortOrder = $request->input('sort_order', 'desc') === 'asc' ? 'asc' : 'desc';
-        $query->orderBy($sortColumns[$sortKey] ?? "{$rekapTable}.id", $sortOrder);
-
-        $data = $query->paginate($request->get('limit', 10));
-        $data->getCollection()->each(fn ($item) => $this->castRekapSummary($item));
+        $data = $query
+            ->orderByDesc("{$rekapTable}.id")
+            ->limit(min(max((int) $request->input('limit', 20), 1), 50))
+            ->get()
+            ->each(function ($item) {
+                $item->jumlah = (int) ($item->jumlah_sementara ?? 0);
+                $item->jumlah_data = 0;
+                $item->is_jumlah_sementara = true;
+            });
 
         return response()->json([
             'status' => true,
-            'data' => $data,
+            'data' => [
+                'data' => $data,
+                'total' => $data->count(),
+            ],
             'message' => 'Rekap retrieved successfully',
         ]);
     }
@@ -415,12 +505,19 @@ trait ManagesPengeluaranRekap
     protected function joinRekap($query): void
     {
         $modelClass = $this->rekapModelClass();
+        $pengeluaranTable = $this->pengeluaranTable();
         $query->leftJoin(
             (new $modelClass)->getTable().' as pengeluaran_rekap',
             'pengeluaran_rekap.id',
             '=',
-            $this->pengeluaranTable().'.rekap_id'
+            "{$pengeluaranTable}.rekap_id"
         );
+
+        if (Schema::hasColumn($pengeluaranTable, 'petugas_id')) {
+            $query->leftJoin('users as petugas', function ($join) use ($pengeluaranTable) {
+                $join->on('petugas.id', '=', DB::raw("COALESCE({$pengeluaranTable}.petugas_id, pengeluaran_rekap.petugas_id)"));
+            });
+        }
     }
 
     protected function applyRekapFilter($query, Request $request): void
@@ -632,9 +729,53 @@ trait ManagesPengeluaranRekap
         ];
     }
 
-    private function rekapSummaryQuery(Request $request)
+    private function filteredRekapBaseQuery(Request $request, string $modelClass, string $rekapTable)
     {
-        $query = $this->newRekapPengeluaranQuery();
+        $query = $modelClass::query()
+            ->leftJoin('users as petugas', 'petugas.id', '=', "{$rekapTable}.petugas_id")
+            ->select([
+                "{$rekapTable}.*",
+                'petugas.name as petugas_nama',
+            ]);
+
+        if ($request->filled('search')) {
+            $search = trim((string) $request->search);
+
+            $query->where(function ($q) use ($search, $rekapTable) {
+                $q->where("{$rekapTable}.nama", 'LIKE', "%{$search}%")
+                    ->orWhere("{$rekapTable}.keterangan", 'LIKE', "%{$search}%");
+            });
+        }
+
+        if ($request->filled('bulan')) {
+            $query->whereMonth("{$rekapTable}.bulan_tahun", (int) $request->bulan);
+        }
+
+        if ($request->filled('tahun')) {
+            $query->whereYear("{$rekapTable}.bulan_tahun", (int) $request->tahun);
+        }
+
+        if ($request->filled('tanggal_mulai')) {
+            $query->whereDate("{$rekapTable}.tanggal_rekap", '>=', $request->tanggal_mulai);
+        }
+
+        if ($request->filled('tanggal_akhir')) {
+            $query->whereDate("{$rekapTable}.tanggal_rekap", '<=', $request->tanggal_akhir);
+        }
+
+        $this->applyRekapPetugasFilter($query, $request, $rekapTable);
+
+        return $query;
+    }
+
+    private function rekapSummaryQuery(Request $request, $filteredRekaps = null)
+    {
+        $query = $filteredRekaps
+            ? DB::query()
+                ->fromSub((clone $filteredRekaps)->select('id'), 'filtered_rekap')
+                ->join($this->pengeluaranTable(), $this->pengeluaranTable().'.rekap_id', '=', 'filtered_rekap.id')
+            : $this->newRekapPengeluaranQuery();
+
         $this->applyPetugasFilter($query, $request);
 
         return $query
@@ -649,7 +790,7 @@ trait ManagesPengeluaranRekap
             ->groupBy($this->pengeluaranTable().'.rekap_id');
     }
 
-    private function lpjSummaryQuery(Request $request)
+    private function lpjSummaryQuery(Request $request, $filteredRekaps = null)
     {
         $lpjTable = $this->lpjPengeluaranTable();
 
@@ -657,7 +798,13 @@ trait ManagesPengeluaranRekap
             return null;
         }
 
-        $query = DB::table("{$lpjTable} as lpj_detail")
+        $query = $filteredRekaps
+            ? DB::query()
+                ->fromSub((clone $filteredRekaps)->select('id'), 'filtered_rekap')
+                ->join("{$lpjTable} as lpj_detail", 'lpj_detail.rekap_id', '=', 'filtered_rekap.id')
+            : DB::table("{$lpjTable} as lpj_detail");
+
+        $query
             ->whereNotNull('lpj_detail.rekap_id')
             ->select([
                 'lpj_detail.rekap_id',
@@ -678,6 +825,81 @@ trait ManagesPengeluaranRekap
         }
 
         return $query->groupBy('lpj_detail.rekap_id');
+    }
+
+    private function rekapSummariesForIds(Request $request, array $ids)
+    {
+        if ($ids === []) {
+            return collect();
+        }
+
+        $query = $this->newRekapPengeluaranQuery();
+        $this->applyPetugasFilter($query, $request);
+
+        return $query
+            ->whereIn($this->pengeluaranTable().'.rekap_id', $ids)
+            ->select([
+                $this->pengeluaranTable().'.rekap_id',
+                DB::raw('COUNT(*) as jumlah_data'),
+                DB::raw('COALESCE(SUM('.$this->pengeluaranTable().'.total), 0) as total_pengeluaran'),
+            ])
+            ->groupBy($this->pengeluaranTable().'.rekap_id')
+            ->get()
+            ->keyBy('rekap_id');
+    }
+
+    private function lpjSummariesForIds(Request $request, array $ids)
+    {
+        $lpjTable = $this->lpjPengeluaranTable();
+
+        if ($ids === [] || ! Schema::hasTable($lpjTable)) {
+            return collect();
+        }
+
+        $query = DB::table("{$lpjTable} as lpj_detail")
+            ->whereIn('lpj_detail.rekap_id', $ids)
+            ->select([
+                'lpj_detail.rekap_id',
+                DB::raw('COUNT(*) as jumlah_lpj'),
+                DB::raw('COALESCE(SUM(lpj_detail.total), 0) as total_lpj'),
+            ]);
+
+        $pegawaiTipe = $this->pegawaiTipeForLpj();
+        if ($pegawaiTipe && Schema::hasColumn($lpjTable, 'pegawai_tipe')) {
+            $query->where('lpj_detail.pegawai_tipe', $pegawaiTipe);
+        }
+
+        if (
+            $request->filled('petugas_id')
+            && Schema::hasColumn($lpjTable, 'petugas_id')
+        ) {
+            $query->where('lpj_detail.petugas_id', $request->petugas_id);
+        }
+
+        return $query
+            ->groupBy('lpj_detail.rekap_id')
+            ->get()
+            ->keyBy('rekap_id');
+    }
+
+    private function lpjStatusesForIds(array $ids)
+    {
+        $rekapTable = (new ($this->rekapModelClass()))->getTable();
+        $lpjModuleKey = $this->lpjModuleKey($rekapTable);
+
+        if (
+            $ids === []
+            || ! $lpjModuleKey
+            || ! Schema::hasTable('keuangan_pengeluaran_lpj_rekap_status')
+        ) {
+            return collect();
+        }
+
+        return DB::table('keuangan_pengeluaran_lpj_rekap_status')
+            ->where('module_key', $lpjModuleKey)
+            ->whereIn('rekap_id', $ids)
+            ->get()
+            ->keyBy('rekap_id');
     }
 
     private function rekapSummary($rekapId): array
@@ -769,7 +991,7 @@ trait ManagesPengeluaranRekap
         return $this->pengeluaranTable().'_lpj';
     }
 
-    private function lpjModuleKey(string $rekapTable): ?string
+    protected function lpjModuleKey(string $rekapTable): ?string
     {
         return match ($rekapTable) {
             'keuangan_pengeluaran_dosen_rekap' => 'tatap_muka',

@@ -36,6 +36,7 @@ class RumahTanggaController extends Controller
             ->select([
                 'keuangan_pengeluaran_rumah_tangga.*',
                 'pengeluaran_rekap.nama as nama_rekap',
+                'petugas.name as petugas_nama',
             ]);
 
         $this->joinRekap($query);
@@ -47,6 +48,13 @@ class RumahTanggaController extends Controller
         $stats = $this->aggregatePengeluaranStats(
             $this->newIndexStatsQuery($request),
             'keuangan_pengeluaran_rumah_tangga'
+        );
+
+        $stats['saldo'] = $this->indexSaldoStats(
+            $request,
+            'keuangan_pengeluaran_rumah_tangga',
+            'keuangan_pengeluaran_rumah_tangga_rekap',
+            'rumah_tangga'
         );
 
         $sortColumns = [

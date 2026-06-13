@@ -20,6 +20,7 @@ use App\Http\Controllers\Api\Admin\MataUangController;
 use App\Http\Controllers\Api\Admin\ThAkademikController;
 use App\Http\Controllers\Api\Admin\AktifkanMahasiswaController;
 use App\Http\Controllers\Api\Admin\FormSchaduleController;
+use App\Http\Controllers\Api\Admin\SaldoController;
 
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\LaporanController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\SetoranController;
@@ -76,6 +77,9 @@ Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
     Route::get('pegawai/export-excel', [PegawaiController::class, 'exportExcel']);
     Route::post('pegawai/import-excel', [PegawaiController::class, 'importExcel'])->middleware('role:admin');
     Route::get('pegawai/{pegawai}', [PegawaiController::class, 'show']);
+    Route::get('saldo', [SaldoController::class, 'index']);
+    Route::get('saldo/{petugas}', [SaldoController::class, 'show'])->whereNumber('petugas');
+    Route::post('saldo/{petugas}/tambahan', [SaldoController::class, 'storeAdjustment'])->whereNumber('petugas')->middleware('role:admin,keuangan,kabag');
 });
 
 Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuangan,kabag,staff,rumahtangga,sarpras,transportasi,barokahdosen_tatapmuka,barokahdosen_kegiatan,barokahdosen_bulanan'])->group(function () {
@@ -302,6 +306,8 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
         ->middleware('role:admin,keuangan,kabag,barokahdosen_tatapmuka,barokahdosen_kegiatan,barokahdosen_bulanan');
     Route::get('laporan/rab', [RabController::class, 'index'])
         ->middleware('role:admin,pimpinan,keuangan,kabag,barokahdosen_tatapmuka,barokahdosen_kegiatan,barokahdosen_bulanan');
+    Route::post('laporan/rab', [RabController::class, 'store'])
+        ->middleware('role:admin,keuangan,kabag');
 
 
     Route::apiResource('users', UserController::class);

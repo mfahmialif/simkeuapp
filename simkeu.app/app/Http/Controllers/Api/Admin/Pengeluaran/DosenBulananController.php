@@ -13,6 +13,7 @@ use App\Models\KeuanganPengeluaranDosenBulananRekap;
 use App\Models\KeuanganPengeluaranPegawaiBulanan;
 use App\Models\Pegawai;
 use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
@@ -57,6 +58,7 @@ class DosenBulananController extends Controller
             'prodi.nama as nama_prodi_dosen',
             'staff.jabatan as jabatan_staff',
             'pengeluaran_rekap.nama as nama_rekap',
+            'petugas.name as petugas_nama',
         ]);
 
         $this->joinPegawaiDetail($query);
@@ -70,18 +72,21 @@ class DosenBulananController extends Controller
         $this->applyDateFilter($query, $request);
         $this->applyRekapFilter($query, $request);
 
-        $stats = $this->aggregatePengeluaranStats(
-            $this->newIndexStatsQuery($request),
-            'keuangan_pengeluaran_pegawai_bulanan'
-        );
+        $stats = $request->filled('rekap_id')
+            ? $this->rekapIndexStats($request)
+            : $this->fullIndexStats($request);
 
-        $this->applySorting($query, $request);
+        if ($this->canUseFastIndexPagination($request)) {
+            $data = $this->fastIndexPagination($request, $stats['keseluruhan']['jumlah']);
+        } else {
+            $this->applySorting($query, $request);
 
-        $data = $this->paginateWithKnownTotal(
-            $query,
-            $request,
-            $stats['keseluruhan']['jumlah']
-        );
+            $data = $this->paginateWithKnownTotal(
+                $query,
+                $request,
+                $stats['keseluruhan']['jumlah']
+            );
+        }
 
         $data->getCollection()->transform(fn ($item) => $this->appendPengeluaranFiles($item));
 
@@ -91,6 +96,46 @@ class DosenBulananController extends Controller
             'stats' => $stats,
             'message' => static::MODULE_NAME.' retrieved successfully',
         ]);
+    }
+
+    private function fullIndexStats(Request $request): array
+    {
+        $stats = $this->aggregatePengeluaranStats(
+            $this->newIndexStatsQuery($request),
+            'keuangan_pengeluaran_pegawai_bulanan'
+        );
+
+        $saldoRekapTable = (new (static::REKAP_MODEL))->getTable();
+        $stats['saldo'] = $this->indexSaldoStats(
+            $request,
+            'keuangan_pengeluaran_pegawai_bulanan',
+            $saldoRekapTable,
+            $this->lpjModuleKey($saldoRekapTable)
+        );
+
+        return $stats;
+    }
+
+    private function rekapIndexStats(Request $request): array
+    {
+        $summary = $this->newIndexStatsQuery($request)
+            ->selectRaw('COUNT(*) as jumlah, COALESCE(SUM(keuangan_pengeluaran_pegawai_bulanan.total), 0) as total')
+            ->first();
+
+        $jumlah = (int) ($summary->jumlah ?? 0);
+        $total = (int) ($summary->total ?? 0);
+
+        $empty = ['total' => 0, 'jumlah' => 0];
+        $current = ['total' => $total, 'jumlah' => $jumlah];
+
+        return [
+            'hari_ini' => $empty,
+            'mingguan' => $empty,
+            'bulanan' => $empty,
+            'keseluruhan' => $current,
+            'belum_rekap' => $empty,
+            'saldo' => [],
+        ];
     }
 
     public function store(Request $request)
@@ -556,6 +601,7 @@ class DosenBulananController extends Controller
             'prodi.nama as nama_prodi_dosen',
             'staff.jabatan as jabatan_staff',
             'pengeluaran_rekap.nama as nama_rekap',
+            'petugas.name as petugas_nama',
         ]);
 
         $this->joinPegawaiDetail($query);
@@ -658,6 +704,92 @@ class DosenBulananController extends Controller
         $sortOrder = $request->input('sort_order', 'desc') === 'asc' ? 'asc' : 'desc';
 
         $query->orderBy($sortColumns[$sortKey] ?? 'keuangan_pengeluaran_pegawai_bulanan.id', $sortOrder);
+    }
+
+    private function canUseFastIndexPagination(Request $request): bool
+    {
+        if ($request->filled('search') || $request->filled('kode')) {
+            return false;
+        }
+
+        return array_key_exists($request->input('sort_key', 'id'), $this->fastIndexSortColumns());
+    }
+
+    private function fastIndexPagination(Request $request, int $total): LengthAwarePaginator
+    {
+        $perPage = max(1, (int) $request->input('limit', 10));
+        $page = max(1, (int) $request->input('page', 1));
+        $sortKey = $request->input('sort_key', 'id');
+        $sortOrder = $request->input('sort_order', 'desc') === 'asc' ? 'asc' : 'desc';
+        $sortColumn = $this->fastIndexSortColumns()[$sortKey] ?? 'keuangan_pengeluaran_pegawai_bulanan.id';
+
+        $idQuery = KeuanganPengeluaranPegawaiBulanan::query()
+            ->where('keuangan_pengeluaran_pegawai_bulanan.pegawai_tipe', static::PEGAWAI_TIPE);
+
+        $this->applyPegawaiFilter($idQuery, $request);
+        $this->applyPetugasFilter($idQuery, $request);
+        $this->applyPeriodFilter($idQuery, $request);
+        $this->applyDateFilter($idQuery, $request);
+        $this->applyRekapFilter($idQuery, $request);
+
+        $ids = $idQuery
+            ->orderBy($sortColumn, $sortOrder)
+            ->forPage($page, $perPage)
+            ->pluck('keuangan_pengeluaran_pegawai_bulanan.id')
+            ->values();
+
+        if ($ids->isEmpty()) {
+            return new LengthAwarePaginator(collect(), $total, $perPage, $page, [
+                'path' => $request->url(),
+                'query' => $request->query(),
+            ]);
+        }
+
+        $query = KeuanganPengeluaranPegawaiBulanan::query();
+        $query->select([
+            'keuangan_pengeluaran_pegawai_bulanan.*',
+            'pegawai.nama as nama_pegawai',
+            'pegawai.kode as kode_pegawai',
+            'pegawai.tipe as tipe_pegawai',
+            'pegawai.jenis_kelamin as jenis_kelamin_pegawai',
+            'prodi.nama as nama_prodi_dosen',
+            'staff.jabatan as jabatan_staff',
+            'pengeluaran_rekap.nama as nama_rekap',
+            'petugas.name as petugas_nama',
+        ]);
+
+        $this->joinPegawaiDetail($query);
+        $this->joinRekap($query);
+
+        $orderedIds = $ids->implode(',');
+        $items = $query
+            ->whereIn('keuangan_pengeluaran_pegawai_bulanan.id', $ids)
+            ->orderByRaw("FIELD(keuangan_pengeluaran_pegawai_bulanan.id, {$orderedIds})")
+            ->get();
+
+        return new LengthAwarePaginator($items, $total, $perPage, $page, [
+            'path' => $request->url(),
+            'query' => $request->query(),
+        ]);
+    }
+
+    private function fastIndexSortColumns(): array
+    {
+        return [
+            'id' => 'keuangan_pengeluaran_pegawai_bulanan.id',
+            'tanggal' => 'keuangan_pengeluaran_pegawai_bulanan.tanggal',
+            'bulan' => 'keuangan_pengeluaran_pegawai_bulanan.bulan',
+            'tahun' => 'keuangan_pengeluaran_pegawai_bulanan.tahun',
+            'pegawai_id' => 'keuangan_pengeluaran_pegawai_bulanan.pegawai_id',
+            'hari' => 'keuangan_pengeluaran_pegawai_bulanan.hari',
+            'barokah_harian' => 'keuangan_pengeluaran_pegawai_bulanan.barokah_harian',
+            'barokah_bulanan' => 'keuangan_pengeluaran_pegawai_bulanan.barokah_bulanan',
+            'barokah_dosen_tetap' => 'keuangan_pengeluaran_pegawai_bulanan.barokah_dosen_tetap',
+            'barokah_struktural' => 'keuangan_pengeluaran_pegawai_bulanan.barokah_struktural',
+            'total' => 'keuangan_pengeluaran_pegawai_bulanan.total',
+            'jenis_pembayaran' => 'keuangan_pengeluaran_pegawai_bulanan.jenis_pembayaran',
+            'created_at' => 'keuangan_pengeluaran_pegawai_bulanan.created_at',
+        ];
     }
 
     protected function newIndexStatsQuery(Request $request)

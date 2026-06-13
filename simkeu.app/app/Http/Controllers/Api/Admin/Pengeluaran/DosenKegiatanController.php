@@ -51,6 +51,7 @@ class DosenKegiatanController extends Controller
             'prodi.nama as nama_prodi_dosen',
             'staff.jabatan as jabatan_staff',
             'pengeluaran_rekap.nama as nama_rekap',
+            'petugas.name as petugas_nama',
         ]);
 
         $this->joinPegawaiDetail($query);
@@ -64,6 +65,13 @@ class DosenKegiatanController extends Controller
         $stats = $this->aggregatePengeluaranStats(
             $this->newIndexStatsQuery($request),
             'keuangan_pengeluaran_dosen_kegiatan'
+        );
+
+        $stats['saldo'] = $this->indexSaldoStats(
+            $request,
+            'keuangan_pengeluaran_dosen_kegiatan',
+            'keuangan_pengeluaran_dosen_kegiatan_rekap',
+            'kegiatan'
         );
 
         $sortColumns = [

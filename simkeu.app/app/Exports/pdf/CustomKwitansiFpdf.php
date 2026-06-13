@@ -55,19 +55,19 @@ class CustomKwitansiFpdf extends Fpdf
         $this->Cell(170, 5, "", 0, 1, 'C');
         $this->Cell(160, 5, "", 0, 1, 'C');
         $this->Image(asset('/img/full-logo-uii.png'), 40, 0, -210);
-        
+
         $this->SetFontSpacing(0);
         $this->Line(10, 26, 210 - 10, 26);
         $this->Cell(0, 7, "Jl. Raya Raci No.51, Telp. 087754452667", 0, 1, 'C');
         $this->Line(10, 32, 210 - 10, 32);
-        
+
         $data = $this->data;
+        $mahasiswa = Mahasiswa::nim($data->nim);
+        $namaMahasiswa = $mahasiswa->nama ?? '-';
+        $nimMahasiswa = $mahasiswa->nim ?? $data->nim;
         // $mahasiswa = Mahasiswa::nim($data->nim);
         // $namaMahasiswa = $mahasiswa->nama ?? '-';
-        // $nimMahasiswa = $mahasiswa->nim ?? $data->nim;
-        // $mahasiswa = Mahasiswa::nim($data->nim);
-        // $namaMahasiswa = $mahasiswa->nama ?? '-';
-        $nimMahasiswa = $data->nim;
+        // $nimMahasiswa = $data->nim;
         //    Data Biodata Mahasiswa
         $this->SetFont('Courier', '', 9);
         $this->Cell(0, 1, "", 0, 1, 'L');
@@ -98,8 +98,8 @@ class CustomKwitansiFpdf extends Fpdf
         $this->Cell(40, 5, "NIM", 0, 0, 'L');
 
         $this->SetFontSpacing(0);
-        // $this->Cell(95, 5, ": $data->nim (" . $namaMahasiswa . ")", 0, 0, 'L');
-        $this->Cell(95, 5, ": $data->nim", 0, 0, 'L');
+        $this->Cell(95, 5, ": $data->nim (" . $namaMahasiswa . ")", 0, 0, 'L');
+        // $this->Cell(95, 5, ": $data->nim", 0, 0, 'L');
 
         $this->SetFontSpacing(0);
         $tanggal = ($depositData) ? "Tgl Deposit    : " . date('d-m-Y', strtotime($depositData->updated_at)) : null;

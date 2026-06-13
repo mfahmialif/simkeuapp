@@ -38,6 +38,7 @@ class TransportasiController extends Controller
             ->select([
                 'keuangan_pengeluaran_transportasi.*',
                 'pengeluaran_rekap.nama as nama_rekap',
+                'petugas.name as petugas_nama',
             ]);
 
         $this->joinRekap($query);
@@ -49,6 +50,13 @@ class TransportasiController extends Controller
         $stats = $this->aggregatePengeluaranStats(
             $this->newIndexStatsQuery($request),
             'keuangan_pengeluaran_transportasi'
+        );
+
+        $stats['saldo'] = $this->indexSaldoStats(
+            $request,
+            'keuangan_pengeluaran_transportasi',
+            'keuangan_pengeluaran_transportasi_rekap',
+            'transportasi'
         );
 
         $sortColumns = [

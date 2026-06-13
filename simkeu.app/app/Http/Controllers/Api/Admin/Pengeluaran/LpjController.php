@@ -487,12 +487,20 @@ class LpjController extends Controller
 
     private function lpjRows(array $source, $rekapId)
     {
-        $select = [
-            'lpj.*',
-        ];
+        $select = ['lpj.*'];
 
         $query = DB::table("{$source['lpj_table']} as lpj")
+            ->leftJoin("{$source['rekap_table']} as rekap", 'rekap.id', '=', 'lpj.rekap_id')
             ->where('lpj.rekap_id', $rekapId);
+
+        if (Schema::hasColumn($source['lpj_table'], 'petugas_id')) {
+            $query->leftJoin('users as petugas', function ($join) {
+                $join->on('petugas.id', '=', DB::raw('COALESCE(lpj.petugas_id, rekap.petugas_id)'));
+            });
+            $select[] = 'petugas.name as petugas_nama';
+        } else {
+            $select[] = DB::raw('NULL as petugas_nama');
+        }
 
         if (Schema::hasColumn($source['lpj_table'], 'pegawai_id')) {
             $query

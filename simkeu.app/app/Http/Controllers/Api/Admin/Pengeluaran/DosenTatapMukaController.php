@@ -43,6 +43,7 @@ class DosenTatapMukaController extends Controller
             'prodi.nama as nama_prodi_dosen',
             'prodi.alias as alias_prodi_dosen',
             'pengeluaran_rekap.nama as nama_rekap',
+            'petugas.name as petugas_nama',
         ]);
 
         $this->joinPegawaiDosen($query);
@@ -93,6 +94,13 @@ class DosenTatapMukaController extends Controller
         $stats = $this->aggregatePengeluaranStats(
             $this->newIndexStatsQuery($request),
             'keuangan_pengeluaran_dosen'
+        );
+
+        $stats['saldo'] = $this->indexSaldoStats(
+            $request,
+            'keuangan_pengeluaran_dosen',
+            'keuangan_pengeluaran_dosen_rekap',
+            'tatap_muka'
         );
 
         $sortColumns = [
