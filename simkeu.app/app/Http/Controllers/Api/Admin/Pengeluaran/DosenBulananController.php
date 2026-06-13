@@ -168,6 +168,7 @@ class DosenBulananController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'rekap_id' => $this->rekapIdRules(),
+            'copy_rekap_id' => $this->rekapIdRules(),
         ]);
 
         if ($validator->fails()) {
@@ -178,11 +179,30 @@ class DosenBulananController extends Controller
         }
 
         $existing = collect();
+        $copiedAmounts = collect();
+        $useCopiedAmounts = $request->filled('copy_rekap_id')
+            && (string) $request->copy_rekap_id !== (string) $request->rekap_id;
 
         if ($request->filled('rekap_id')) {
             $existing = KeuanganPengeluaranPegawaiBulanan::query()
                 ->where('rekap_id', $request->rekap_id)
-                ->whereIn('pegawai_id', Pegawai::query()->where('tipe', 'dosen')->select('id'))
+                ->whereIn('pegawai_id', Pegawai::query()
+                    ->where('tipe', static::PEGAWAI_TIPE)
+                    ->where('status', 'aktif')
+                    ->select('id'))
+                ->orderByDesc('id')
+                ->get()
+                ->unique('pegawai_id')
+                ->keyBy('pegawai_id');
+        }
+
+        if ($useCopiedAmounts) {
+            $copiedAmounts = KeuanganPengeluaranPegawaiBulanan::query()
+                ->where('rekap_id', $request->copy_rekap_id)
+                ->whereIn('pegawai_id', Pegawai::query()
+                    ->where('tipe', static::PEGAWAI_TIPE)
+                    ->where('status', 'aktif')
+                    ->select('id'))
                 ->orderByDesc('id')
                 ->get()
                 ->unique('pegawai_id')
@@ -191,11 +211,15 @@ class DosenBulananController extends Controller
 
         $dosen = Pegawai::query()
             ->with('dosen.prodi')
-            ->where('tipe', 'dosen')
+            ->where('tipe', static::PEGAWAI_TIPE)
+            ->where('status', 'aktif')
             ->orderBy('nama')
             ->get()
-            ->map(function ($pegawai) use ($existing) {
+            ->map(function ($pegawai) use ($existing, $copiedAmounts, $useCopiedAmounts) {
                 $pengeluaran = $existing->get($pegawai->id);
+                $amountSource = $useCopiedAmounts
+                    ? $copiedAmounts->get($pegawai->id)
+                    : $pengeluaran;
 
                 return [
                     'pegawai_id' => $pegawai->id,
@@ -204,10 +228,19 @@ class DosenBulananController extends Controller
                     'status' => $pegawai->status,
                     'jenis_kelamin' => $pegawai->jenis_kelamin,
                     'prodi' => $pegawai->dosen?->prodi?->nama
-                        ?? $pegawai->dosen?->prodi?->alias,
+                        ?? $pegawai->dosen?->prodi?->alias
+                        ?? $pegawai->staff?->jabatan,
                     'pengeluaran_id' => $pengeluaran?->id,
-                    'barokah_dosen_tetap' => (int) ($pengeluaran?->barokah_dosen_tetap ?? 0),
-                    'barokah_struktural' => (int) ($pengeluaran?->barokah_struktural ?? 0),
+                    'hari' => (float) ($amountSource?->hari ?? 0),
+                    'barokah_harian' => (int) ($amountSource?->barokah_harian ?? 0),
+                    'barokah_bulanan' => (int) ($amountSource?->barokah_bulanan ?? 0),
+                    'barokah_dosen_tetap' => (int) ($amountSource?->barokah_dosen_tetap ?? 0),
+                    'barokah_struktural' => (int) ($amountSource?->barokah_struktural ?? 0),
+                    'jenis_pembayaran' => $pengeluaran?->jenis_pembayaran ?? 'CUS BSI',
+                    'bukti_transfer_url' => $this->buktiTransferUrl($pengeluaran?->bukti_transfer),
+                    'lampiran' => $pengeluaran
+                        ? $this->appendLampiranUrls((object) ['lampiran' => $pengeluaran->lampiran])->lampiran
+                        : [],
                 ];
             })
             ->values();
@@ -215,27 +248,51 @@ class DosenBulananController extends Controller
         return response()->json([
             'status' => true,
             'data' => $dosen,
-            'message' => 'Data form Barokah Dosen Bulanan berhasil dimuat.',
+            'message' => 'Data form '.static::MODULE_NAME.' berhasil dimuat.',
         ]);
     }
 
     public function batchStore(Request $request)
     {
-        $rekapTable = (new KeuanganPengeluaranDosenBulananRekap)->getTable();
+        if ($request->filled('items_json')) {
+            $items = json_decode($request->input('items_json'), true);
+
+            if (! is_array($items)) {
+                return response()->json([
+                    'status' => false,
+                    'message' => ['items_json' => ['Data baris tidak valid.']],
+                ], 422);
+            }
+
+            $request->merge(['items' => $items]);
+        }
+
+        $rekapModel = static::REKAP_MODEL;
+        $rekapTable = (new $rekapModel)->getTable();
         $validator = Validator::make($request->all(), [
             'rekap_id' => ['required', Rule::exists($rekapTable, 'id')],
             'tanggal' => ['required', 'date'],
-            'jenis_pembayaran' => ['required', Rule::in(static::JENIS_PEMBAYARAN)],
+            'bulan' => array_merge(static::REQUIRE_PERIODE ? ['required'] : ['nullable'], ['integer', 'min:1', 'max:12']),
+            'tahun' => array_merge(static::REQUIRE_PERIODE ? ['required'] : ['nullable'], ['integer', 'min:1900', 'max:2100']),
+            'jenis_pembayaran' => ['nullable', Rule::in(static::JENIS_PEMBAYARAN)],
             'items' => ['required', 'array', 'min:1'],
             'items.*.pegawai_id' => [
                 'required',
                 'integer',
                 'distinct',
-                Rule::exists('pegawai', 'id')->where(fn ($query) => $query->where('tipe', 'dosen')),
+                Rule::exists('pegawai', 'id')->where(fn ($query) => $query->where('tipe', static::PEGAWAI_TIPE)),
             ],
+            'items.*.hari' => ['nullable', 'numeric', 'min:0'],
+            'items.*.barokah_harian' => ['nullable', 'numeric', 'min:0'],
+            'items.*.barokah_bulanan' => ['nullable', 'numeric', 'min:0'],
             'items.*.barokah_dosen_tetap' => ['nullable', 'numeric', 'min:0'],
             'items.*.barokah_struktural' => ['nullable', 'numeric', 'min:0'],
-            ...$this->lampiranRules(),
+            'items.*.jenis_pembayaran' => ['nullable', Rule::in(static::JENIS_PEMBAYARAN)],
+            'items.*.bukti_transfer' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:4096'],
+            'items.*.lampiran' => ['nullable', 'array', 'max:10'],
+            'items.*.lampiran.*' => ['file', 'mimes:jpg,jpeg,png,pdf,doc,docx,xls,xlsx', 'max:10240'],
+            'items.*.hapus_lampiran' => ['nullable', 'array'],
+            'items.*.hapus_lampiran.*' => ['string', 'max:500'],
         ]);
 
         if ($validator->fails()) {
@@ -260,15 +317,22 @@ class DosenBulananController extends Controller
                 ->get()
                 ->groupBy('pegawai_id');
 
-            foreach ($payload['items'] as $item) {
+            foreach ($payload['items'] as $index => $item) {
+                $hari = $this->number($item['hari'] ?? 0);
+                $barokahHarian = $this->number($item['barokah_harian'] ?? 0);
+                $barokahBulanan = $this->number($item['barokah_bulanan'] ?? 0);
                 $dosenTetap = (int) round($this->number($item['barokah_dosen_tetap'] ?? 0));
                 $struktural = (int) round($this->number($item['barokah_struktural'] ?? 0));
-                $total = $dosenTetap + $struktural;
+                $total = static::PEGAWAI_TIPE === 'dosen'
+                    ? $dosenTetap + $struktural
+                    : (int) round(($barokahHarian * $hari) + $barokahBulanan);
                 $records = $recordsByPegawai->get($item['pegawai_id'], collect());
+                $paymentType = $item['jenis_pembayaran'] ?? $payload['jenis_pembayaran'] ?? 'CUS BSI';
 
                 if ($total === 0) {
                     if ($records->isNotEmpty()) {
                         foreach ($records as $record) {
+                            $this->deleteBuktiTransfer($record->bukti_transfer);
                             $this->deleteLampiran($record->lampiran);
                         }
 
@@ -284,23 +348,37 @@ class DosenBulananController extends Controller
                 $isNew = ! $data->exists;
                 $data->pegawai_id = $item['pegawai_id'];
                 $data->petugas_id = auth()->id();
-                $data->pegawai_tipe = 'dosen';
+                $data->pegawai_tipe = static::PEGAWAI_TIPE;
                 $data->rekap_id = $payload['rekap_id'];
                 $data->tanggal = $payload['tanggal'];
-                $data->bulan = (int) date('n', strtotime($payload['tanggal']));
-                $data->tahun = (int) date('Y', strtotime($payload['tanggal']));
-                $data->hari = 0;
-                $data->barokah_harian = 0;
-                $data->barokah_bulanan = 0;
+                $data->bulan = $payload['bulan'] ?? (int) date('n', strtotime($payload['tanggal']));
+                $data->tahun = $payload['tahun'] ?? (int) date('Y', strtotime($payload['tanggal']));
+                $data->hari = static::PEGAWAI_TIPE === 'dosen' ? 0 : $hari;
+                $data->barokah_harian = static::PEGAWAI_TIPE === 'dosen' ? 0 : $barokahHarian;
+                $data->barokah_bulanan = static::PEGAWAI_TIPE === 'dosen' ? 0 : $barokahBulanan;
                 $data->barokah_dosen_tetap = $dosenTetap;
                 $data->barokah_struktural = $struktural;
                 $data->total = $total;
-                $data->jenis_pembayaran = $payload['jenis_pembayaran'];
-                $data->lampiran = $this->updateLampiran(
-                    $request,
-                    $data->lampiran,
-                    static::LAMPIRAN_DIR
-                );
+                $data->jenis_pembayaran = $paymentType;
+                $rowRequest = Request::create('/', 'POST', $item);
+                $rowLampiran = $request->file("items.{$index}.lampiran", []);
+                if ($rowLampiran) {
+                    $rowRequest->files->set('lampiran', $rowLampiran);
+                }
+                $data->lampiran = $this->updateLampiran($rowRequest, $data->lampiran, static::LAMPIRAN_DIR);
+                $buktiTransfer = $request->file("items.{$index}.bukti_transfer");
+
+                if ($buktiTransfer) {
+                    $directory = static::BUKTI_TRANSFER_DIR ?: 'dosen-bulanan';
+                    $newBuktiTransfer = $this->storeBuktiTransfer($buktiTransfer, $directory);
+                    $this->deleteBuktiTransfer($data->bukti_transfer);
+                    $data->bukti_transfer = $newBuktiTransfer;
+                }
+
+                if ($paymentType !== 'Transfer') {
+                    $this->deleteBuktiTransfer($data->bukti_transfer);
+                    $data->bukti_transfer = null;
+                }
                 $data->save();
 
                 if ($isNew) {
@@ -312,6 +390,7 @@ class DosenBulananController extends Controller
                 if ($records->count() > 1) {
                     $duplicates = $records->skip(1);
                     foreach ($duplicates as $duplicate) {
+                        $this->deleteBuktiTransfer($duplicate->bukti_transfer);
                         $this->deleteLampiran($duplicate->lampiran);
                     }
 
@@ -523,9 +602,7 @@ class DosenBulananController extends Controller
 
     protected function bsiMessage(): string
     {
-        return static::PEGAWAI_TIPE === 'staff'
-            ? 'barokah staff bulanan'
-            : 'barokah dosen bulanan';
+        return 'barokah dosen bulanan';
     }
 
     protected function joinPegawaiDetail($query): void

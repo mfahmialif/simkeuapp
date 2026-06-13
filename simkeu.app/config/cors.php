@@ -19,6 +19,7 @@ return [
     'allowed_origins' => [
         'http://localhost:5050',
         'http://localhost:5173',
+        'http://localhost:5174',
         'https://simkeu.uiidalwa.web.id',
         'https://simkeuv2.uiidalwa.web.id',
         'https://simkeuv3.uiidalwa.web.id',

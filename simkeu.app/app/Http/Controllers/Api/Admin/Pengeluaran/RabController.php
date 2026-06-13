@@ -62,14 +62,6 @@ class RabController extends Controller
             'detail_path' => '/admin/pengeluaran/dosen-bulanan/rekap/',
             'pegawai_tipe' => 'dosen',
         ],
-        'staff_bulanan' => [
-            'rekap_table' => 'keuangan_pengeluaran_staff_bulanan_rekap',
-            'detail_table' => 'keuangan_pengeluaran_pegawai_bulanan',
-            'lpj_table' => 'keuangan_pengeluaran_pegawai_bulanan_lpj',
-            'module_name' => 'Staff Bulanan',
-            'detail_path' => '/admin/pengeluaran/staff-bulanan/rekap/',
-            'pegawai_tipe' => 'staff',
-        ],
     ];
 
     public function index(Request $request)
@@ -894,7 +886,7 @@ class RabController extends Controller
             'sarana_prasarana' => ['sarpras'],
             'transportasi' => ['transportasi'],
             'tatap_muka' => ['barokahdosen_tatapmuka'],
-            'kegiatan', 'staff_bulanan' => ['barokahdosen_kegiatan'],
+            'kegiatan' => ['barokahdosen_kegiatan'],
             'dosen_bulanan' => ['barokahdosen_bulanan'],
             default => [],
         };
@@ -909,7 +901,6 @@ class RabController extends Controller
             ['title' => 'Sarana Prasarana', 'value' => 'sarana_prasarana'],
             ['title' => 'Transportasi', 'value' => 'transportasi'],
             ['title' => 'Dosen Bulanan', 'value' => 'dosen_bulanan'],
-            ['title' => 'Staff Bulanan', 'value' => 'staff_bulanan'],
         ];
     }
 }

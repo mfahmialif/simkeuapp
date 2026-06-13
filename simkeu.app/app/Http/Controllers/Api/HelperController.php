@@ -1172,7 +1172,6 @@ class HelperController extends Controller
             'dosen_tatap_muka' => ['barokahdosen_tatapmuka'],
             'kegiatan' => ['barokahdosen_kegiatan'],
             'dosen_kegiatan' => ['barokahdosen_kegiatan'],
-            'staff_bulanan' => ['barokahdosen_kegiatan'],
             'dosen_bulanan' => ['barokahdosen_bulanan'],
             'rab' => [
                 'rumahtangga',

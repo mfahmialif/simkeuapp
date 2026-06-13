@@ -31,12 +31,6 @@ class SeedRabPerformanceData extends Command
             'rekap_table' => 'keuangan_pengeluaran_dosen_bulanan_rekap',
             'temp_rekap_table' => 'tmp_rab_perf_rekap_db',
         ],
-        'staff_bulanan' => [
-            'label' => 'Staff Bulanan',
-            'prefix' => 'SB',
-            'rekap_table' => 'keuangan_pengeluaran_staff_bulanan_rekap',
-            'temp_rekap_table' => 'tmp_rab_perf_rekap_sb',
-        ],
     ];
 
     protected $signature = 'app:seed-rab-performance
@@ -381,7 +375,7 @@ class SeedRabPerformanceData extends Command
                 0,
                 ((20 + MOD(numbers.`n`, 7)) * (50000 + (MOD(numbers.`n`, 4) * 10000)))
                     + 500000 + (MOD(numbers.`n`, 6) * 100000)';
-            $label = 'Staff bulanan';
+            throw new RuntimeException('Tipe pegawai bulanan tidak didukung.');
         }
 
         DB::statement(

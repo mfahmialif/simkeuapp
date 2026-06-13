@@ -67,15 +67,6 @@ class LpjController extends Controller
             'pegawai_tipe' => 'dosen',
             'type' => 'dosen-bulanan',
         ],
-        'staff_bulanan' => [
-            'module_key' => 'staff_bulanan',
-            'title' => 'Barokah Staff Bulanan',
-            'rekap_table' => 'keuangan_pengeluaran_staff_bulanan_rekap',
-            'detail_table' => 'keuangan_pengeluaran_pegawai_bulanan',
-            'lpj_table' => 'keuangan_pengeluaran_pegawai_bulanan_lpj',
-            'pegawai_tipe' => 'staff',
-            'type' => 'bulanan',
-        ],
     ];
 
     public function dosenShow(Request $request, $id)
@@ -108,11 +99,6 @@ class LpjController extends Controller
         return $this->showModule('dosen_bulanan', $id);
     }
 
-    public function staffBulananShow(Request $request, $id)
-    {
-        return $this->showModule('staff_bulanan', $id);
-    }
-
     public function dosenCopy(Request $request, $id)
     {
         return $this->copyModule($request, 'dosen', $id);
@@ -143,11 +129,6 @@ class LpjController extends Controller
         return $this->copyModule($request, 'dosen_bulanan', $id);
     }
 
-    public function staffBulananCopy(Request $request, $id)
-    {
-        return $this->copyModule($request, 'staff_bulanan', $id);
-    }
-
     public function dosenUpdate(Request $request, $id)
     {
         return $this->updateModule($request, 'dosen', $id);
@@ -176,11 +157,6 @@ class LpjController extends Controller
     public function dosenBulananUpdate(Request $request, $id)
     {
         return $this->updateModule($request, 'dosen_bulanan', $id);
-    }
-
-    public function staffBulananUpdate(Request $request, $id)
-    {
-        return $this->updateModule($request, 'staff_bulanan', $id);
     }
 
     private function showModule(string $module, $rekapId)
@@ -559,7 +535,7 @@ class LpjController extends Controller
             'sarana-prasarana' => $this->saranaPrasaranaRow($item),
             'transportasi' => $this->transportasiRow($item),
             'dosen-bulanan' => $this->dosenBulananRow($item),
-            default => $this->staffBulananRow($item),
+            default => throw new \InvalidArgumentException('Unsupported LPJ module type.'),
         };
 
         $row['rekap_id'] = (int) $rekapId;
@@ -752,24 +728,6 @@ class LpjController extends Controller
             'barokah_dosen_tetap' => (int) round($dosenTetap),
             'barokah_struktural' => (int) round($struktural),
             'total' => (int) round($dosenTetap + $struktural),
-        ];
-    }
-
-    private function staffBulananRow(array $item): array
-    {
-        $tanggal = $item['tanggal'] ?? now()->toDateString();
-        $hari = $this->number($item['hari'] ?? 0);
-        $barokahHarian = $this->number($item['barokah_harian'] ?? 0);
-        $barokahBulanan = $this->number($item['barokah_bulanan'] ?? 0);
-
-        return [
-            ...$this->baseBulananRow($item, $tanggal),
-            'hari' => (int) round($hari),
-            'barokah_harian' => (int) round($barokahHarian),
-            'barokah_bulanan' => (int) round($barokahBulanan),
-            'barokah_dosen_tetap' => 0,
-            'barokah_struktural' => 0,
-            'total' => (int) round(($barokahHarian * $hari) + $barokahBulanan),
         ];
     }
 

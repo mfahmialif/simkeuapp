@@ -226,7 +226,9 @@ trait ManagesPengeluaranRekap
             'nama' => ['required', 'string', 'max:255', Rule::unique($rekapTable, 'nama')],
             'bulan_tahun' => ['required', 'date_format:Y-m'],
             'tanggal_rekap' => ['required', 'date_format:Y-m-d'],
-            'jumlah_sementara' => ['required', 'integer', 'min:0'],
+            'jumlah_sementara' => $this->allowsEmptyRekapTemporary()
+                ? ['nullable', 'integer', 'min:0']
+                : ['required', 'integer', 'min:0'],
             'keterangan' => 'nullable|string',
         ]);
 
@@ -280,7 +282,7 @@ trait ManagesPengeluaranRekap
             ],
             'bulan_tahun' => ['required', 'date_format:Y-m'],
             'tanggal_rekap' => ['required', 'date_format:Y-m-d'],
-            'jumlah_sementara' => $hasDetails
+            'jumlah_sementara' => $hasDetails || $this->allowsEmptyRekapTemporary()
                 ? ['nullable', 'integer', 'min:0']
                 : ['required', 'integer', 'min:0'],
             'keterangan' => 'nullable|string',
@@ -729,6 +731,11 @@ trait ManagesPengeluaranRekap
         ];
     }
 
+    protected function allowsEmptyRekapTemporary(): bool
+    {
+        return true;
+    }
+
     private function filteredRekapBaseQuery(Request $request, string $modelClass, string $rekapTable)
     {
         $query = $modelClass::query()
@@ -1000,7 +1007,6 @@ trait ManagesPengeluaranRekap
             'keuangan_pengeluaran_sarana_prasarana_rekap' => 'sarana_prasarana',
             'keuangan_pengeluaran_transportasi_rekap' => 'transportasi',
             'keuangan_pengeluaran_dosen_bulanan_rekap' => 'dosen_bulanan',
-            'keuangan_pengeluaran_staff_bulanan_rekap' => 'staff_bulanan',
             default => null,
         };
     }

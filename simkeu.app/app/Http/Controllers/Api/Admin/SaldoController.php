@@ -61,12 +61,12 @@ class SaldoController extends Controller
             'pegawai_tipe' => 'dosen',
         ],
         [
-            'key' => 'staff_bulanan',
-            'name' => 'Staff Bulanan',
-            'detail_table' => 'keuangan_pengeluaran_pegawai_bulanan',
-            'rekap_table' => 'keuangan_pengeluaran_staff_bulanan_rekap',
-            'lpj_table' => 'keuangan_pengeluaran_pegawai_bulanan_lpj',
-            'pegawai_tipe' => 'staff',
+            'key' => 'hutang',
+            'name' => 'Hutang',
+            'detail_table' => 'keuangan_hutang',
+            'rekap_table' => null,
+            'lpj_table' => null,
+            'pegawai_tipe' => null,
         ],
     ];
 
@@ -143,7 +143,7 @@ class SaldoController extends Controller
             'petugas_id' => $petugasId,
         ], [
             'petugas_id' => ['required', 'integer', 'exists:users,id'],
-            'module_key' => ['required', Rule::in(array_column(self::MODULES, 'key'))],
+            'module_key' => ['required', Rule::in($this->adjustmentModuleKeys())],
             'tanggal' => ['required', 'date_format:Y-m-d'],
             'nominal' => ['required', 'integer', 'min:1'],
             'keterangan' => ['required', 'string', 'max:1000'],
@@ -216,6 +216,22 @@ class SaldoController extends Controller
         $detailTable = $module['detail_table'];
         $lpjTable = $module['lpj_table'];
         $rekapTable = $module['rekap_table'];
+
+        if ($module['key'] === 'hutang') {
+            if (Schema::hasTable('keuangan_hutang')) {
+                $queries[] = DB::table('keuangan_hutang as detail')
+                    ->select([
+                        DB::raw("'hutang' as module_key"),
+                        'detail.petugas_id',
+                        DB::raw("COALESCE(SUM(CASE WHEN detail.tipe = 'hutang' THEN detail.nominal ELSE 0 END), 0) as total_rab"),
+                        DB::raw("COALESCE(SUM(CASE WHEN detail.tipe = 'pelunasan' THEN detail.nominal ELSE 0 END), 0) as total_lpj"),
+                    ])
+                    ->whereNotNull('detail.petugas_id')
+                    ->groupBy('detail.petugas_id');
+            }
+
+            return $queries;
+        }
 
         if (Schema::hasTable($detailTable) && Schema::hasColumn($detailTable, 'petugas_id')) {
             $rabQuery = DB::table("{$detailTable} as detail")
@@ -349,6 +365,14 @@ class SaldoController extends Controller
             'key' => $module['key'],
             'name' => $module['name'],
         ], self::MODULES);
+    }
+
+    private function adjustmentModuleKeys(): array
+    {
+        return array_values(array_filter(
+            array_column(self::MODULES, 'key'),
+            fn ($key) => $key !== 'hutang',
+        ));
     }
 
     private function groupSaldoRows($rows, $manualRows, array $modules): array

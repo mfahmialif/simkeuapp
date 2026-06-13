@@ -1448,16 +1448,6 @@ class DashboardController extends Controller
                 'icon' => 'ri-calendar-event-line',
                 'color' => 'info',
             ],
-            'staff_bulanan' => [
-                'key' => 'staff_bulanan',
-                'label' => 'Staff Bulanan',
-                'table' => 'keuangan_pengeluaran_pegawai_bulanan',
-                'path' => '/admin/pengeluaran/staff-bulanan',
-                'icon' => 'ri-team-line',
-                'color' => 'success',
-                'pegawai_tipe' => 'staff',
-                'uses_periode' => true,
-            ],
             'dosen_bulanan' => [
                 'key' => 'dosen_bulanan',
                 'label' => 'Dosen Bulanan',
@@ -1476,7 +1466,7 @@ class DashboardController extends Controller
 
         return match ($roleName) {
             'barokahdosen_tatapmuka' => [$allSources['tatapmuka']],
-            'barokahdosen_kegiatan' => [$allSources['kegiatan'], $allSources['staff_bulanan']],
+            'barokahdosen_kegiatan' => [$allSources['kegiatan']],
             'barokahdosen_bulanan' => [$allSources['dosen_bulanan']],
             default => [],
         };

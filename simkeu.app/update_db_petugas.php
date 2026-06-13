@@ -13,7 +13,6 @@ $tables = [
     'keuangan_pengeluaran_dosen_kegiatan_lpj',
     'keuangan_pengeluaran_pegawai_bulanan',
     'keuangan_pengeluaran_dosen_bulanan_rekap',
-    'keuangan_pengeluaran_staff_bulanan_rekap',
     'keuangan_pengeluaran_pegawai_bulanan_lpj'
 ];
 

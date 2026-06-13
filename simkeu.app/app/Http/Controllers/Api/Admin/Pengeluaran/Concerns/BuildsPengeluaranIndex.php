@@ -290,7 +290,6 @@ trait BuildsPengeluaranIndex
             $pengeluaranTable === 'keuangan_pengeluaran_sarana_prasarana' => 'sarana_prasarana',
             $pengeluaranTable === 'keuangan_pengeluaran_transportasi' => 'transportasi',
             $rekapTable === 'keuangan_pengeluaran_dosen_bulanan_rekap' => 'dosen_bulanan',
-            $rekapTable === 'keuangan_pengeluaran_staff_bulanan_rekap' => 'staff_bulanan',
             default => null,
         };
     }
