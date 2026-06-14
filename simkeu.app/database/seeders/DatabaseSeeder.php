@@ -38,6 +38,16 @@ class DatabaseSeeder extends Seeder
         );
         DB::table('role')->insert(
             [
+                'name' => 'kabag_pemasukan',
+            ]
+        );
+        DB::table('role')->insert(
+            [
+                'name' => 'kabag_pengeluaran',
+            ]
+        );
+        DB::table('role')->insert(
+            [
                 'name' => 'staff',
             ]
         );
@@ -66,7 +76,7 @@ class DatabaseSeeder extends Seeder
         DB::table('role')->insert(
             [
                 'name' => 'barokahdosen_bulanan',
-                'keterangan' => 'Barokah Dosen Bulanan',
+                'keterangan' => 'Barokah Bulanan',
             ]
         );
         DB::table('role')->insert(

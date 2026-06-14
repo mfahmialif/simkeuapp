@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Admin\Pengeluaran;
 
 use App\Http\Controllers\Controller;
+use App\Services\Helper;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
@@ -60,11 +61,11 @@ class LpjController extends Controller
         ],
         'dosen_bulanan' => [
             'module_key' => 'dosen_bulanan',
-            'title' => 'Barokah Dosen Bulanan',
+            'title' => 'Barokah Bulanan',
             'rekap_table' => 'keuangan_pengeluaran_dosen_bulanan_rekap',
             'detail_table' => 'keuangan_pengeluaran_pegawai_bulanan',
             'lpj_table' => 'keuangan_pengeluaran_pegawai_bulanan_lpj',
-            'pegawai_tipe' => 'dosen',
+            'pegawai_tipe' => null,
             'type' => 'dosen-bulanan',
         ],
     ];
@@ -204,10 +205,14 @@ class LpjController extends Controller
         $sameAsRab = $request->boolean('sama_dengan_rab');
 
         $result = DB::transaction(function () use ($source, $rekapId, $sameAsRab) {
-            $rekap = DB::table($source['rekap_table'])
-                ->where('id', $rekapId)
-                ->lockForUpdate()
-                ->first();
+            $rekapQuery = DB::table($source['rekap_table'])
+                ->where('id', $rekapId);
+            Helper::applyRelatedGenderScope(
+                $rekapQuery,
+                "{$source['rekap_table']}.petugas_id",
+                'users'
+            );
+            $rekap = $rekapQuery->lockForUpdate()->first();
 
             if (! $rekap) {
                 return null;
@@ -220,11 +225,11 @@ class LpjController extends Controller
             $rows = $this->rabDetailQuery($source, $rekapId)
                 ->orderBy("{$source['detail_table']}.id")
                 ->get()
-                ->map(function ($row) use ($copyColumns, $now) {
+                ->map(function ($row) use ($copyColumns, $now, $rekap) {
                     $rowArray = (array) $row;
                     $data = Arr::only($rowArray, $copyColumns);
                     $data['rab_detail_id'] = $row->id;
-                    $data['petugas_id'] = auth()->id();
+                    $data['petugas_id'] = $rekap->petugas_id ?? auth()->id();
                     $data['created_at'] = $now;
                     $data['updated_at'] = $now;
 
@@ -300,10 +305,14 @@ class LpjController extends Controller
         }
 
         $result = DB::transaction(function () use ($request, $source, $rekapId) {
-            $rekap = DB::table($source['rekap_table'])
-                ->where('id', $rekapId)
-                ->lockForUpdate()
-                ->first();
+            $rekapQuery = DB::table($source['rekap_table'])
+                ->where('id', $rekapId);
+            Helper::applyRelatedGenderScope(
+                $rekapQuery,
+                "{$source['rekap_table']}.petugas_id",
+                'users'
+            );
+            $rekap = $rekapQuery->lockForUpdate()->first();
 
             if (! $rekap) {
                 return null;
@@ -314,7 +323,14 @@ class LpjController extends Controller
             $columns = Schema::getColumnListing($source['lpj_table']);
             $now = now();
             $rows = collect($request->input('items', []))
-                ->map(fn ($item) => $this->normalizeLpjRow($source, (array) $item, $rekapId, $columns, $now))
+                ->map(fn ($item) => $this->normalizeLpjRow(
+                    $source,
+                    (array) $item,
+                    $rekapId,
+                    $columns,
+                    $now,
+                    $rekap->petugas_id ?? auth()->id()
+                ))
                 ->values()
                 ->all();
 
@@ -366,6 +382,11 @@ class LpjController extends Controller
     {
         $query = DB::table($source['detail_table'])
             ->where("{$source['detail_table']}.rekap_id", $rekapId);
+        $this->applyDetailGenderScope(
+            $query,
+            $source['detail_table'],
+            $source['detail_table']
+        );
 
         if ($source['pegawai_tipe']) {
             $query->where("{$source['detail_table']}.pegawai_tipe", $source['pegawai_tipe']);
@@ -399,7 +420,13 @@ class LpjController extends Controller
 
     private function rekapSummary(array $source, $rekapId): ?array
     {
-        $rekap = DB::table($source['rekap_table'])->where('id', $rekapId)->first();
+        $rekapQuery = DB::table($source['rekap_table'])->where('id', $rekapId);
+        Helper::applyRelatedGenderScope(
+            $rekapQuery,
+            "{$source['rekap_table']}.petugas_id",
+            'users'
+        );
+        $rekap = $rekapQuery->first();
 
         if (! $rekap) {
             return null;
@@ -432,6 +459,11 @@ class LpjController extends Controller
     {
         $query = DB::table($source['lpj_table'])
             ->where('rekap_id', $rekapId);
+        $this->applyDetailGenderScope(
+            $query,
+            $source['lpj_table'],
+            $source['lpj_table']
+        );
 
         if ($source['pegawai_tipe'] && Schema::hasColumn($source['lpj_table'], 'pegawai_tipe')) {
             $query->where('pegawai_tipe', $source['pegawai_tipe']);
@@ -468,6 +500,7 @@ class LpjController extends Controller
         $query = DB::table("{$source['lpj_table']} as lpj")
             ->leftJoin("{$source['rekap_table']} as rekap", 'rekap.id', '=', 'lpj.rekap_id')
             ->where('lpj.rekap_id', $rekapId);
+        $this->applyDetailGenderScope($query, $source['lpj_table'], 'lpj');
 
         if (Schema::hasColumn($source['lpj_table'], 'petugas_id')) {
             $query->leftJoin('users as petugas', function ($join) {
@@ -526,7 +559,8 @@ class LpjController extends Controller
         array $item,
         $rekapId,
         array $columns,
-        $now
+        $now,
+        int $petugasId
     ): array {
         $row = match ($source['type']) {
             'tatapmuka' => $this->tatapmukaRow($item),
@@ -540,7 +574,7 @@ class LpjController extends Controller
 
         $row['rekap_id'] = (int) $rekapId;
         $row['rab_detail_id'] = $this->nullableInt($item['rab_detail_id'] ?? null);
-        $row['petugas_id'] = auth()->id();
+        $row['petugas_id'] = $petugasId;
         $row['created_at'] = $now;
         $row['updated_at'] = $now;
 
@@ -553,6 +587,11 @@ class LpjController extends Controller
         }
 
         return Arr::only($row, $columns);
+    }
+
+    private function applyDetailGenderScope($query, string $table, string $alias): void
+    {
+        Helper::applyExpenseGenderScope($query, $table, $alias);
     }
 
     private function tatapmukaRow(array $item): array

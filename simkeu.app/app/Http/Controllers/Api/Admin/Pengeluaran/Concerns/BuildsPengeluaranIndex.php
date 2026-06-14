@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\Admin\Pengeluaran\Concerns;
 
+use App\Services\Helper;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Cache;
@@ -120,13 +121,18 @@ trait BuildsPengeluaranIndex
             ])
             ->whereNotNull("{$pengeluaranTable}.petugas_id")
             ->groupBy("{$pengeluaranTable}.petugas_id");
+        $this->applyPengeluaranGenderScope($rabQuery, $pengeluaranTable);
 
         if ($petugasId) {
             $rabQuery->where("{$pengeluaranTable}.petugas_id", $petugasId);
         }
 
         if ($pegawaiTipe && Schema::hasColumn($pengeluaranTable, 'pegawai_tipe')) {
-            $rabQuery->where("{$pengeluaranTable}.pegawai_tipe", $pegawaiTipe);
+            if (is_array($pegawaiTipe)) {
+                $rabQuery->whereIn("{$pengeluaranTable}.pegawai_tipe", $pegawaiTipe);
+            } else {
+                $rabQuery->where("{$pengeluaranTable}.pegawai_tipe", $pegawaiTipe);
+            }
         }
 
         $rabRows = $rabQuery->get()->keyBy('petugas_id');
@@ -140,9 +146,14 @@ trait BuildsPengeluaranIndex
                     DB::raw("COALESCE(SUM({$lpjTable}.total), 0) as total_lpj"),
                 ])
                 ->groupBy("{$lpjTable}.petugas_id");
+            $this->applyPengeluaranGenderScope($lpjQuery, $lpjTable);
 
             if ($pegawaiTipe && Schema::hasColumn($lpjTable, 'pegawai_tipe')) {
-                $lpjQuery->where("{$lpjTable}.pegawai_tipe", $pegawaiTipe);
+                if (is_array($pegawaiTipe)) {
+                    $lpjQuery->whereIn("{$lpjTable}.pegawai_tipe", $pegawaiTipe);
+                } else {
+                    $lpjQuery->where("{$lpjTable}.pegawai_tipe", $pegawaiTipe);
+                }
             }
 
             if ($petugasId) {
@@ -170,13 +181,27 @@ trait BuildsPengeluaranIndex
                     DB::raw('COALESCE(SUM(rab_detail.total), 0) as sama_rab_lpj'),
                 ])
                 ->groupBy('rekap.petugas_id');
+            Helper::applyRelatedGenderScope(
+                $samaRabQuery,
+                'rekap.petugas_id',
+                'users'
+            );
+            $this->applyPengeluaranGenderScope(
+                $samaRabQuery,
+                $pengeluaranTable,
+                'rab_detail'
+            );
 
             if ($petugasId) {
                 $samaRabQuery->where('rekap.petugas_id', $petugasId);
             }
 
             if ($pegawaiTipe && Schema::hasColumn($pengeluaranTable, 'pegawai_tipe')) {
-                $samaRabQuery->where('rab_detail.pegawai_tipe', $pegawaiTipe);
+                if (is_array($pegawaiTipe)) {
+                    $samaRabQuery->whereIn('rab_detail.pegawai_tipe', $pegawaiTipe);
+                } else {
+                    $samaRabQuery->where('rab_detail.pegawai_tipe', $pegawaiTipe);
+                }
             }
 
             $samaRabAmounts = $samaRabQuery->get()->keyBy('petugas_id');
@@ -241,6 +266,7 @@ trait BuildsPengeluaranIndex
             $pengeluaranTable,
             $rekapTable,
             $lpjModuleKey ?? 'none',
+            Helper::activeGenderScope() ?? 'semua',
             $this->manualSaldoUpdatedAt($lpjModuleKey ?: $this->saldoModuleKeyFromTable($pengeluaranTable, $rekapTable)),
         ]);
 
@@ -257,14 +283,22 @@ trait BuildsPengeluaranIndex
             return collect();
         }
 
-        return DB::table('keuangan_pengeluaran_saldo')
+        $query = DB::table('keuangan_pengeluaran_saldo')
             ->select([
                 'petugas_id',
                 DB::raw("COALESCE(SUM(CASE WHEN tipe = 'masuk' THEN nominal ELSE -nominal END), 0) as total_tambahan"),
             ])
             ->where('module_key', $moduleKey)
             ->whereNotNull('petugas_id')
-            ->when($petugasId, fn ($query) => $query->where('petugas_id', $petugasId))
+            ->when($petugasId, fn ($query) => $query->where('petugas_id', $petugasId));
+
+        Helper::applyRelatedGenderScope(
+            $query,
+            'keuangan_pengeluaran_saldo.petugas_id',
+            'users'
+        );
+
+        return $query
             ->groupBy('petugas_id')
             ->get()
             ->keyBy('petugas_id');

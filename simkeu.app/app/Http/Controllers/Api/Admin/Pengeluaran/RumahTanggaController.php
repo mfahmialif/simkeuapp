@@ -389,7 +389,7 @@ class RumahTanggaController extends Controller
 
     public function update(Request $request, $id)
     {
-        $data = KeuanganPengeluaranRumahTangga::find($id);
+        $data = $this->findScopedPengeluaranModel(KeuanganPengeluaranRumahTangga::class, $id);
 
         if (! $data) {
             return response()->json([
@@ -419,7 +419,7 @@ class RumahTanggaController extends Controller
 
     public function destroy($id)
     {
-        $data = KeuanganPengeluaranRumahTangga::find($id);
+        $data = $this->findScopedPengeluaranModel(KeuanganPengeluaranRumahTangga::class, $id);
 
         if (! $data) {
             return response()->json([
@@ -596,7 +596,7 @@ class RumahTanggaController extends Controller
         $satuan = $this->nullableString($request->satuan);
 
         $data->tanggal = $request->tanggal;
-        $data->petugas_id = auth()->id();
+        $data->petugas_id = $this->petugasIdForPengeluaran($request);
         $data->kelompok_anggaran = trim((string) $request->kelompok_anggaran);
         $data->nama_kegiatan = $request->nama_kegiatan;
         $data->nominal = $nominal;
@@ -675,6 +675,7 @@ class RumahTanggaController extends Controller
             ]);
 
         $this->joinRekap($query);
+        $this->applyPetugasFilter($query, new Request);
 
         return $query->where('keuangan_pengeluaran_rumah_tangga.id', $id)->first();
     }

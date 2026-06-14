@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Admin\Pengeluaran;
 
 use App\Http\Controllers\Controller;
+use App\Services\Helper;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -58,15 +59,14 @@ class RabController extends Controller
             'rekap_table' => 'keuangan_pengeluaran_dosen_bulanan_rekap',
             'detail_table' => 'keuangan_pengeluaran_pegawai_bulanan',
             'lpj_table' => 'keuangan_pengeluaran_pegawai_bulanan_lpj',
-            'module_name' => 'Dosen Bulanan',
-            'detail_path' => '/admin/pengeluaran/dosen-bulanan/rekap/',
-            'pegawai_tipe' => 'dosen',
+            'module_name' => 'Bulanan',
+            'detail_path' => '/admin/pengeluaran/bulanan/rekap/',
+            'pegawai_tipe' => null,
         ],
     ];
 
     public function index(Request $request)
     {
-        $this->forceOwnPetugasForBarokah($request);
 
         $filteredRekaps = $this->filteredRekapQuery($request);
         $rekapStats = DB::query()
@@ -96,6 +96,8 @@ class RabController extends Controller
 
         $pageQuery = clone $filteredRekaps;
         $pageQuery
+            ->leftJoin('users as petugas', 'petugas.id', '=', 'rab.petugas_id')
+            ->select('rab.*', 'petugas.name as petugas_nama')
             ->orderBy($sortColumns[$sortKey] ?? 'bulan_tahun', $sortOrder)
             ->orderBy('module_name')
             ->orderBy('nama');
@@ -111,6 +113,7 @@ class RabController extends Controller
             $item->total_lpj = (int) $item->total_lpj;
             $item->is_jumlah_sementara = (bool) $item->is_jumlah_sementara;
             $item->selisih_sementara = (int) $item->selisih_sementara;
+            $item->petugas_nama = $item->petugas_nama ?? null;
         });
 
         $detailStats = $this->detailStats($request);
@@ -155,8 +158,6 @@ class RabController extends Controller
         }
 
         $validated = $validator->validated();
-        $source = self::SOURCES[$validated['module_key']];
-        $rekapTable = $source['rekap_table'];
 
         if (! $this->petugasAllowedForModule((int) $validated['petugas_id'], $validated['module_key'])) {
             return response()->json([
@@ -164,6 +165,9 @@ class RabController extends Controller
                 'message' => 'Petugas tidak sesuai dengan jenis rekap yang dipilih.',
             ], 422);
         }
+
+        $source = self::SOURCES[$validated['module_key']];
+        $rekapTable = $source['rekap_table'];
 
         $nameExists = DB::table($rekapTable)
             ->where('nama', $validated['nama'])
@@ -206,7 +210,6 @@ class RabController extends Controller
 
     public function kas(Request $request)
     {
-        $this->forceOwnPetugasForBarokah($request);
 
         $rows = collect(self::SOURCES)
             ->map(function (array $source, string $moduleKey) use ($request) {
@@ -278,6 +281,15 @@ class RabController extends Controller
             ], 422);
         }
 
+        if (! $this->petugasInActiveScope((int) $validator->validated()['petugas_id'])) {
+            return response()->json([
+                'status' => false,
+                'message' => [
+                    'petugas_id' => ['Petugas tidak sesuai scope navbar aktif.'],
+                ],
+            ], 422);
+        }
+
         $data = DB::table('keuangan_pengeluaran_saldo')->insertGetId([
             ...$validator->validated(),
             'created_at' => now(),
@@ -313,7 +325,21 @@ class RabController extends Controller
             ], 422);
         }
 
+        if (! $this->petugasInActiveScope((int) $validator->validated()['petugas_id'])) {
+            return response()->json([
+                'status' => false,
+                'message' => [
+                    'petugas_id' => ['Petugas tidak sesuai scope navbar aktif.'],
+                ],
+            ], 422);
+        }
+
         $query = DB::table('keuangan_pengeluaran_saldo')->where('id', $id);
+        Helper::applyRelatedGenderScope(
+            $query,
+            'keuangan_pengeluaran_saldo.petugas_id',
+            'users'
+        );
 
         if ($this->shouldForceOwnPetugas()) {
             $query->where('petugas_id', auth()->id());
@@ -340,6 +366,11 @@ class RabController extends Controller
     public function destroyKasManual($id)
     {
         $query = DB::table('keuangan_pengeluaran_saldo')->where('id', $id);
+        Helper::applyRelatedGenderScope(
+            $query,
+            'keuangan_pengeluaran_saldo.petugas_id',
+            'users'
+        );
 
         if ($this->shouldForceOwnPetugas()) {
             $query->where('petugas_id', auth()->id());
@@ -497,6 +528,7 @@ class RabController extends Controller
             ])
             ->whereNotNull('detail.rekap_id')
             ->groupBy('detail.rekap_id');
+        $this->applyDetailGenderScope($query, $source['detail_table'], 'detail');
 
         if ($source['pegawai_tipe']) {
             $query->where('detail.pegawai_tipe', $source['pegawai_tipe']);
@@ -522,6 +554,7 @@ class RabController extends Controller
             ])
             ->whereNotNull('detail.rekap_id')
             ->groupBy('detail.rekap_id');
+        $this->applyDetailGenderScope($query, $source['lpj_table'], 'detail');
 
         if ($source['pegawai_tipe']) {
             $query->where('detail.pegawai_tipe', $source['pegawai_tipe']);
@@ -574,6 +607,11 @@ class RabController extends Controller
     {
         $query = DB::table('keuangan_pengeluaran_saldo')
             ->where('module_key', $moduleKey);
+        Helper::applyRelatedGenderScope(
+            $query,
+            'keuangan_pengeluaran_saldo.petugas_id',
+            'users'
+        );
 
         if (
             $request->filled('petugas_id')
@@ -605,6 +643,7 @@ class RabController extends Controller
                 'kas.*',
                 'petugas.name as petugas_nama',
             ]);
+        Helper::applyGenderScope($query, 'petugas.jenis_kelamin');
 
         if ($request->filled('module_key')) {
             $query->where('kas.module_key', $request->module_key);
@@ -709,6 +748,11 @@ class RabController extends Controller
                 'rekap.keterangan',
                 'rekap.created_at',
             ]);
+        Helper::applyRelatedGenderScope(
+            $query,
+            'rekap.petugas_id',
+            'users'
+        );
 
         $this->applyPeriodFilter($query, $request, 'rekap.bulan_tahun');
 
@@ -796,9 +840,15 @@ class RabController extends Controller
         $queries = [];
 
         foreach (self::SOURCES as $source) {
-            $queries[] = DB::table($source['rekap_table'])
+            $query = DB::table($source['rekap_table'])
                 ->whereNotNull('bulan_tahun')
                 ->selectRaw('YEAR(bulan_tahun) as tahun');
+            Helper::applyRelatedGenderScope(
+                $query,
+                "{$source['rekap_table']}.petugas_id",
+                'users'
+            );
+            $queries[] = $query;
         }
 
         return DB::query()
@@ -849,8 +899,9 @@ class RabController extends Controller
 
         $petugas = DB::table('users')
             ->leftJoin('role', 'role.id', '=', 'users.role_id')
-            ->where('users.id', $request->petugas_id)
-            ->first([
+            ->where('users.id', $request->petugas_id);
+        Helper::applyGenderScope($petugas, 'users.jenis_kelamin');
+        $petugas = $petugas->first([
                 'users.id',
                 'users.name',
                 'role.name as role_name',
@@ -869,14 +920,28 @@ class RabController extends Controller
     {
         $roleName = DB::table('users')
             ->leftJoin('role', 'role.id', '=', 'users.role_id')
-            ->where('users.id', $petugasId)
-            ->value('role.name');
+            ->where('users.id', $petugasId);
+        Helper::applyGenderScope($roleName, 'users.jenis_kelamin');
+        $roleName = $roleName->value('role.name');
 
         if (! $roleName) {
             return false;
         }
 
         return in_array($roleName, $this->petugasRolesForModule($moduleKey), true);
+    }
+
+    private function petugasInActiveScope(int $petugasId): bool
+    {
+        $query = DB::table('users')->where('id', $petugasId);
+        Helper::applyGenderScope($query, 'users.jenis_kelamin');
+
+        return $query->exists();
+    }
+
+    private function applyDetailGenderScope($query, string $table, string $alias): void
+    {
+        Helper::applyExpenseGenderScope($query, $table, $alias);
     }
 
     private function petugasRolesForModule(string $moduleKey): array
@@ -900,7 +965,7 @@ class RabController extends Controller
             ['title' => 'Rumah Tangga', 'value' => 'rumah_tangga'],
             ['title' => 'Sarana Prasarana', 'value' => 'sarana_prasarana'],
             ['title' => 'Transportasi', 'value' => 'transportasi'],
-            ['title' => 'Dosen Bulanan', 'value' => 'dosen_bulanan'],
+            ['title' => 'Bulanan', 'value' => 'dosen_bulanan'],
         ];
     }
 }

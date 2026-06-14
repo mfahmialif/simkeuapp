@@ -45,6 +45,7 @@ use App\Http\Controllers\Api\Admin\Pengeluaran\DosenBulananController;
 use App\Http\Controllers\Api\Admin\Pengeluaran\RabController;
 use App\Http\Controllers\Api\Admin\Pengeluaran\LpjController;
 use App\Http\Controllers\Api\Admin\Pengeluaran\DosenKegiatanController as PengeluaranDosenKegiatanController;
+use App\Http\Controllers\Api\Admin\Pengeluaran\LaporanHarianController as PengeluaranLaporanHarianController;
 use App\Http\Controllers\Api\Admin\Pengeluaran\RumahTanggaController as PengeluaranRumahTanggaController;
 use App\Http\Controllers\Api\Admin\Pengeluaran\SaranaPrasaranaController as PengeluaranSaranaPrasaranaController;
 use App\Http\Controllers\Api\Admin\Pengeluaran\TransportasiController as PengeluaranTransportasiController;
@@ -76,14 +77,17 @@ Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
     Route::get('pegawai', [PegawaiController::class, 'index']);
     Route::get('pegawai/export-excel', [PegawaiController::class, 'exportExcel']);
     Route::post('pegawai/import-excel', [PegawaiController::class, 'importExcel'])->middleware('role:admin');
+    Route::get('pegawai/barokah-report', [PegawaiController::class, 'barokahReport']);
+    Route::get('pegawai/barokah-report/export-excel', [PegawaiController::class, 'exportBarokahReportExcel']);
+    Route::get('pegawai/{pegawai}/barokah', [PegawaiController::class, 'barokah']);
     Route::get('pegawai/{pegawai}', [PegawaiController::class, 'show']);
     Route::get('saldo', [SaldoController::class, 'index']);
     Route::get('saldo/{petugas}', [SaldoController::class, 'show'])->whereNumber('petugas');
-    Route::post('saldo/{petugas}/tambahan', [SaldoController::class, 'storeAdjustment'])->whereNumber('petugas')->middleware('role:admin,keuangan,kabag');
+    Route::post('saldo/{petugas}/tambahan', [SaldoController::class, 'storeAdjustment'])->whereNumber('petugas')->middleware('role:admin,keuangan,kabag,kabag_pengeluaran');
     Route::apiResource('hutang', HutangController::class);
 });
 
-Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuangan,kabag,staff,rumahtangga,sarpras,transportasi,barokahdosen_tatapmuka,barokahdosen_kegiatan,barokahdosen_bulanan'])->group(function () {
+Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuangan,kabag,kabag_pemasukan,kabag_pengeluaran,staff,rumahtangga,sarpras,transportasi,barokahdosen_tatapmuka,barokahdosen_kegiatan,barokahdosen_bulanan'])->group(function () {
 // Route::prefix('admin')->group(function () {
     Route::prefix('dashboard')->group(function () {
         Route::get('/widget', [DashboardController::class, 'widget'])->name('admin.dashboard.widget');
@@ -192,109 +196,136 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
     });
 
     Route::prefix('pengeluaran')->group(function () {
+        Route::get('/laporan-harian', [PengeluaranLaporanHarianController::class, 'index']);
+
+        // Dosen Tatapmuka
+        $roleTatapMukaWrite = 'role:admin,pimpinan,keuangan,kabag_pengeluaran,barokahdosen_tatapmuka';
         Route::get('/dosen/by-date', [DosenTatapMukaController::class, 'byDate']);
         Route::get('/dosen/print-slip/{id}', [DosenTatapMukaController::class, 'printSlip']);
         Route::get('/dosen/export-excel', [DosenTatapMukaController::class, 'exportExcel']);
         Route::get('/dosen/export-bsi', [DosenTatapMukaController::class, 'exportBsi']);
         Route::get('/dosen/copy-bsi', [DosenTatapMukaController::class, 'copyBsi']);
         Route::get('/dosen/rekap', [DosenTatapMukaController::class, 'rekapIndex']);
-        Route::post('/dosen/rekap', [DosenTatapMukaController::class, 'rekapStore']);
-        Route::post('/dosen/rekap/bulk-update', [DosenTatapMukaController::class, 'rekapBulkUpdate']);
-        Route::post('/dosen/rekap/{id}/release', [DosenTatapMukaController::class, 'rekapRelease']);
-        Route::put('/dosen/rekap/{id}', [DosenTatapMukaController::class, 'rekapUpdate']);
-        Route::delete('/dosen/rekap/{id}', [DosenTatapMukaController::class, 'rekapDestroy']);
+        Route::post('/dosen/rekap', [DosenTatapMukaController::class, 'rekapStore'])->middleware($roleTatapMukaWrite);
+        Route::post('/dosen/rekap/bulk-update', [DosenTatapMukaController::class, 'rekapBulkUpdate'])->middleware($roleTatapMukaWrite);
+        Route::post('/dosen/rekap/{id}/release', [DosenTatapMukaController::class, 'rekapRelease'])->middleware($roleTatapMukaWrite);
+        Route::put('/dosen/rekap/{id}', [DosenTatapMukaController::class, 'rekapUpdate'])->middleware($roleTatapMukaWrite);
+        Route::delete('/dosen/rekap/{id}', [DosenTatapMukaController::class, 'rekapDestroy'])->middleware($roleTatapMukaWrite);
         Route::get('/dosen/rekap/{id}/lpj', [LpjController::class, 'dosenShow']);
-        Route::post('/dosen/rekap/{id}/lpj/copy', [LpjController::class, 'dosenCopy']);
-        Route::put('/dosen/rekap/{id}/lpj', [LpjController::class, 'dosenUpdate']);
+        Route::post('/dosen/rekap/{id}/lpj/copy', [LpjController::class, 'dosenCopy'])->middleware($roleTatapMukaWrite);
+        Route::put('/dosen/rekap/{id}/lpj', [LpjController::class, 'dosenUpdate'])->middleware($roleTatapMukaWrite);
         Route::get('/dosen/rekap/{id}', [DosenTatapMukaController::class, 'rekapShow']);
-        Route::apiResource('dosen', DosenTatapMukaController::class);
+        Route::apiResource('dosen', DosenTatapMukaController::class)->except(['index', 'show'])->middleware($roleTatapMukaWrite);
+        Route::apiResource('dosen', DosenTatapMukaController::class)->only(['index', 'show']);
+
+        // Dosen Kegiatan
+        $roleKegiatanWrite = 'role:admin,pimpinan,keuangan,kabag_pengeluaran,barokahdosen_kegiatan';
         Route::get('/dosen-kegiatan/by-date', [PengeluaranDosenKegiatanController::class, 'byDate']);
         Route::get('/dosen-kegiatan/export-excel', [PengeluaranDosenKegiatanController::class, 'exportExcel']);
         Route::get('/dosen-kegiatan/export-bsi', [PengeluaranDosenKegiatanController::class, 'exportBsi']);
         Route::get('/dosen-kegiatan/copy-bsi', [PengeluaranDosenKegiatanController::class, 'copyBsi']);
-        Route::post('/dosen-kegiatan/batch-store', [PengeluaranDosenKegiatanController::class, 'batchStore']);
-        Route::post('/dosen-kegiatan/batch-update', [PengeluaranDosenKegiatanController::class, 'batchUpdate']);
+        Route::post('/dosen-kegiatan/batch-store', [PengeluaranDosenKegiatanController::class, 'batchStore'])->middleware($roleKegiatanWrite);
+        Route::post('/dosen-kegiatan/batch-update', [PengeluaranDosenKegiatanController::class, 'batchUpdate'])->middleware($roleKegiatanWrite);
         Route::get('/dosen-kegiatan/rekap', [PengeluaranDosenKegiatanController::class, 'rekapIndex']);
-        Route::post('/dosen-kegiatan/rekap', [PengeluaranDosenKegiatanController::class, 'rekapStore']);
-        Route::post('/dosen-kegiatan/rekap/bulk-update', [PengeluaranDosenKegiatanController::class, 'rekapBulkUpdate']);
-        Route::post('/dosen-kegiatan/rekap/{id}/release', [PengeluaranDosenKegiatanController::class, 'rekapRelease']);
-        Route::put('/dosen-kegiatan/rekap/{id}', [PengeluaranDosenKegiatanController::class, 'rekapUpdate']);
-        Route::delete('/dosen-kegiatan/rekap/{id}', [PengeluaranDosenKegiatanController::class, 'rekapDestroy']);
+        Route::post('/dosen-kegiatan/rekap', [PengeluaranDosenKegiatanController::class, 'rekapStore'])->middleware($roleKegiatanWrite);
+        Route::post('/dosen-kegiatan/rekap/bulk-update', [PengeluaranDosenKegiatanController::class, 'rekapBulkUpdate'])->middleware($roleKegiatanWrite);
+        Route::post('/dosen-kegiatan/rekap/{id}/release', [PengeluaranDosenKegiatanController::class, 'rekapRelease'])->middleware($roleKegiatanWrite);
+        Route::put('/dosen-kegiatan/rekap/{id}', [PengeluaranDosenKegiatanController::class, 'rekapUpdate'])->middleware($roleKegiatanWrite);
+        Route::delete('/dosen-kegiatan/rekap/{id}', [PengeluaranDosenKegiatanController::class, 'rekapDestroy'])->middleware($roleKegiatanWrite);
         Route::get('/dosen-kegiatan/rekap/{id}/lpj', [LpjController::class, 'kegiatanShow']);
-        Route::post('/dosen-kegiatan/rekap/{id}/lpj/copy', [LpjController::class, 'kegiatanCopy']);
-        Route::put('/dosen-kegiatan/rekap/{id}/lpj', [LpjController::class, 'kegiatanUpdate']);
+        Route::post('/dosen-kegiatan/rekap/{id}/lpj/copy', [LpjController::class, 'kegiatanCopy'])->middleware($roleKegiatanWrite);
+        Route::put('/dosen-kegiatan/rekap/{id}/lpj', [LpjController::class, 'kegiatanUpdate'])->middleware($roleKegiatanWrite);
         Route::get('/dosen-kegiatan/rekap/{id}', [PengeluaranDosenKegiatanController::class, 'rekapShow']);
-        Route::apiResource('dosen-kegiatan', PengeluaranDosenKegiatanController::class);
+        Route::apiResource('dosen-kegiatan', PengeluaranDosenKegiatanController::class)->except(['index', 'show'])->middleware($roleKegiatanWrite);
+        Route::apiResource('dosen-kegiatan', PengeluaranDosenKegiatanController::class)->only(['index', 'show']);
+
+        // Rumah Tangga
+        $roleRumahTanggaWrite = 'role:admin,pimpinan,keuangan,kabag_pengeluaran,rumahtangga';
         Route::get('/rumah-tangga/export-excel', [PengeluaranRumahTanggaController::class, 'exportExcel']);
-        Route::post('/rumah-tangga/batch-store', [PengeluaranRumahTanggaController::class, 'batchStore']);
-        Route::post('/rumah-tangga/batch-update', [PengeluaranRumahTanggaController::class, 'batchUpdate']);
+        Route::post('/rumah-tangga/batch-store', [PengeluaranRumahTanggaController::class, 'batchStore'])->middleware($roleRumahTanggaWrite);
+        Route::post('/rumah-tangga/batch-update', [PengeluaranRumahTanggaController::class, 'batchUpdate'])->middleware($roleRumahTanggaWrite);
         Route::get('/rumah-tangga/rekap', [PengeluaranRumahTanggaController::class, 'rekapIndex']);
-        Route::post('/rumah-tangga/rekap', [PengeluaranRumahTanggaController::class, 'rekapStore']);
-        Route::post('/rumah-tangga/rekap/bulk-update', [PengeluaranRumahTanggaController::class, 'rekapBulkUpdate']);
-        Route::post('/rumah-tangga/rekap/{id}/release', [PengeluaranRumahTanggaController::class, 'rekapRelease']);
-        Route::put('/rumah-tangga/rekap/{id}', [PengeluaranRumahTanggaController::class, 'rekapUpdate']);
-        Route::delete('/rumah-tangga/rekap/{id}', [PengeluaranRumahTanggaController::class, 'rekapDestroy']);
+        Route::post('/rumah-tangga/rekap', [PengeluaranRumahTanggaController::class, 'rekapStore'])->middleware($roleRumahTanggaWrite);
+        Route::post('/rumah-tangga/rekap/bulk-update', [PengeluaranRumahTanggaController::class, 'rekapBulkUpdate'])->middleware($roleRumahTanggaWrite);
+        Route::post('/rumah-tangga/rekap/{id}/release', [PengeluaranRumahTanggaController::class, 'rekapRelease'])->middleware($roleRumahTanggaWrite);
+        Route::put('/rumah-tangga/rekap/{id}', [PengeluaranRumahTanggaController::class, 'rekapUpdate'])->middleware($roleRumahTanggaWrite);
+        Route::delete('/rumah-tangga/rekap/{id}', [PengeluaranRumahTanggaController::class, 'rekapDestroy'])->middleware($roleRumahTanggaWrite);
         Route::get('/rumah-tangga/rekap/{id}/lpj', [LpjController::class, 'rumahTanggaShow']);
-        Route::post('/rumah-tangga/rekap/{id}/lpj/copy', [LpjController::class, 'rumahTanggaCopy']);
-        Route::put('/rumah-tangga/rekap/{id}/lpj', [LpjController::class, 'rumahTanggaUpdate']);
+        Route::post('/rumah-tangga/rekap/{id}/lpj/copy', [LpjController::class, 'rumahTanggaCopy'])->middleware($roleRumahTanggaWrite);
+        Route::put('/rumah-tangga/rekap/{id}/lpj', [LpjController::class, 'rumahTanggaUpdate'])->middleware($roleRumahTanggaWrite);
         Route::get('/rumah-tangga/rekap/{id}', [PengeluaranRumahTanggaController::class, 'rekapShow']);
-        Route::apiResource('rumah-tangga', PengeluaranRumahTanggaController::class);
+        Route::apiResource('rumah-tangga', PengeluaranRumahTanggaController::class)->except(['index', 'show'])->middleware($roleRumahTanggaWrite);
+        Route::apiResource('rumah-tangga', PengeluaranRumahTanggaController::class)->only(['index', 'show']);
+
+        // Sarana Prasarana
+        $roleSarprasWrite = 'role:admin,pimpinan,keuangan,kabag_pengeluaran,sarpras';
         Route::get('/sarana-prasarana/export-excel', [PengeluaranSaranaPrasaranaController::class, 'exportExcel']);
-        Route::post('/sarana-prasarana/batch-store', [PengeluaranSaranaPrasaranaController::class, 'batchStore']);
-        Route::post('/sarana-prasarana/batch-update', [PengeluaranSaranaPrasaranaController::class, 'batchUpdate']);
+        Route::post('/sarana-prasarana/batch-store', [PengeluaranSaranaPrasaranaController::class, 'batchStore'])->middleware($roleSarprasWrite);
+        Route::post('/sarana-prasarana/batch-update', [PengeluaranSaranaPrasaranaController::class, 'batchUpdate'])->middleware($roleSarprasWrite);
         Route::get('/sarana-prasarana/rekap', [PengeluaranSaranaPrasaranaController::class, 'rekapIndex']);
-        Route::post('/sarana-prasarana/rekap', [PengeluaranSaranaPrasaranaController::class, 'rekapStore']);
-        Route::post('/sarana-prasarana/rekap/bulk-update', [PengeluaranSaranaPrasaranaController::class, 'rekapBulkUpdate']);
-        Route::post('/sarana-prasarana/rekap/{id}/release', [PengeluaranSaranaPrasaranaController::class, 'rekapRelease']);
-        Route::put('/sarana-prasarana/rekap/{id}', [PengeluaranSaranaPrasaranaController::class, 'rekapUpdate']);
-        Route::delete('/sarana-prasarana/rekap/{id}', [PengeluaranSaranaPrasaranaController::class, 'rekapDestroy']);
+        Route::post('/sarana-prasarana/rekap', [PengeluaranSaranaPrasaranaController::class, 'rekapStore'])->middleware($roleSarprasWrite);
+        Route::post('/sarana-prasarana/rekap/bulk-update', [PengeluaranSaranaPrasaranaController::class, 'rekapBulkUpdate'])->middleware($roleSarprasWrite);
+        Route::post('/sarana-prasarana/rekap/{id}/release', [PengeluaranSaranaPrasaranaController::class, 'rekapRelease'])->middleware($roleSarprasWrite);
+        Route::put('/sarana-prasarana/rekap/{id}', [PengeluaranSaranaPrasaranaController::class, 'rekapUpdate'])->middleware($roleSarprasWrite);
+        Route::delete('/sarana-prasarana/rekap/{id}', [PengeluaranSaranaPrasaranaController::class, 'rekapDestroy'])->middleware($roleSarprasWrite);
         Route::get('/sarana-prasarana/rekap/{id}/lpj', [LpjController::class, 'saranaPrasaranaShow']);
-        Route::post('/sarana-prasarana/rekap/{id}/lpj/copy', [LpjController::class, 'saranaPrasaranaCopy']);
-        Route::put('/sarana-prasarana/rekap/{id}/lpj', [LpjController::class, 'saranaPrasaranaUpdate']);
+        Route::post('/sarana-prasarana/rekap/{id}/lpj/copy', [LpjController::class, 'saranaPrasaranaCopy'])->middleware($roleSarprasWrite);
+        Route::put('/sarana-prasarana/rekap/{id}/lpj', [LpjController::class, 'saranaPrasaranaUpdate'])->middleware($roleSarprasWrite);
         Route::get('/sarana-prasarana/rekap/{id}', [PengeluaranSaranaPrasaranaController::class, 'rekapShow']);
-        Route::apiResource('sarana-prasarana', PengeluaranSaranaPrasaranaController::class);
+        Route::apiResource('sarana-prasarana', PengeluaranSaranaPrasaranaController::class)->except(['index', 'show'])->middleware($roleSarprasWrite);
+        Route::apiResource('sarana-prasarana', PengeluaranSaranaPrasaranaController::class)->only(['index', 'show']);
+
+        // Transportasi
+        $roleTransportasiWrite = 'role:admin,pimpinan,keuangan,kabag_pengeluaran,transportasi';
         Route::get('/transportasi/export-excel', [PengeluaranTransportasiController::class, 'exportExcel']);
-        Route::post('/transportasi/batch-store', [PengeluaranTransportasiController::class, 'batchStore']);
-        Route::post('/transportasi/batch-update', [PengeluaranTransportasiController::class, 'batchUpdate']);
+        Route::post('/transportasi/batch-store', [PengeluaranTransportasiController::class, 'batchStore'])->middleware($roleTransportasiWrite);
+        Route::post('/transportasi/batch-update', [PengeluaranTransportasiController::class, 'batchUpdate'])->middleware($roleTransportasiWrite);
         Route::get('/transportasi/rekap', [PengeluaranTransportasiController::class, 'rekapIndex']);
-        Route::post('/transportasi/rekap', [PengeluaranTransportasiController::class, 'rekapStore']);
-        Route::post('/transportasi/rekap/bulk-update', [PengeluaranTransportasiController::class, 'rekapBulkUpdate']);
-        Route::post('/transportasi/rekap/{id}/release', [PengeluaranTransportasiController::class, 'rekapRelease']);
-        Route::put('/transportasi/rekap/{id}', [PengeluaranTransportasiController::class, 'rekapUpdate']);
-        Route::delete('/transportasi/rekap/{id}', [PengeluaranTransportasiController::class, 'rekapDestroy']);
+        Route::post('/transportasi/rekap', [PengeluaranTransportasiController::class, 'rekapStore'])->middleware($roleTransportasiWrite);
+        Route::post('/transportasi/rekap/bulk-update', [PengeluaranTransportasiController::class, 'rekapBulkUpdate'])->middleware($roleTransportasiWrite);
+        Route::post('/transportasi/rekap/{id}/release', [PengeluaranTransportasiController::class, 'rekapRelease'])->middleware($roleTransportasiWrite);
+        Route::put('/transportasi/rekap/{id}', [PengeluaranTransportasiController::class, 'rekapUpdate'])->middleware($roleTransportasiWrite);
+        Route::delete('/transportasi/rekap/{id}', [PengeluaranTransportasiController::class, 'rekapDestroy'])->middleware($roleTransportasiWrite);
         Route::get('/transportasi/rekap/{id}/lpj', [LpjController::class, 'transportasiShow']);
-        Route::post('/transportasi/rekap/{id}/lpj/copy', [LpjController::class, 'transportasiCopy']);
-        Route::put('/transportasi/rekap/{id}/lpj', [LpjController::class, 'transportasiUpdate']);
+        Route::post('/transportasi/rekap/{id}/lpj/copy', [LpjController::class, 'transportasiCopy'])->middleware($roleTransportasiWrite);
+        Route::put('/transportasi/rekap/{id}/lpj', [LpjController::class, 'transportasiUpdate'])->middleware($roleTransportasiWrite);
         Route::get('/transportasi/rekap/{id}', [PengeluaranTransportasiController::class, 'rekapShow']);
-        Route::apiResource('transportasi', PengeluaranTransportasiController::class);
-        Route::get('dosen-bulanan/export-bsi', [DosenBulananController::class, 'exportBsi'])->middleware('role:admin,barokahdosen_bulanan');
-        Route::get('dosen-bulanan/copy-bsi', [DosenBulananController::class, 'copyBsi'])->middleware('role:admin,barokahdosen_bulanan');
-        Route::get('dosen-bulanan/form-data', [DosenBulananController::class, 'formData'])->middleware('role:admin,barokahdosen_bulanan');
-        Route::post('dosen-bulanan/batch-store', [DosenBulananController::class, 'batchStore'])->middleware('role:admin,barokahdosen_bulanan');
-        Route::get('dosen-bulanan/rekap', [DosenBulananController::class, 'rekapIndex'])->middleware('role:admin,barokahdosen_bulanan');
-        Route::post('dosen-bulanan/rekap', [DosenBulananController::class, 'rekapStore'])->middleware('role:admin,barokahdosen_bulanan');
-        Route::post('dosen-bulanan/rekap/bulk-update', [DosenBulananController::class, 'rekapBulkUpdate'])->middleware('role:admin,barokahdosen_bulanan');
-        Route::post('dosen-bulanan/rekap/{id}/release', [DosenBulananController::class, 'rekapRelease'])->middleware('role:admin,barokahdosen_bulanan');
-        Route::put('dosen-bulanan/rekap/{id}', [DosenBulananController::class, 'rekapUpdate'])->middleware('role:admin,barokahdosen_bulanan');
-        Route::delete('dosen-bulanan/rekap/{id}', [DosenBulananController::class, 'rekapDestroy'])->middleware('role:admin,barokahdosen_bulanan');
-        Route::get('dosen-bulanan/rekap/{id}/lpj', [LpjController::class, 'dosenBulananShow'])->middleware('role:admin,barokahdosen_bulanan');
-        Route::post('dosen-bulanan/rekap/{id}/lpj/copy', [LpjController::class, 'dosenBulananCopy'])->middleware('role:admin,barokahdosen_bulanan');
-        Route::put('dosen-bulanan/rekap/{id}/lpj', [LpjController::class, 'dosenBulananUpdate'])->middleware('role:admin,barokahdosen_bulanan');
-        Route::get('dosen-bulanan/rekap/{id}', [DosenBulananController::class, 'rekapShow'])->middleware('role:admin,barokahdosen_bulanan');
-        Route::apiResource('dosen-bulanan', DosenBulananController::class)->middleware('role:admin,barokahdosen_bulanan');
+        Route::apiResource('transportasi', PengeluaranTransportasiController::class)->except(['index', 'show'])->middleware($roleTransportasiWrite);
+        Route::apiResource('transportasi', PengeluaranTransportasiController::class)->only(['index', 'show']);
+
+        // Bulanan
+        $roleBulananWrite = 'role:admin,pimpinan,keuangan,kabag_pengeluaran,barokahdosen_bulanan';
+        foreach (['bulanan', 'dosen-bulanan'] as $bulananPath) {
+            Route::get("{$bulananPath}/export-bsi", [DosenBulananController::class, 'exportBsi']);
+            Route::get("{$bulananPath}/copy-bsi", [DosenBulananController::class, 'copyBsi']);
+            Route::get("{$bulananPath}/form-data", [DosenBulananController::class, 'formData']);
+            Route::post("{$bulananPath}/batch-store", [DosenBulananController::class, 'batchStore'])->middleware($roleBulananWrite);
+            Route::get("{$bulananPath}/rekap", [DosenBulananController::class, 'rekapIndex']);
+            Route::post("{$bulananPath}/rekap", [DosenBulananController::class, 'rekapStore'])->middleware($roleBulananWrite);
+            Route::post("{$bulananPath}/rekap/bulk-update", [DosenBulananController::class, 'rekapBulkUpdate'])->middleware($roleBulananWrite);
+            Route::post("{$bulananPath}/rekap/{id}/release", [DosenBulananController::class, 'rekapRelease'])->middleware($roleBulananWrite);
+            Route::put("{$bulananPath}/rekap/{id}", [DosenBulananController::class, 'rekapUpdate'])->middleware($roleBulananWrite);
+            Route::delete("{$bulananPath}/rekap/{id}", [DosenBulananController::class, 'rekapDestroy'])->middleware($roleBulananWrite);
+            Route::get("{$bulananPath}/rekap/{id}/lpj", [LpjController::class, 'dosenBulananShow']);
+            Route::post("{$bulananPath}/rekap/{id}/lpj/copy", [LpjController::class, 'dosenBulananCopy'])->middleware($roleBulananWrite);
+            Route::put("{$bulananPath}/rekap/{id}/lpj", [LpjController::class, 'dosenBulananUpdate'])->middleware($roleBulananWrite);
+            Route::get("{$bulananPath}/rekap/{id}", [DosenBulananController::class, 'rekapShow']);
+            Route::apiResource($bulananPath, DosenBulananController::class)->except(['index', 'show'])->middleware($roleBulananWrite);
+            Route::apiResource($bulananPath, DosenBulananController::class)->only(['index', 'show']);
+        }
     });
     Route::get('laporan/rab/kas', [RabController::class, 'kas'])
-        ->middleware('role:admin,pimpinan,keuangan,kabag,barokahdosen_tatapmuka,barokahdosen_kegiatan,barokahdosen_bulanan');
+        ->middleware('role:admin,pimpinan,keuangan,kabag,kabag_pengeluaran,barokahdosen_tatapmuka,barokahdosen_kegiatan,barokahdosen_bulanan');
     Route::post('laporan/rab/kas/manual', [RabController::class, 'storeKasManual'])
-        ->middleware('role:admin,keuangan,kabag,barokahdosen_tatapmuka,barokahdosen_kegiatan,barokahdosen_bulanan');
+        ->middleware('role:admin,keuangan,kabag,kabag_pengeluaran,barokahdosen_tatapmuka,barokahdosen_kegiatan,barokahdosen_bulanan');
     Route::put('laporan/rab/kas/manual/{id}', [RabController::class, 'updateKasManual'])
-        ->middleware('role:admin,keuangan,kabag,barokahdosen_tatapmuka,barokahdosen_kegiatan,barokahdosen_bulanan');
+        ->middleware('role:admin,keuangan,kabag,kabag_pengeluaran,barokahdosen_tatapmuka,barokahdosen_kegiatan,barokahdosen_bulanan');
     Route::delete('laporan/rab/kas/manual/{id}', [RabController::class, 'destroyKasManual'])
-        ->middleware('role:admin,keuangan,kabag,barokahdosen_tatapmuka,barokahdosen_kegiatan,barokahdosen_bulanan');
+        ->middleware('role:admin,keuangan,kabag,kabag_pengeluaran,barokahdosen_tatapmuka,barokahdosen_kegiatan,barokahdosen_bulanan');
     Route::get('laporan/rab', [RabController::class, 'index'])
-        ->middleware('role:admin,pimpinan,keuangan,kabag,barokahdosen_tatapmuka,barokahdosen_kegiatan,barokahdosen_bulanan');
+        ->middleware('role:admin,pimpinan,keuangan,kabag,kabag_pengeluaran,barokahdosen_tatapmuka,barokahdosen_kegiatan,barokahdosen_bulanan');
     Route::post('laporan/rab', [RabController::class, 'store'])
-        ->middleware('role:admin,keuangan,kabag');
+        ->middleware('role:admin,keuangan,kabag,kabag_pengeluaran,barokahdosen_tatapmuka,barokahdosen_kegiatan,barokahdosen_bulanan');
 
 
     Route::apiResource('users', UserController::class);

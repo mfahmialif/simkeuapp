@@ -8,31 +8,30 @@ return new class extends Migration
 {
     public function up(): void
     {
-        if (
-            Schema::hasTable('keuangan_pengeluaran_pegawai_bulanan_lpj')
-            && Schema::hasColumn('keuangan_pengeluaran_pegawai_bulanan_lpj', 'pegawai_tipe')
-        ) {
-            DB::table('keuangan_pengeluaran_pegawai_bulanan_lpj')
-                ->where('pegawai_tipe', 'staff')
-                ->delete();
-        }
-
         if (Schema::hasTable('keuangan_pengeluaran_lpj_rekap_status')) {
-            DB::table('keuangan_pengeluaran_lpj_rekap_status')
+            $staffStatuses = DB::table('keuangan_pengeluaran_lpj_rekap_status')
                 ->where('module_key', 'staff_bulanan')
-                ->delete();
-        }
+                ->get();
 
-        if (
-            Schema::hasTable('keuangan_pengeluaran_pegawai_bulanan')
-            && Schema::hasColumn('keuangan_pengeluaran_pegawai_bulanan', 'pegawai_tipe')
-        ) {
-            DB::table('keuangan_pengeluaran_pegawai_bulanan')
-                ->where('pegawai_tipe', 'staff')
-                ->delete();
-        }
+            foreach ($staffStatuses as $status) {
+                $exists = DB::table('keuangan_pengeluaran_lpj_rekap_status')
+                    ->where('module_key', 'dosen_bulanan')
+                    ->where('rekap_id', $status->rekap_id)
+                    ->exists();
 
-        Schema::dropIfExists('keuangan_pengeluaran_staff_bulanan_rekap');
+                if ($exists) {
+                    DB::table('keuangan_pengeluaran_lpj_rekap_status')
+                        ->where('id', $status->id)
+                        ->delete();
+
+                    continue;
+                }
+
+                DB::table('keuangan_pengeluaran_lpj_rekap_status')
+                    ->where('id', $status->id)
+                    ->update(['module_key' => 'dosen_bulanan']);
+            }
+        }
     }
 
     public function down(): void

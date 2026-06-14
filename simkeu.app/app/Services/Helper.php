@@ -9,6 +9,7 @@ use App\Models\KeuanganSetting;
 use App\Models\KeuanganPembayaran;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Session;
+use Illuminate\Support\Facades\Schema;
 use App\Models\KeuanganPembayaranTambahan;
 
 class Helper
@@ -297,6 +298,192 @@ class Helper
         }
 
         return $putra;
+    }
+
+    public static function activeGenderScope(): ?string
+    {
+        $scope = self::getJenisKelaminUser();
+
+        return match ($scope->kategori) {
+            'Putra' => 'Laki-laki',
+            'Putri' => 'Perempuan',
+            default => null,
+        };
+    }
+
+    public static function pengeluaranPetugasRoles(?string $module): array
+    {
+        $moduleKey = str_replace('-', '_', strtolower((string) $module));
+
+        $roles = [
+            'umum' => ['rumahtangga'],
+            'rumah_tangga' => ['rumahtangga'],
+            'sarana_prasarana' => ['sarpras'],
+            'sarpras' => ['sarpras'],
+            'transportasi' => ['transportasi'],
+            'dosen' => ['barokahdosen_tatapmuka'],
+            'tatap_muka' => ['barokahdosen_tatapmuka'],
+            'dosen_tatapmuka' => ['barokahdosen_tatapmuka'],
+            'dosen_tatap_muka' => ['barokahdosen_tatapmuka'],
+            'kegiatan' => ['barokahdosen_kegiatan'],
+            'dosen_kegiatan' => ['barokahdosen_kegiatan'],
+            'bulanan' => ['barokahdosen_bulanan'],
+            'dosen_bulanan' => ['barokahdosen_bulanan'],
+            'rab' => [
+                'rumahtangga',
+                'sarpras',
+                'transportasi',
+                'barokahdosen_tatapmuka',
+                'barokahdosen_kegiatan',
+                'barokahdosen_bulanan',
+            ],
+        ];
+
+        return $roles[$moduleKey] ?? $roles['rab'];
+    }
+
+    public static function applyGenderScope($query, string $column = 'jenis_kelamin'): void
+    {
+        $gender = self::activeGenderScope();
+
+        if ($gender !== null) {
+            $query->where($column, $gender);
+        }
+    }
+
+    public static function applyRelatedGenderScope(
+        $query,
+        string $foreignKeyColumn,
+        string $relatedTable,
+        string $relatedKeyColumn = 'id',
+        string $relatedGenderColumn = 'jenis_kelamin'
+    ): void {
+        $gender = self::activeGenderScope();
+
+        if ($gender === null) {
+            return;
+        }
+
+        $query->whereExists(function ($relatedQuery) use (
+            $foreignKeyColumn,
+            $relatedTable,
+            $relatedKeyColumn,
+            $relatedGenderColumn,
+            $gender
+        ) {
+            $relatedQuery
+                ->selectRaw('1')
+                ->from($relatedTable)
+                ->whereColumn(
+                    "{$relatedTable}.{$relatedKeyColumn}",
+                    $foreignKeyColumn
+                )
+                ->where("{$relatedTable}.{$relatedGenderColumn}", $gender);
+        });
+    }
+
+    public static function applyNullableRelatedGenderScope(
+        $query,
+        string $foreignKeyColumn,
+        string $relatedTable,
+        string $relatedKeyColumn = 'id',
+        string $relatedGenderColumn = 'jenis_kelamin'
+    ): void {
+        $gender = self::activeGenderScope();
+
+        if ($gender === null) {
+            return;
+        }
+
+        $query->where(function ($scopeQuery) use (
+            $foreignKeyColumn,
+            $relatedTable,
+            $relatedKeyColumn,
+            $relatedGenderColumn,
+            $gender
+        ) {
+            $scopeQuery
+                ->whereNull($foreignKeyColumn)
+                ->orWhereExists(function ($relatedQuery) use (
+                    $foreignKeyColumn,
+                    $relatedTable,
+                    $relatedKeyColumn,
+                    $relatedGenderColumn,
+                    $gender
+                ) {
+                    $relatedQuery
+                        ->selectRaw('1')
+                        ->from($relatedTable)
+                        ->whereColumn(
+                            "{$relatedTable}.{$relatedKeyColumn}",
+                            $foreignKeyColumn
+                        )
+                        ->where("{$relatedTable}.{$relatedGenderColumn}", $gender);
+                });
+        });
+    }
+
+    public static function genderMatchesActiveScope(?string $gender): bool
+    {
+        $activeGender = self::activeGenderScope();
+
+        return $activeGender === null
+            || strcasecmp(trim((string) $gender), $activeGender) === 0;
+    }
+
+    public static function activeGenderExpensePetugasIds(): array
+    {
+        $gender = self::activeGenderScope();
+
+        if ($gender === null) {
+            return [];
+        }
+
+        $cacheKey = 'simkeu_expense_petugas_ids_'.md5($gender);
+        $request = app()->bound('request') ? request() : null;
+
+        if ($request && $request->attributes->has($cacheKey)) {
+            return $request->attributes->get($cacheKey);
+        }
+
+        $ids = DB::table('users')
+            ->join('role', 'role.id', '=', 'users.role_id')
+            ->where('users.jenis_kelamin', $gender)
+            ->whereIn('role.name', self::pengeluaranPetugasRoles('rab'))
+            ->pluck('users.id')
+            ->map(fn ($id) => (int) $id)
+            ->values()
+            ->all();
+
+        if ($request) {
+            $request->attributes->set($cacheKey, $ids);
+        }
+
+        return $ids;
+    }
+
+    public static function applyExpenseGenderScope(
+        $query,
+        string $table,
+        ?string $alias = null
+    ): void {
+        if (self::activeGenderScope() === null) {
+            return;
+        }
+
+        $prefix = $alias ?? $table;
+
+        if (Schema::hasColumn($table, 'petugas_id')) {
+            $petugasIds = self::activeGenderExpensePetugasIds();
+
+            if ($petugasIds === []) {
+                $query->whereRaw('1 = 0');
+
+                return;
+            }
+
+            $query->whereIntegerInRaw("{$prefix}.petugas_id", $petugasIds);
+        }
     }
 
     public static function isAdmin()

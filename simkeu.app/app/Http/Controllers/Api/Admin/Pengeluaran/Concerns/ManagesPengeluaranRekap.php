@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Api\Admin\Pengeluaran\Concerns;
 
+use App\Models\User;
+use App\Services\Helper;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -12,6 +14,8 @@ use Illuminate\Validation\ValidationException;
 
 trait ManagesPengeluaranRekap
 {
+    protected array $rekapPetugasIdCache = [];
+
     abstract protected function rekapModelClass(): string;
 
     abstract protected function pengeluaranTable(): string;
@@ -226,11 +230,13 @@ trait ManagesPengeluaranRekap
             'nama' => ['required', 'string', 'max:255', Rule::unique($rekapTable, 'nama')],
             'bulan_tahun' => ['required', 'date_format:Y-m'],
             'tanggal_rekap' => ['required', 'date_format:Y-m-d'],
+            'petugas_id' => ['required', 'integer'],
             'jumlah_sementara' => $this->allowsEmptyRekapTemporary()
                 ? ['nullable', 'integer', 'min:0']
                 : ['required', 'integer', 'min:0'],
             'keterangan' => 'nullable|string',
         ]);
+        $this->validateRekapPetugas($validator, $input['petugas_id'] ?? null);
 
         if ($validator->fails()) {
             return response()->json([
@@ -241,7 +247,7 @@ trait ManagesPengeluaranRekap
 
         $validated = $validator->validated();
         $validated['bulan_tahun'] .= '-01';
-        $validated['petugas_id'] = auth()->id();
+        $validated['petugas_id'] = (int) $validated['petugas_id'];
 
         $data = $modelClass::create($validated);
         $this->applyRekapSummary($data, [
@@ -260,7 +266,7 @@ trait ManagesPengeluaranRekap
     {
         $modelClass = $this->rekapModelClass();
         $rekapTable = (new $modelClass)->getTable();
-        $data = $modelClass::find($id);
+        $data = $this->findScopedRekapModel($modelClass, $id);
 
         if (! $data) {
             return response()->json([
@@ -315,7 +321,7 @@ trait ManagesPengeluaranRekap
     public function rekapShow($id)
     {
         $modelClass = $this->rekapModelClass();
-        $data = $modelClass::find($id);
+        $data = $this->findScopedRekapModel($modelClass, $id);
 
         if (! $data) {
             return response()->json([
@@ -353,6 +359,18 @@ trait ManagesPengeluaranRekap
             return response()->json([
                 'status' => false,
                 'message' => $validator->errors(),
+            ], 422);
+        }
+
+        if (
+            $request->filled('rekap_id')
+            && ! $this->findScopedRekapModel($modelClass, $request->rekap_id)
+        ) {
+            return response()->json([
+                'status' => false,
+                'message' => [
+                    'rekap_id' => ['Rekap tidak sesuai scope navbar aktif.'],
+                ],
             ], 422);
         }
 
@@ -398,13 +416,22 @@ trait ManagesPengeluaranRekap
             ];
 
             $emptyFallbackAmounts = $this->snapshotRekapTotals($oldRekapIds);
+            $updatePayload = [
+                'rekap_id' => $request->rekap_id,
+                'updated_at' => now(),
+            ];
+
+            if (
+                $request->filled('rekap_id')
+                && Schema::hasColumn($this->pengeluaranTable(), 'petugas_id')
+            ) {
+                $updatePayload['petugas_id'] = $this->petugasIdForRekapId((int) $request->rekap_id)
+                    ?? auth()->id();
+            }
 
             $updated = DB::table($this->pengeluaranTable())
                 ->whereIn('id', $ids)
-                ->update([
-                    'rekap_id' => $request->rekap_id,
-                    'updated_at' => now(),
-                ]);
+                ->update($updatePayload);
 
             $this->validateAndSyncRekapTemporary(
                 $affectedRekapIds,
@@ -435,7 +462,7 @@ trait ManagesPengeluaranRekap
         }
 
         $modelClass = $this->rekapModelClass();
-        $rekap = $modelClass::find($id);
+        $rekap = $this->findScopedRekapModel($modelClass, $id);
 
         if (! $rekap) {
             return response()->json([
@@ -475,7 +502,7 @@ trait ManagesPengeluaranRekap
     public function rekapDestroy($id)
     {
         $modelClass = $this->rekapModelClass();
-        $rekap = $modelClass::find($id);
+        $rekap = $this->findScopedRekapModel($modelClass, $id);
 
         if (! $rekap) {
             return response()->json([
@@ -484,19 +511,20 @@ trait ManagesPengeluaranRekap
             ], 404);
         }
 
-        $jumlahData = $this->newRekapPengeluaranQuery()
-            ->where($this->pengeluaranTable().'.rekap_id', $rekap->id)
-            ->count();
-
-        if ($jumlahData > 0) {
-            return response()->json([
-                'status' => false,
-                'message' => 'Rekap hanya dapat dihapus ketika jumlah datanya 0.',
-            ], 422);
-        }
-
         $nama = $rekap->nama;
-        $rekap->delete();
+
+        DB::transaction(function () use ($rekap) {
+            if ($this->requiresRekapForPengeluaran()) {
+                DB::table($this->pengeluaranTable())
+                    ->where('rekap_id', $rekap->id)
+                    ->delete();
+            } else {
+                DB::table($this->pengeluaranTable())
+                    ->where('rekap_id', $rekap->id)
+                    ->update(['rekap_id' => null, 'updated_at' => now()]);
+            }
+            $rekap->delete();
+        });
 
         return response()->json([
             'status' => true,
@@ -533,6 +561,8 @@ trait ManagesPengeluaranRekap
     {
         $tableName = $table ?? $this->pengeluaranTable();
 
+        $this->applyPengeluaranGenderScope($query, $tableName);
+
         if (
             ! $request->filled('petugas_id')
             || ! Schema::hasColumn($tableName, 'petugas_id')
@@ -543,8 +573,88 @@ trait ManagesPengeluaranRekap
         $query->where("{$tableName}.petugas_id", $request->petugas_id);
     }
 
+    protected function petugasIdForPengeluaran(Request $request): int
+    {
+        if ($request->filled('rekap_id')) {
+            $petugasId = $this->petugasIdForRekapId((int) $request->rekap_id);
+
+            if ($petugasId) {
+                return $petugasId;
+            }
+        }
+
+        return (int) auth()->id();
+    }
+
+    protected function petugasIdForRekapId(int $rekapId): ?int
+    {
+        if ($rekapId <= 0) {
+            return null;
+        }
+
+        $modelClass = $this->rekapModelClass();
+        $rekapTable = (new $modelClass)->getTable();
+        $cacheKey = "{$rekapTable}:{$rekapId}";
+
+        if (! array_key_exists($cacheKey, $this->rekapPetugasIdCache)) {
+            $this->rekapPetugasIdCache[$cacheKey] = $modelClass::query()
+                ->whereKey($rekapId)
+                ->value('petugas_id');
+        }
+
+        return $this->rekapPetugasIdCache[$cacheKey] === null
+            ? null
+            : (int) $this->rekapPetugasIdCache[$cacheKey];
+    }
+
+    private function validateRekapPetugas($validator, $petugasId): void
+    {
+        $validator->after(function ($validator) use ($petugasId) {
+            if (! $petugasId || ! $this->petugasAllowedForRekap((int) $petugasId)) {
+                $validator->errors()->add(
+                    'petugas_id',
+                    'Petugas tidak valid untuk modul atau scope navbar aktif.'
+                );
+            }
+        });
+    }
+
+    private function petugasAllowedForRekap(int $petugasId): bool
+    {
+        $query = User::query()
+            ->where('users.id', $petugasId)
+            ->whereHas(
+                'role',
+                fn ($role) => $role->whereIn('name', Helper::pengeluaranPetugasRoles($this->petugasModuleKey()))
+            );
+        Helper::applyGenderScope($query, 'users.jenis_kelamin');
+
+        return $query->exists();
+    }
+
+    private function petugasModuleKey(): string
+    {
+        return match ($this->pengeluaranTable()) {
+            'keuangan_pengeluaran_dosen' => 'dosen_tatapmuka',
+            'keuangan_pengeluaran_dosen_kegiatan' => 'dosen_kegiatan',
+            'keuangan_pengeluaran_pegawai_bulanan' => 'bulanan',
+            'keuangan_pengeluaran_rumah_tangga' => 'rumah_tangga',
+            'keuangan_pengeluaran_sarana_prasarana' => 'sarana_prasarana',
+            'keuangan_pengeluaran_transportasi' => 'transportasi',
+            default => 'rab',
+        };
+    }
+
     protected function applyRekapPetugasFilter($query, Request $request, string $rekapTable): void
     {
+        if (Schema::hasColumn($rekapTable, 'petugas_id')) {
+            Helper::applyRelatedGenderScope(
+                $query,
+                "{$rekapTable}.petugas_id",
+                'users'
+            );
+        }
+
         if (
             $request->filled('petugas_id')
             && Schema::hasColumn($rekapTable, 'petugas_id')
@@ -553,13 +663,57 @@ trait ManagesPengeluaranRekap
         }
     }
 
+    protected function applyPengeluaranGenderScope(
+        $query,
+        string $table,
+        ?string $alias = null
+    ): void {
+        Helper::applyExpenseGenderScope($query, $table, $alias);
+    }
+
+    protected function findScopedPengeluaranModel(string $modelClass, $id): ?Model
+    {
+        $model = new $modelClass;
+        $query = $modelClass::query();
+
+        $this->applyPengeluaranGenderScope($query, $model->getTable());
+
+        return $query->whereKey($id)->first();
+    }
+
+    protected function findScopedRekapModel(string $modelClass, $id): ?Model
+    {
+        $model = new $modelClass;
+        $table = $model->getTable();
+        $query = $modelClass::query();
+
+        if (Schema::hasColumn($table, 'petugas_id')) {
+            Helper::applyRelatedGenderScope(
+                $query,
+                "{$table}.petugas_id",
+                'users'
+            );
+        }
+
+        return $query->whereKey($id)->first();
+    }
+
     protected function rekapIdRules(): array
     {
         $modelClass = $this->rekapModelClass();
+        $table = (new $modelClass)->getTable();
 
         return [
             'nullable',
-            Rule::exists((new $modelClass)->getTable(), 'id'),
+            Rule::exists($table, 'id')->where(function ($query) use ($table) {
+                if (Schema::hasColumn($table, 'petugas_id')) {
+                    Helper::applyRelatedGenderScope(
+                        $query,
+                        "{$table}.petugas_id",
+                        'users'
+                    );
+                }
+            }),
         ];
     }
 
@@ -721,6 +875,7 @@ trait ManagesPengeluaranRekap
     {
         return [
             'nama' => trim((string) $request->input('nama')),
+            'petugas_id' => $request->input('petugas_id'),
             'bulan_tahun' => $request->input('bulan_tahun'),
             'tanggal_rekap' => $request->input('tanggal_rekap'),
             'jumlah_sementara' => $request->input(
@@ -821,7 +976,11 @@ trait ManagesPengeluaranRekap
 
         $pegawaiTipe = $this->pegawaiTipeForLpj();
         if ($pegawaiTipe && Schema::hasColumn($lpjTable, 'pegawai_tipe')) {
-            $query->where('lpj_detail.pegawai_tipe', $pegawaiTipe);
+            if (is_array($pegawaiTipe)) {
+                $query->whereIn('lpj_detail.pegawai_tipe', $pegawaiTipe);
+            } else {
+                $query->where('lpj_detail.pegawai_tipe', $pegawaiTipe);
+            }
         }
 
         if (
@@ -830,6 +989,8 @@ trait ManagesPengeluaranRekap
         ) {
             $query->where('lpj_detail.petugas_id', $request->petugas_id);
         }
+
+        $this->applyPengeluaranGenderScope($query, $lpjTable, 'lpj_detail');
 
         return $query->groupBy('lpj_detail.rekap_id');
     }
@@ -873,7 +1034,11 @@ trait ManagesPengeluaranRekap
 
         $pegawaiTipe = $this->pegawaiTipeForLpj();
         if ($pegawaiTipe && Schema::hasColumn($lpjTable, 'pegawai_tipe')) {
-            $query->where('lpj_detail.pegawai_tipe', $pegawaiTipe);
+            if (is_array($pegawaiTipe)) {
+                $query->whereIn('lpj_detail.pegawai_tipe', $pegawaiTipe);
+            } else {
+                $query->where('lpj_detail.pegawai_tipe', $pegawaiTipe);
+            }
         }
 
         if (
@@ -882,6 +1047,8 @@ trait ManagesPengeluaranRekap
         ) {
             $query->where('lpj_detail.petugas_id', $request->petugas_id);
         }
+
+        $this->applyPengeluaranGenderScope($query, $lpjTable, 'lpj_detail');
 
         return $query
             ->groupBy('lpj_detail.rekap_id')
@@ -911,7 +1078,10 @@ trait ManagesPengeluaranRekap
 
     private function rekapSummary($rekapId): array
     {
-        $summary = $this->newRekapPengeluaranQuery()
+        $query = $this->newRekapPengeluaranQuery();
+        $this->applyPengeluaranGenderScope($query, $this->pengeluaranTable());
+
+        $summary = $query
             ->where($this->pengeluaranTable().'.rekap_id', $rekapId)
             ->select([
                 DB::raw('COUNT(*) as jumlah_data'),
@@ -1011,7 +1181,7 @@ trait ManagesPengeluaranRekap
         };
     }
 
-    private function pegawaiTipeForLpj(): ?string
+    private function pegawaiTipeForLpj(): string|array|null
     {
         return defined(static::class.'::PEGAWAI_TIPE') ? static::PEGAWAI_TIPE : null;
     }

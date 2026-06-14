@@ -617,7 +617,7 @@ class DosenKegiatanController extends Controller
 
     public function update(Request $request, $id)
     {
-        $data = KeuanganPengeluaranDosenKegiatan::find($id);
+        $data = $this->findScopedPengeluaranModel(KeuanganPengeluaranDosenKegiatan::class, $id);
         if (! $data || ! $this->findWithDosen($id)) {
             return response()->json([
                 'status' => false,
@@ -650,7 +650,7 @@ class DosenKegiatanController extends Controller
 
     public function destroy($id)
     {
-        $data = KeuanganPengeluaranDosenKegiatan::find($id);
+        $data = $this->findScopedPengeluaranModel(KeuanganPengeluaranDosenKegiatan::class, $id);
 
         if (! $data || ! $this->findWithDosen($id)) {
             return response()->json([
@@ -866,6 +866,7 @@ class DosenKegiatanController extends Controller
 
         $this->joinPegawaiDetail($query);
         $this->joinRekap($query);
+        $this->applyPetugasFilter($query, new Request);
 
         return $query->where('keuangan_pengeluaran_dosen_kegiatan.id', $id)->first();
     }
@@ -944,7 +945,7 @@ class DosenKegiatanController extends Controller
         $data->tanggal = $request->tanggal;
         $data->kategori_detail = $kategoriDetail;
         $data->pegawai_id = $isPegawai ? $request->pegawai_id : null;
-        $data->petugas_id = auth()->id();
+        $data->petugas_id = $this->petugasIdForPengeluaran($request);
         $data->nama_kegiatan = $request->nama_kegiatan;
         $data->transport = $transport;
         $data->barokah = $barokah;

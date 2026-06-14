@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Services\Helper;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -54,11 +55,11 @@ class SaldoController extends Controller
         ],
         [
             'key' => 'dosen_bulanan',
-            'name' => 'Dosen Bulanan',
+            'name' => 'Bulanan',
             'detail_table' => 'keuangan_pengeluaran_pegawai_bulanan',
             'rekap_table' => 'keuangan_pengeluaran_dosen_bulanan_rekap',
             'lpj_table' => 'keuangan_pengeluaran_pegawai_bulanan_lpj',
-            'pegawai_tipe' => 'dosen',
+            'pegawai_tipe' => null,
         ],
         [
             'key' => 'hutang',
@@ -92,8 +93,9 @@ class SaldoController extends Controller
     {
         $petugas = DB::table('users')
             ->select('id', 'name')
-            ->where('id', $petugasId)
-            ->first();
+            ->where('id', $petugasId);
+        Helper::applyGenderScope($petugas, 'users.jenis_kelamin');
+        $petugas = $petugas->first();
 
         if (! $petugas) {
             return response()->json([
@@ -157,6 +159,18 @@ class SaldoController extends Controller
         }
 
         $data = $validator->validated();
+        $petugasInScope = DB::table('users')->where('id', $data['petugas_id']);
+        Helper::applyGenderScope($petugasInScope, 'users.jenis_kelamin');
+
+        if (! $petugasInScope->exists()) {
+            return response()->json([
+                'status' => false,
+                'message' => [
+                    'petugas_id' => ['Petugas tidak sesuai scope navbar aktif.'],
+                ],
+            ], 422);
+        }
+
         $id = DB::table('keuangan_pengeluaran_saldo')->insertGetId([
             'petugas_id' => $data['petugas_id'],
             'module_key' => $data['module_key'],
@@ -194,7 +208,7 @@ class SaldoController extends Controller
             return collect();
         }
 
-        return DB::query()
+        $query = DB::query()
             ->fromSub($union, 'saldo')
             ->leftJoin('users', 'users.id', '=', 'saldo.petugas_id')
             ->select([
@@ -205,7 +219,10 @@ class SaldoController extends Controller
                 DB::raw('COALESCE(SUM(saldo.total_lpj), 0) as total_lpj'),
             ])
             ->whereNotNull('saldo.petugas_id')
-            ->when($petugasId, fn ($query) => $query->where('saldo.petugas_id', $petugasId))
+            ->when($petugasId, fn ($query) => $query->where('saldo.petugas_id', $petugasId));
+        Helper::applyGenderScope($query, 'users.jenis_kelamin');
+
+        return $query
             ->groupBy('saldo.module_key', 'saldo.petugas_id', 'users.name')
             ->get();
     }
@@ -320,7 +337,7 @@ class SaldoController extends Controller
             return collect();
         }
 
-        return DB::table('keuangan_pengeluaran_saldo as saldo')
+        $query = DB::table('keuangan_pengeluaran_saldo as saldo')
             ->leftJoin('users', 'users.id', '=', 'saldo.petugas_id')
             ->select([
                 'saldo.module_key',
@@ -329,7 +346,10 @@ class SaldoController extends Controller
                 DB::raw("COALESCE(SUM(CASE WHEN saldo.tipe = 'masuk' THEN saldo.nominal ELSE -saldo.nominal END), 0) as total_tambahan"),
             ])
             ->whereNotNull('saldo.petugas_id')
-            ->when($petugasId, fn ($query) => $query->where('saldo.petugas_id', $petugasId))
+            ->when($petugasId, fn ($query) => $query->where('saldo.petugas_id', $petugasId));
+        Helper::applyGenderScope($query, 'users.jenis_kelamin');
+
+        return $query
             ->groupBy('saldo.module_key', 'saldo.petugas_id', 'users.name')
             ->get();
     }

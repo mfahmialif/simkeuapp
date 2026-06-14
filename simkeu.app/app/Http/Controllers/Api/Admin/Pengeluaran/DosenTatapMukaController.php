@@ -238,7 +238,7 @@ class DosenTatapMukaController extends Controller
 
     public function update(Request $request, $id)
     {
-        $data = KeuanganPengeluaranDosen::find($id);
+        $data = $this->findScopedPengeluaranModel(KeuanganPengeluaranDosen::class, $id);
         if (! $data || ! $this->findWithDosen($id)) {
             return response()->json([
                 'status' => false,
@@ -288,7 +288,7 @@ class DosenTatapMukaController extends Controller
 
     public function destroy($id)
     {
-        $data = KeuanganPengeluaranDosen::find($id);
+        $data = $this->findScopedPengeluaranModel(KeuanganPengeluaranDosen::class, $id);
 
         if (! $data || ! $this->findWithDosen($id)) {
             return response()->json([
@@ -622,6 +622,7 @@ class DosenTatapMukaController extends Controller
 
         $this->joinPegawaiDosen($query);
         $this->joinRekap($query);
+        $this->applyPetugasFilter($query, new Request);
 
         return $query->where('keuangan_pengeluaran_dosen.id', $id)->first();
     }
@@ -752,7 +753,7 @@ class DosenTatapMukaController extends Controller
         if ($request->filled('pegawai_id')) {
             $data->pegawai_id = $request->pegawai_id;
         }
-        $data->petugas_id = auth()->id();
+        $data->petugas_id = $this->petugasIdForPengeluaran($request);
         $data->hari = $hari;
         $data->hari_transport_motor = $hariTransportMotor;
         $data->hari_transport_mobil = $hariTransportMobil;

@@ -190,7 +190,11 @@ class DashboardController extends Controller
             // KeuanganSaldo & KeuanganSaldoPengeluaran removed — will be remade
             $saldoData = (object) ['total_saldo' => 0, 'jumlah' => 0];
             $pengeluaranUmumData = (object) ['total' => 0, 'jumlah' => 0];
-            $pengeluaranDosenData = DB::table('keuangan_pengeluaran_dosen')->selectRaw('COALESCE(SUM(total), 0) as total, COUNT(*) as jumlah')->first();
+            $pengeluaranDosenQuery = DB::table('keuangan_pengeluaran_dosen');
+            Helper::applyExpenseGenderScope($pengeluaranDosenQuery, 'keuangan_pengeluaran_dosen');
+            $pengeluaranDosenData = $pengeluaranDosenQuery
+                ->selectRaw('COALESCE(SUM(total), 0) as total, COUNT(*) as jumlah')
+                ->first();
             $jumlahUser = User::count();
             $saldo = (float) $saldoData->total_saldo;
             $pengeluaran = (float) $pengeluaranUmumData->total + (float) $pengeluaranDosenData->total;
@@ -725,7 +729,11 @@ class DashboardController extends Controller
             $sources = $this->barokahSourcesForRole($roleName);
 
             $result = Cache::remember(
-                'dashboard_barokah_summary_v1_' . md5(($roleName ?? 'none') . Carbon::now()->format('Y-m-d')),
+                'dashboard_barokah_summary_v1_' . md5(
+                    ($roleName ?? 'none')
+                    .(Helper::activeGenderScope() ?? 'semua')
+                    .Carbon::now()->format('Y-m-d')
+                ),
                 300,
                 function () use ($sources, $roleName) {
                     $now = Carbon::now();
@@ -1450,17 +1458,17 @@ class DashboardController extends Controller
             ],
             'dosen_bulanan' => [
                 'key' => 'dosen_bulanan',
-                'label' => 'Dosen Bulanan',
+                'label' => 'Bulanan',
                 'table' => 'keuangan_pengeluaran_pegawai_bulanan',
-                'path' => '/admin/pengeluaran/dosen-bulanan',
+                'path' => '/admin/pengeluaran/bulanan',
                 'icon' => 'ri-calendar-check-line',
                 'color' => 'warning',
-                'pegawai_tipe' => 'dosen',
+                'pegawai_tipe' => null,
                 'uses_periode' => true,
             ],
         ];
 
-        if (in_array($roleName, ['admin', 'pimpinan', 'keuangan', 'kabag'], true)) {
+        if (in_array($roleName, ['admin', 'pimpinan', 'keuangan', 'kabag', 'kabag_pengeluaran'], true)) {
             return array_values($allSources);
         }
 
@@ -1478,6 +1486,7 @@ class DashboardController extends Controller
 
         $query = DB::table($table)
             ->leftJoin('pegawai', 'pegawai.id', '=', "{$table}.pegawai_id");
+        Helper::applyExpenseGenderScope($query, $table);
 
         if (! empty($source['pegawai_tipe'])) {
             $query->where('pegawai.tipe', $source['pegawai_tipe']);

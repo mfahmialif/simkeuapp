@@ -1092,7 +1092,7 @@ class HelperController extends Controller
             $jkUser = \App\Services\Helper::getJenisKelaminUser();
 
             $query = \App\Models\User::whereHas('role', function ($q) {
-                $q->whereIn('name', ['kabag', 'staff']);
+                $q->whereIn('name', ['kabag', 'kabag_pemasukan', 'staff']);
             });
 
             // If not "semua" (admin), filter by the logged-in user's gender
@@ -1124,6 +1124,8 @@ class HelperController extends Controller
 
             $query = \App\Models\User::with('role:id,name')
                 ->whereHas('role', fn ($role) => $role->whereIn('name', $roleNames));
+
+            SimkeuHelper::applyGenderScope($query, 'users.jenis_kelamin');
 
             if ($request->filled('search')) {
                 $search = trim((string) $request->search);
@@ -1158,35 +1160,6 @@ class HelperController extends Controller
 
     private function pengeluaranPetugasRoles(?string $module): array
     {
-        $moduleKey = str_replace('-', '_', strtolower((string) $module));
-
-        $roles = [
-            'umum' => ['rumahtangga'],
-            'rumah_tangga' => ['rumahtangga'],
-            'sarana_prasarana' => ['sarpras'],
-            'sarpras' => ['sarpras'],
-            'transportasi' => ['transportasi'],
-            'dosen' => ['barokahdosen_tatapmuka'],
-            'tatap_muka' => ['barokahdosen_tatapmuka'],
-            'dosen_tatapmuka' => ['barokahdosen_tatapmuka'],
-            'dosen_tatap_muka' => ['barokahdosen_tatapmuka'],
-            'kegiatan' => ['barokahdosen_kegiatan'],
-            'dosen_kegiatan' => ['barokahdosen_kegiatan'],
-            'dosen_bulanan' => ['barokahdosen_bulanan'],
-            'rab' => [
-                'rumahtangga',
-                'sarpras',
-                'transportasi',
-                'barokahdosen_tatapmuka',
-                'barokahdosen_kegiatan',
-                'barokahdosen_bulanan',
-            ],
-        ];
-
-        if (array_key_exists($moduleKey, $roles)) {
-            return $roles[$moduleKey];
-        }
-
-        return $roles['rab'];
+        return SimkeuHelper::pengeluaranPetugasRoles($module);
     }
 }

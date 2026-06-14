@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\Admin;
 
+use App\Exports\BarokahPegawaiExport;
 use App\Exports\PegawaiExport;
 use App\Http\Controllers\Controller;
 use App\Models\Dosen as DosenModel;
@@ -10,6 +11,7 @@ use App\Models\Prodi;
 use App\Models\Staff as StaffModel;
 use App\Services\Absensi;
 use App\Services\Dosen as SiakadDosen;
+use App\Services\Helper;
 use Illuminate\Support\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
@@ -94,7 +96,7 @@ class PegawaiController extends Controller
 
     public function show($id)
     {
-        $pegawai = Pegawai::with(['dosen.prodi', 'staff'])->find($id);
+        $pegawai = $this->scopedPegawaiQuery(['dosen.prodi', 'staff'])->find($id);
 
         if (! $pegawai) {
             return response()->json([
@@ -110,9 +112,493 @@ class PegawaiController extends Controller
         ]);
     }
 
+    public function barokah(Request $request, $id)
+    {
+        $pegawai = $this->scopedPegawaiQuery(['dosen.prodi', 'staff'])->find($id);
+
+        if (! $pegawai) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Pegawai Not Found',
+            ], 404);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'mode' => ['nullable', Rule::in(['bulan', 'rentang'])],
+            'bulan' => ['nullable', 'date_format:Y-m'],
+            'tanggal_mulai' => ['nullable', 'date'],
+            'tanggal_akhir' => ['nullable', 'date', 'after_or_equal:tanggal_mulai'],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'message' => $validator->errors(),
+            ], 422);
+        }
+
+        $period = $this->resolveBarokahPeriod($request);
+        $modules = $this->barokahModulesForPegawai($pegawai);
+        $periods = $this->barokahChartPeriods($period['start'], $period['end']);
+        $periodTotals = collect($periods)->mapWithKeys(fn ($item) => [$item['key'] => 0])->all();
+        $moduleSummaries = [];
+        $chartSeries = [];
+        $recentRows = collect();
+
+        foreach ($modules as $module) {
+            $monthlyRows = $this->barokahMonthlyRows(
+                $module,
+                (int) $pegawai->id,
+                $period['start'],
+                $period['end']
+            )->keyBy('periode');
+
+            $moduleTotal = 0;
+            $moduleJumlah = 0;
+            $seriesData = [];
+
+            foreach ($periods as $chartPeriod) {
+                $row = $monthlyRows->get($chartPeriod['key']);
+                $value = (int) ($row->total ?? 0);
+                $count = (int) ($row->jumlah ?? 0);
+
+                $seriesData[] = $value;
+                $moduleTotal += $value;
+                $moduleJumlah += $count;
+                $periodTotals[$chartPeriod['key']] += $value;
+            }
+
+            $moduleSummaries[] = [
+                'key' => $module['key'],
+                'label' => $module['label'],
+                'short_label' => $module['short_label'],
+                'icon' => $module['icon'],
+                'color' => $module['color'],
+                'path' => $module['path'],
+                'total' => $moduleTotal,
+                'jumlah' => $moduleJumlah,
+                'rata_rata' => $moduleJumlah > 0 ? (int) round($moduleTotal / $moduleJumlah) : 0,
+            ];
+
+            $chartSeries[] = [
+                'name' => $module['short_label'],
+                'data' => $seriesData,
+            ];
+
+            $recentRows = $recentRows->merge($this->barokahRecentRows(
+                $module,
+                (int) $pegawai->id,
+                $period['start'],
+                $period['end']
+            ));
+        }
+
+        $total = array_sum(array_column($moduleSummaries, 'total'));
+        $jumlah = array_sum(array_column($moduleSummaries, 'jumlah'));
+        $topModule = collect($moduleSummaries)->sortByDesc('total')->first();
+        $topPeriodKey = collect($periodTotals)->sortDesc()->keys()->first();
+        $topPeriod = collect($periods)->firstWhere('key', $topPeriodKey);
+
+        return response()->json([
+            'status' => true,
+            'data' => [
+                'pegawai' => $pegawai,
+                'filters' => [
+                    'mode' => $period['mode'],
+                    'bulan' => $period['bulan'],
+                    'tanggal_mulai' => $period['start']->toDateString(),
+                    'tanggal_akhir' => $period['end']->toDateString(),
+                    'label' => $period['label'],
+                ],
+                'stats' => [
+                    'total' => $total,
+                    'jumlah' => $jumlah,
+                    'rata_rata' => $jumlah > 0 ? (int) round($total / $jumlah) : 0,
+                    'modul_terbesar' => $topModule,
+                    'periode_terbesar' => [
+                        'label' => $topPeriod['label'] ?? '-',
+                        'total' => (int) ($topPeriodKey ? ($periodTotals[$topPeriodKey] ?? 0) : 0),
+                    ],
+                ],
+                'modules' => $moduleSummaries,
+                'charts' => [
+                    'monthly' => [
+                        'categories' => array_column($periods, 'label'),
+                        'series' => $chartSeries,
+                    ],
+                    'distribution' => [
+                        'labels' => array_column($moduleSummaries, 'short_label'),
+                        'series' => array_map('intval', array_column($moduleSummaries, 'total')),
+                    ],
+                ],
+                'recent' => $recentRows
+                    ->sortByDesc('sort_key')
+                    ->take(10)
+                    ->values()
+                    ->map(fn ($row) => Arr::except($row, ['sort_key']))
+                    ->all(),
+            ],
+            'message' => 'Ringkasan barokah pegawai retrieved successfully',
+        ]);
+    }
+
+    public function barokahReport(Request $request)
+    {
+        if (is_string($request->input('pegawai_ids'))) {
+            $request->merge([
+                'pegawai_ids' => collect(explode(',', $request->input('pegawai_ids')))
+                    ->map(fn ($id) => trim($id))
+                    ->filter()
+                    ->values()
+                    ->all(),
+            ]);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'mode' => ['nullable', Rule::in(['bulan', 'rentang'])],
+            'bulan' => ['nullable', 'date_format:Y-m'],
+            'tanggal_mulai' => ['nullable', 'date'],
+            'tanggal_akhir' => ['nullable', 'date', 'after_or_equal:tanggal_mulai'],
+            'pegawai_ids' => ['nullable', 'array'],
+            'pegawai_ids.*' => ['integer'],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'message' => $validator->errors(),
+            ], 422);
+        }
+
+        $period = $this->resolveBarokahPeriod($request);
+        $pegawaiQuery = Pegawai::query()->select(['id', 'nama', 'kode', 'tipe']);
+        $this->applyFilters($pegawaiQuery, $request);
+
+        $pegawaiCount = (clone $pegawaiQuery)->count();
+        $types = (clone $pegawaiQuery)
+            ->reorder()
+            ->select('tipe')
+            ->distinct()
+            ->pluck('tipe')
+            ->all();
+
+        $requestedTableIds = collect($request->input('pegawai_ids', []))
+            ->map(fn ($id) => (int) $id)
+            ->filter()
+            ->unique()
+            ->values();
+        $tableIds = $requestedTableIds;
+
+        $modules = $this->barokahReportModulesForTypes($types);
+        $periods = $this->barokahChartPeriods($period['start'], $period['end']);
+        $totalsByPegawai = [];
+        $moduleSummaries = [];
+        $chartSeries = [];
+
+        foreach ($modules as $module) {
+            if (! $this->barokahTableIsUsable($module['table'])) {
+                continue;
+            }
+
+            $moduleTotals = ['total' => 0, 'jumlah' => 0];
+            $table = $module['table'];
+
+            $byPegawaiRows = $this->barokahReportBaseQuery(
+                $module,
+                clone $pegawaiQuery,
+                $period['start'],
+                $period['end']
+            )
+                ->selectRaw("{$table}.pegawai_id")
+                ->selectRaw('filtered_pegawai.nama')
+                ->selectRaw('filtered_pegawai.kode')
+                ->selectRaw('filtered_pegawai.tipe')
+                ->selectRaw('COUNT(*) as jumlah')
+                ->selectRaw("COALESCE(SUM({$table}.total), 0) as total")
+                ->groupBy("{$table}.pegawai_id", 'filtered_pegawai.nama', 'filtered_pegawai.kode', 'filtered_pegawai.tipe')
+                ->get();
+
+            foreach ($byPegawaiRows as $row) {
+                $pegawaiId = (int) $row->pegawai_id;
+                $rowTotal = (int) ($row->total ?? 0);
+                $rowJumlah = (int) ($row->jumlah ?? 0);
+
+                $totalsByPegawai[$pegawaiId] ??= [
+                    'pegawai_id' => $pegawaiId,
+                    'nama' => $row->nama,
+                    'kode' => $row->kode,
+                    'tipe' => $row->tipe,
+                    'total' => 0,
+                    'jumlah' => 0,
+                    'modules' => [],
+                ];
+                $totalsByPegawai[$pegawaiId]['total'] += $rowTotal;
+                $totalsByPegawai[$pegawaiId]['jumlah'] += $rowJumlah;
+                $totalsByPegawai[$pegawaiId]['modules'][$module['key']] = [
+                    'label' => $module['short_label'],
+                    'total' => $rowTotal,
+                    'jumlah' => $rowJumlah,
+                ];
+
+                $moduleTotals['total'] += $rowTotal;
+                $moduleTotals['jumlah'] += $rowJumlah;
+            }
+
+            $monthlyRows = $this->barokahReportBaseQuery(
+                $module,
+                clone $pegawaiQuery,
+                $period['start'],
+                $period['end']
+            )
+                ->selectRaw("DATE_FORMAT({$table}.tanggal, '%Y-%m') as periode")
+                ->selectRaw('COUNT(*) as jumlah')
+                ->selectRaw("COALESCE(SUM({$table}.total), 0) as total")
+                ->groupBy('periode')
+                ->orderBy('periode')
+                ->get()
+                ->keyBy('periode');
+
+            $chartSeries[] = [
+                'name' => $module['short_label'],
+                'data' => collect($periods)
+                    ->map(fn ($item) => (int) ($monthlyRows->get($item['key'])->total ?? 0))
+                    ->all(),
+            ];
+
+            $moduleSummaries[] = [
+                'key' => $module['key'],
+                'label' => $module['label'],
+                'short_label' => $module['short_label'],
+                'icon' => $module['icon'],
+                'color' => $module['color'],
+                'path' => $module['path'],
+                'total' => $moduleTotals['total'],
+                'jumlah' => $moduleTotals['jumlah'],
+            ];
+        }
+
+        $total = array_sum(array_column($totalsByPegawai, 'total'));
+        $jumlah = array_sum(array_column($totalsByPegawai, 'jumlah'));
+        $tableTotals = $tableIds
+            ->mapWithKeys(function ($pegawaiId) use ($totalsByPegawai) {
+                $row = $totalsByPegawai[$pegawaiId] ?? ['total' => 0, 'jumlah' => 0, 'modules' => []];
+
+                return [$pegawaiId => [
+                    'total' => (int) $row['total'],
+                    'jumlah' => (int) $row['jumlah'],
+                    'modules' => array_values($row['modules']),
+                ]];
+            })
+            ->all();
+
+        $pegawaiReportRows = collect($totalsByPegawai)
+            ->map(function ($row) {
+                return [
+                    'pegawai_id' => $row['pegawai_id'],
+                    'nama' => $row['nama'] ?? '-',
+                    'kode' => $row['kode'] ?? '-',
+                    'tipe' => $row['tipe'] ?? '-',
+                    'total' => (int) $row['total'],
+                    'jumlah' => (int) $row['jumlah'],
+                    'modules' => array_values($row['modules']),
+                ];
+            });
+        $topPegawai = $pegawaiReportRows
+            ->sortByDesc('total')
+            ->take(10)
+            ->values()
+            ->all();
+        $allPegawai = (clone $pegawaiQuery)
+            ->reorder()
+            ->orderByRaw("CASE WHEN tipe = 'dosen' THEN 1 WHEN tipe = 'staff' THEN 2 ELSE 3 END")
+            ->orderBy('nama')
+            ->get()
+            ->map(function (Pegawai $pegawai) use ($totalsByPegawai) {
+                $row = $totalsByPegawai[$pegawai->id] ?? [
+                    'total' => 0,
+                    'jumlah' => 0,
+                    'modules' => [],
+                ];
+
+                return [
+                    'pegawai_id' => (int) $pegawai->id,
+                    'nama' => $pegawai->nama ?: '-',
+                    'kode' => $pegawai->kode ?: '-',
+                    'tipe' => $pegawai->tipe ?: '-',
+                    'total' => (int) $row['total'],
+                    'jumlah' => (int) $row['jumlah'],
+                    'modules' => array_values($row['modules']),
+                ];
+            })
+            ->values()
+            ->all();
+
+        return response()->json([
+            'status' => true,
+            'data' => [
+                'filters' => [
+                    'mode' => $period['mode'],
+                    'bulan' => $period['bulan'],
+                    'tanggal_mulai' => $period['start']->toDateString(),
+                    'tanggal_akhir' => $period['end']->toDateString(),
+                    'label' => $period['label'],
+                ],
+                'stats' => [
+                    'total' => $total,
+                    'jumlah' => $jumlah,
+                    'pegawai' => $pegawaiCount,
+                    'pegawai_dengan_barokah' => count($totalsByPegawai),
+                    'rata_rata_transaksi' => $jumlah > 0 ? (int) round($total / $jumlah) : 0,
+                    'rata_rata_pegawai' => count($totalsByPegawai) > 0 ? (int) round($total / count($totalsByPegawai)) : 0,
+                ],
+                'table_totals' => $tableTotals,
+                'modules' => $moduleSummaries,
+                'top_pegawai' => $topPegawai,
+                'all_pegawai' => $allPegawai,
+                'charts' => [
+                    'monthly' => [
+                        'categories' => array_column($periods, 'label'),
+                        'series' => $chartSeries,
+                    ],
+                    'distribution' => [
+                        'labels' => array_column($moduleSummaries, 'short_label'),
+                        'series' => array_map('intval', array_column($moduleSummaries, 'total')),
+                    ],
+                ],
+            ],
+            'message' => 'Laporan barokah pegawai retrieved successfully',
+        ]);
+    }
+
+    public function exportBarokahReportExcel(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'mode' => ['nullable', Rule::in(['bulan', 'rentang'])],
+            'bulan' => ['nullable', 'date_format:Y-m'],
+            'tanggal_mulai' => ['nullable', 'date'],
+            'tanggal_akhir' => ['nullable', 'date', 'after_or_equal:tanggal_mulai'],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'message' => $validator->errors(),
+            ], 422);
+        }
+
+        $period = $this->resolveBarokahPeriod($request);
+        $pegawaiQuery = Pegawai::query()->select(['id', 'nama', 'kode', 'tipe']);
+        $this->applyFilters($pegawaiQuery, $request);
+
+        $types = (clone $pegawaiQuery)
+            ->reorder()
+            ->select('tipe')
+            ->distinct()
+            ->pluck('tipe')
+            ->all();
+        $modules = $this->barokahReportModulesForTypes($types);
+        $pegawaiTotals = [];
+        $moduleTotals = [];
+        $sheets = [];
+
+        foreach ($modules as $module) {
+            if (! $this->barokahTableIsUsable($module['table'])) {
+                continue;
+            }
+
+            $table = $module['table'];
+            $detailRows = $this->barokahReportBaseQuery(
+                $module,
+                clone $pegawaiQuery,
+                $period['start'],
+                $period['end']
+            )
+                ->select([
+                    ...$this->barokahExcelDetailColumns($module),
+                    'filtered_pegawai.nama as pegawai_nama',
+                    'filtered_pegawai.kode as pegawai_kode',
+                    'filtered_pegawai.tipe as pegawai_tipe_filter',
+                ])
+                ->orderBy("{$table}.tanggal")
+                ->orderBy('filtered_pegawai.nama')
+                ->orderBy("{$table}.id")
+                ->get();
+
+            $moduleTotal = 0;
+            $excelRows = [];
+
+            foreach ($detailRows as $index => $row) {
+                $rowTotal = (int) data_get($row, 'total', 0);
+                $pegawaiId = (int) data_get($row, 'pegawai_id');
+                $moduleTotal += $rowTotal;
+
+                $pegawaiTotals[$pegawaiId] ??= [
+                    'nama' => data_get($row, 'pegawai_nama', '-'),
+                    'kode' => data_get($row, 'pegawai_kode', '-'),
+                    'tipe' => data_get($row, 'pegawai_tipe_filter', '-'),
+                    'jumlah' => 0,
+                    'total' => 0,
+                ];
+                $pegawaiTotals[$pegawaiId]['jumlah']++;
+                $pegawaiTotals[$pegawaiId]['total'] += $rowTotal;
+
+                $excelRows[] = $this->barokahExcelDetailRow($module['key'], $row, $index + 1);
+            }
+
+            $moduleTotals[] = [
+                'label' => $module['short_label'],
+                'jumlah' => count($excelRows),
+                'total' => $moduleTotal,
+            ];
+            $sheets[] = [
+                'title' => $module['short_label'],
+                'headings' => $this->barokahExcelDetailHeadings($module['key']),
+                'rows' => $excelRows,
+            ];
+        }
+
+        $summaryRows = [
+            ['Periode', $period['label'], '-', '-', 0, 0],
+            ['Filter', $this->barokahExcelFilterLabel($request), '-', '-', 0, 0],
+        ];
+
+        foreach ($moduleTotals as $moduleTotal) {
+            $summaryRows[] = [
+                'Modul',
+                $moduleTotal['label'],
+                '-',
+                '-',
+                $moduleTotal['jumlah'],
+                $moduleTotal['total'],
+            ];
+        }
+
+        foreach (collect($pegawaiTotals)->sortByDesc('total') as $pegawaiTotal) {
+            $summaryRows[] = [
+                'Pegawai',
+                $pegawaiTotal['nama'],
+                $pegawaiTotal['kode'],
+                ucfirst((string) $pegawaiTotal['tipe']),
+                $pegawaiTotal['jumlah'],
+                $pegawaiTotal['total'],
+            ];
+        }
+
+        array_unshift($sheets, [
+            'title' => 'Ringkasan',
+            'headings' => ['Kategori', 'Nama / Keterangan', 'Kode', 'Tipe', 'Jumlah Data', 'Total Barokah'],
+            'rows' => $summaryRows,
+        ]);
+
+        return Excel::download(
+            new BarokahPegawaiExport($sheets),
+            $this->barokahExcelFileName($period)
+        );
+    }
+
     public function update(Request $request, $id)
     {
-        $pegawai = Pegawai::with(['dosen', 'staff'])->find($id);
+        $pegawai = $this->scopedPegawaiQuery(['dosen', 'staff'])->find($id);
 
         if (! $pegawai) {
             return response()->json([
@@ -150,7 +636,7 @@ class PegawaiController extends Controller
 
     public function destroy($id)
     {
-        $pegawai = Pegawai::find($id);
+        $pegawai = $this->scopedPegawaiQuery()->find($id);
 
         if (! $pegawai) {
             return response()->json([
@@ -165,6 +651,617 @@ class PegawaiController extends Controller
             'status' => true,
             'message' => 'Pegawai deleted successfully',
         ]);
+    }
+
+    private function resolveBarokahPeriod(Request $request): array
+    {
+        $mode = $request->input('mode');
+        if (! $mode) {
+            $mode = $request->filled('tanggal_mulai') || $request->filled('tanggal_akhir')
+                ? 'rentang'
+                : 'bulan';
+        }
+
+        if ($mode === 'rentang') {
+            $start = $request->filled('tanggal_mulai')
+                ? Carbon::parse($request->tanggal_mulai)->startOfDay()
+                : now()->startOfMonth();
+            $end = $request->filled('tanggal_akhir')
+                ? Carbon::parse($request->tanggal_akhir)->endOfDay()
+                : now()->endOfDay();
+            $bulan = null;
+        } else {
+            $bulan = $request->input('bulan') ?: now()->format('Y-m');
+            $start = Carbon::createFromFormat('Y-m-d', "{$bulan}-01")->startOfDay();
+            $end = $start->copy()->endOfMonth();
+        }
+
+        return [
+            'mode' => $mode,
+            'bulan' => $bulan,
+            'start' => $start,
+            'end' => $end,
+            'label' => $mode === 'bulan'
+                ? $this->barokahMonthLabel($start)
+                : $this->barokahDateLabel($start).' - '.$this->barokahDateLabel($end),
+        ];
+    }
+
+    private function barokahModulesForPegawai(Pegawai $pegawai): array
+    {
+        $modules = [];
+        $tipe = strtolower((string) $pegawai->tipe);
+
+        if ($tipe === 'dosen') {
+            $modules[] = [
+                'key' => 'tatapmuka',
+                'label' => 'Barokah Dosen Tatapmuka',
+                'short_label' => 'Tatap Muka',
+                'table' => 'keuangan_pengeluaran_dosen',
+                'icon' => 'ri-presentation-line',
+                'color' => 'primary',
+                'path' => '/admin/pengeluaran/dosen-tatapmuka',
+            ];
+        }
+
+        if (in_array($tipe, ['dosen', 'staff'], true)) {
+            $modules[] = [
+                'key' => 'kegiatan',
+                'label' => 'Barokah Pegawai Kegiatan',
+                'short_label' => 'Kegiatan',
+                'table' => 'keuangan_pengeluaran_dosen_kegiatan',
+                'icon' => 'ri-calendar-event-line',
+                'color' => 'success',
+                'path' => '/admin/pengeluaran/dosen-kegiatan',
+            ];
+
+            $modules[] = [
+                'key' => 'bulanan',
+                'label' => 'Barokah Bulanan',
+                'short_label' => 'Bulanan',
+                'table' => 'keuangan_pengeluaran_pegawai_bulanan',
+                'icon' => 'ri-wallet-3-line',
+                'color' => 'info',
+                'path' => '/admin/pengeluaran/bulanan',
+            ];
+        }
+
+        return $modules;
+    }
+
+    private function barokahReportModulesForTypes(array $types): array
+    {
+        $types = collect($types)->map(fn ($type) => strtolower((string) $type))->unique();
+        $modules = [];
+
+        if ($types->contains('dosen')) {
+            $modules[] = [
+                'key' => 'tatapmuka',
+                'label' => 'Barokah Dosen Tatapmuka',
+                'short_label' => 'Tatap Muka',
+                'table' => 'keuangan_pengeluaran_dosen',
+                'icon' => 'ri-presentation-line',
+                'color' => 'primary',
+                'path' => '/admin/pengeluaran/dosen-tatapmuka',
+            ];
+        }
+
+        if ($types->intersect(['dosen', 'staff'])->isNotEmpty()) {
+            $modules[] = [
+                'key' => 'kegiatan',
+                'label' => 'Barokah Pegawai Kegiatan',
+                'short_label' => 'Kegiatan',
+                'table' => 'keuangan_pengeluaran_dosen_kegiatan',
+                'icon' => 'ri-calendar-event-line',
+                'color' => 'success',
+                'path' => '/admin/pengeluaran/dosen-kegiatan',
+            ];
+
+            $modules[] = [
+                'key' => 'bulanan',
+                'label' => 'Barokah Bulanan',
+                'short_label' => 'Bulanan',
+                'table' => 'keuangan_pengeluaran_pegawai_bulanan',
+                'icon' => 'ri-wallet-3-line',
+                'color' => 'info',
+                'path' => '/admin/pengeluaran/bulanan',
+            ];
+        }
+
+        return $modules;
+    }
+
+    private function barokahChartPeriods(Carbon $start, Carbon $end): array
+    {
+        $periods = [];
+        $cursor = $start->copy()->startOfMonth();
+        $last = $end->copy()->startOfMonth();
+
+        while ($cursor->lessThanOrEqualTo($last)) {
+            $periods[] = [
+                'key' => $cursor->format('Y-m'),
+                'label' => $this->barokahMonthLabel($cursor),
+            ];
+
+            $cursor->addMonth();
+        }
+
+        return $periods;
+    }
+
+    private function barokahMonthlyRows(array $module, int $pegawaiId, Carbon $start, Carbon $end)
+    {
+        $table = $module['table'];
+
+        if (! $this->barokahTableIsUsable($table)) {
+            return collect();
+        }
+
+        return $this->barokahBaseQuery($module, $pegawaiId, $start, $end)
+            ->selectRaw("DATE_FORMAT({$table}.tanggal, '%Y-%m') as periode")
+            ->selectRaw("COUNT(*) as jumlah")
+            ->selectRaw("COALESCE(SUM({$table}.total), 0) as total")
+            ->groupBy('periode')
+            ->orderBy('periode')
+            ->get();
+    }
+
+    private function barokahRecentRows(array $module, int $pegawaiId, Carbon $start, Carbon $end)
+    {
+        $table = $module['table'];
+
+        if (! $this->barokahTableIsUsable($table)) {
+            return collect();
+        }
+
+        $columns = $this->barokahRecentColumns($module);
+        if (! $columns) {
+            return collect();
+        }
+
+        return $this->barokahBaseQuery($module, $pegawaiId, $start, $end)
+            ->select($columns)
+            ->orderByDesc("{$table}.tanggal")
+            ->orderByDesc("{$table}.id")
+            ->limit(10)
+            ->get()
+            ->map(fn ($row) => $this->barokahRecentItem($module, $row));
+    }
+
+    private function barokahBaseQuery(array $module, int $pegawaiId, Carbon $start, Carbon $end)
+    {
+        $table = $module['table'];
+        $query = DB::table($table)
+            ->where("{$table}.pegawai_id", $pegawaiId)
+            ->whereBetween("{$table}.tanggal", [
+                $start->toDateString(),
+                $end->toDateString(),
+            ]);
+        Helper::applyExpenseGenderScope($query, $table);
+
+        if ($module['key'] === 'kegiatan' && Schema::hasColumn($table, 'kategori_detail')) {
+            $query->where("{$table}.kategori_detail", 'pegawai');
+        }
+
+        return $query;
+    }
+
+    private function barokahReportBaseQuery(array $module, $pegawaiQuery, Carbon $start, Carbon $end)
+    {
+        $table = $module['table'];
+
+        if (! $this->barokahTableIsUsable($table)) {
+            return DB::table($table)->whereRaw('1 = 0');
+        }
+
+        $query = DB::table($table)
+            ->joinSub($pegawaiQuery, 'filtered_pegawai', function ($join) use ($table) {
+                $join->on("{$table}.pegawai_id", '=', 'filtered_pegawai.id');
+            })
+            ->whereBetween("{$table}.tanggal", [
+                $start->toDateString(),
+                $end->toDateString(),
+            ]);
+        Helper::applyExpenseGenderScope($query, $table);
+
+        if ($module['key'] === 'tatapmuka') {
+            $query->where('filtered_pegawai.tipe', 'dosen');
+        } else {
+            $query->whereIn('filtered_pegawai.tipe', ['dosen', 'staff']);
+        }
+
+        if ($module['key'] === 'kegiatan' && Schema::hasColumn($table, 'kategori_detail')) {
+            $query->where("{$table}.kategori_detail", 'pegawai');
+        }
+
+        return $query;
+    }
+
+    private function barokahTableIsUsable(string $table): bool
+    {
+        return Schema::hasTable($table)
+            && Schema::hasColumn($table, 'id')
+            && Schema::hasColumn($table, 'pegawai_id')
+            && Schema::hasColumn($table, 'tanggal')
+            && Schema::hasColumn($table, 'total');
+    }
+
+    private function barokahRecentColumns(array $module): array
+    {
+        $table = $module['table'];
+        $columns = [
+            'tatapmuka' => [
+                'id',
+                'tanggal',
+                'jam',
+                'jam_mengajar_double_degree',
+                'barokah_mengajar_biasa',
+                'barokah_mengajar_double_degree',
+                'barokah_uas',
+                'jumlah_mahasiswa_uas',
+                'barokah_sempro',
+                'jam_sempro',
+                'transport',
+                'total',
+                'jenis_pembayaran',
+                'keterangan',
+            ],
+            'kegiatan' => [
+                'id',
+                'tanggal',
+                'nama_kegiatan',
+                'transport',
+                'barokah',
+                'total',
+                'jenis_pembayaran',
+                'keterangan',
+            ],
+            'bulanan' => [
+                'id',
+                'tanggal',
+                'bulan',
+                'tahun',
+                'barokah_harian',
+                'barokah_bulanan',
+                'barokah_dosen_tetap',
+                'barokah_struktural',
+                'total',
+                'jenis_pembayaran',
+                'keterangan',
+            ],
+        ][$module['key']] ?? ['id', 'tanggal', 'total'];
+
+        return collect($columns)
+            ->filter(fn ($column) => Schema::hasColumn($table, $column))
+            ->map(fn ($column) => "{$table}.{$column}")
+            ->values()
+            ->all();
+    }
+
+    private function barokahRecentItem(array $module, $row): array
+    {
+        $tanggal = (string) data_get($row, 'tanggal');
+
+        return [
+            'id' => (int) data_get($row, 'id'),
+            'module_key' => $module['key'],
+            'module_label' => $module['short_label'],
+            'module_color' => $module['color'],
+            'module_icon' => $module['icon'],
+            'tanggal' => $tanggal,
+            'tanggal_label' => $tanggal ? $this->barokahDateLabel(Carbon::parse($tanggal)) : '-',
+            'deskripsi' => $this->barokahRecentDescription($module['key'], $row),
+            'meta' => $this->barokahRecentMeta($module['key'], $row),
+            'total' => (int) data_get($row, 'total', 0),
+            'path' => $module['path'],
+            'sort_key' => $tanggal.'-'.str_pad((string) data_get($row, 'id', 0), 12, '0', STR_PAD_LEFT),
+        ];
+    }
+
+    private function barokahRecentDescription(string $moduleKey, $row): string
+    {
+        if ($moduleKey === 'tatapmuka') {
+            $jam = (float) data_get($row, 'jam', 0);
+            $jamDouble = (float) data_get($row, 'jam_mengajar_double_degree', 0);
+
+            return trim(($jam + $jamDouble).' jam mengajar');
+        }
+
+        if ($moduleKey === 'kegiatan') {
+            return (string) (data_get($row, 'nama_kegiatan') ?: 'Kegiatan pegawai');
+        }
+
+        $bulan = data_get($row, 'bulan');
+        $tahun = data_get($row, 'tahun');
+
+        if ($bulan && $tahun) {
+            return 'Barokah bulanan '.$this->barokahMonthName((int) $bulan).' '.$tahun;
+        }
+
+        return 'Barokah bulanan';
+    }
+
+    private function barokahRecentMeta(string $moduleKey, $row): array
+    {
+        if ($moduleKey === 'tatapmuka') {
+            return array_values(array_filter([
+                'Mengajar '.(float) data_get($row, 'jam', 0).' jam',
+                (float) data_get($row, 'jam_mengajar_double_degree', 0) > 0
+                    ? 'Double degree '.(float) data_get($row, 'jam_mengajar_double_degree', 0).' jam'
+                    : null,
+                (float) data_get($row, 'jumlah_mahasiswa_uas', 0) > 0
+                    ? 'UAS '.(float) data_get($row, 'jumlah_mahasiswa_uas', 0).' mhs'
+                    : null,
+                (float) data_get($row, 'jam_sempro', 0) > 0
+                    ? 'Sempro '.(float) data_get($row, 'jam_sempro', 0).' jam'
+                    : null,
+            ]));
+        }
+
+        if ($moduleKey === 'kegiatan') {
+            return array_values(array_filter([
+                'Transport '.number_format((int) data_get($row, 'transport', 0), 0, ',', '.'),
+                'Barokah '.number_format((int) data_get($row, 'barokah', 0), 0, ',', '.'),
+            ]));
+        }
+
+        return array_values(array_filter([
+            (int) data_get($row, 'barokah_dosen_tetap', 0) > 0
+                ? 'Tetap '.number_format((int) data_get($row, 'barokah_dosen_tetap', 0), 0, ',', '.')
+                : null,
+            (int) data_get($row, 'barokah_struktural', 0) > 0
+                ? 'Struktural '.number_format((int) data_get($row, 'barokah_struktural', 0), 0, ',', '.')
+                : null,
+            (int) data_get($row, 'barokah_bulanan', 0) > 0
+                ? 'Bulanan '.number_format((int) data_get($row, 'barokah_bulanan', 0), 0, ',', '.')
+                : null,
+        ]));
+    }
+
+    private function barokahMonthLabel(Carbon $date): string
+    {
+        return $this->barokahMonthName((int) $date->format('n')).' '.$date->format('Y');
+    }
+
+    private function barokahDateLabel(Carbon $date): string
+    {
+        return $date->format('d').' '.$this->barokahMonthName((int) $date->format('n')).' '.$date->format('Y');
+    }
+
+    private function barokahMonthName(int $month): string
+    {
+        return [
+            1 => 'Jan',
+            2 => 'Feb',
+            3 => 'Mar',
+            4 => 'Apr',
+            5 => 'Mei',
+            6 => 'Jun',
+            7 => 'Jul',
+            8 => 'Agu',
+            9 => 'Sep',
+            10 => 'Okt',
+            11 => 'Nov',
+            12 => 'Des',
+        ][$month] ?? '';
+    }
+
+    private function barokahExcelDetailHeadings(string $moduleKey): array
+    {
+        return [
+            'tatapmuka' => [
+                'No',
+                'Tanggal',
+                'Nama Pegawai',
+                'Kode',
+                'Tipe',
+                'Jam Mengajar',
+                'Jam Double Degree',
+                'Hari',
+                'Hari Transport Motor',
+                'Hari Transport Mobil',
+                'Transport',
+                'Transport Motor',
+                'Transport Mobil',
+                'Transport Mobil Tol',
+                'Transport Mobil Tanpa Tol',
+                'Barokah Mengajar',
+                'Barokah Double Degree',
+                'Barokah UAS',
+                'Jumlah Mahasiswa UAS',
+                'Jam Sempro',
+                'Barokah Sempro',
+                'Total',
+                'Jenis Pembayaran',
+                'Keterangan Sempro',
+                'Keterangan',
+            ],
+            'kegiatan' => [
+                'No',
+                'Tanggal',
+                'Nama Pegawai',
+                'Kode',
+                'Tipe',
+                'Nama Kegiatan',
+                'Transport',
+                'Barokah',
+                'Nominal',
+                'Total',
+                'Jenis Pembayaran',
+                'Keterangan',
+            ],
+            'bulanan' => [
+                'No',
+                'Tanggal',
+                'Periode',
+                'Nama Pegawai',
+                'Kode',
+                'Tipe',
+                'Hari',
+                'Barokah Harian',
+                'Barokah Bulanan',
+                'Barokah Dosen Tetap',
+                'Barokah Struktural',
+                'Total',
+                'Jenis Pembayaran',
+                'Keterangan',
+            ],
+        ][$moduleKey] ?? ['No', 'Tanggal', 'Nama Pegawai', 'Kode', 'Tipe', 'Total'];
+    }
+
+    private function barokahExcelDetailColumns(array $module): array
+    {
+        $table = $module['table'];
+        $columns = [
+            'tatapmuka' => [
+                'pegawai_id',
+                'tanggal',
+                'jam',
+                'jam_mengajar_double_degree',
+                'hari',
+                'hari_transport_motor',
+                'hari_transport_mobil',
+                'transport',
+                'transport_motor',
+                'transport_mobil',
+                'transport_mobil_tol',
+                'transport_mobil_tanpa_tol',
+                'barokah_mengajar_biasa',
+                'barokah_mengajar_double_degree',
+                'barokah_uas',
+                'jumlah_mahasiswa_uas',
+                'jam_sempro',
+                'barokah_sempro',
+                'total',
+                'jenis_pembayaran',
+                'keterangan_sempro',
+                'keterangan',
+            ],
+            'kegiatan' => [
+                'pegawai_id',
+                'tanggal',
+                'nama_kegiatan',
+                'transport',
+                'barokah',
+                'nominal',
+                'total',
+                'jenis_pembayaran',
+                'keterangan',
+            ],
+            'bulanan' => [
+                'pegawai_id',
+                'tanggal',
+                'bulan',
+                'tahun',
+                'hari',
+                'barokah_harian',
+                'barokah_bulanan',
+                'barokah_dosen_tetap',
+                'barokah_struktural',
+                'total',
+                'jenis_pembayaran',
+                'keterangan',
+            ],
+        ][$module['key']] ?? ['pegawai_id', 'tanggal', 'total'];
+
+        return collect($columns)
+            ->filter(fn ($column) => Schema::hasColumn($table, $column))
+            ->map(fn ($column) => "{$table}.{$column}")
+            ->values()
+            ->all();
+    }
+
+    private function barokahExcelDetailRow(string $moduleKey, $row, int $number): array
+    {
+        $identity = [
+            data_get($row, 'pegawai_nama', '-'),
+            data_get($row, 'pegawai_kode', '-'),
+            ucfirst((string) data_get($row, 'pegawai_tipe_filter', '-')),
+        ];
+
+        if ($moduleKey === 'tatapmuka') {
+            return [
+                $number,
+                (string) data_get($row, 'tanggal', ''),
+                ...$identity,
+                (float) data_get($row, 'jam', 0),
+                (float) data_get($row, 'jam_mengajar_double_degree', 0),
+                (float) data_get($row, 'hari', 0),
+                (float) data_get($row, 'hari_transport_motor', 0),
+                (float) data_get($row, 'hari_transport_mobil', 0),
+                (int) data_get($row, 'transport', 0),
+                (int) data_get($row, 'transport_motor', 0),
+                (int) data_get($row, 'transport_mobil', 0),
+                (int) data_get($row, 'transport_mobil_tol', 0),
+                (int) data_get($row, 'transport_mobil_tanpa_tol', 0),
+                (int) data_get($row, 'barokah_mengajar_biasa', 0),
+                (int) data_get($row, 'barokah_mengajar_double_degree', 0),
+                (int) data_get($row, 'barokah_uas', 0),
+                (float) data_get($row, 'jumlah_mahasiswa_uas', 0),
+                (float) data_get($row, 'jam_sempro', 0),
+                (int) data_get($row, 'barokah_sempro', 0),
+                (int) data_get($row, 'total', 0),
+                data_get($row, 'jenis_pembayaran', '-'),
+                data_get($row, 'keterangan_sempro', '-'),
+                data_get($row, 'keterangan', '-'),
+            ];
+        }
+
+        if ($moduleKey === 'kegiatan') {
+            return [
+                $number,
+                (string) data_get($row, 'tanggal', ''),
+                ...$identity,
+                data_get($row, 'nama_kegiatan', '-'),
+                (int) data_get($row, 'transport', 0),
+                (int) data_get($row, 'barokah', 0),
+                (int) data_get($row, 'nominal', 0),
+                (int) data_get($row, 'total', 0),
+                data_get($row, 'jenis_pembayaran', '-'),
+                data_get($row, 'keterangan', '-'),
+            ];
+        }
+
+        $bulan = (int) data_get($row, 'bulan', 0);
+        $tahun = (int) data_get($row, 'tahun', 0);
+        $periode = $bulan && $tahun ? $this->barokahMonthName($bulan).' '.$tahun : '-';
+
+        return [
+            $number,
+            (string) data_get($row, 'tanggal', ''),
+            $periode,
+            ...$identity,
+            (float) data_get($row, 'hari', 0),
+            (int) data_get($row, 'barokah_harian', 0),
+            (int) data_get($row, 'barokah_bulanan', 0),
+            (int) data_get($row, 'barokah_dosen_tetap', 0),
+            (int) data_get($row, 'barokah_struktural', 0),
+            (int) data_get($row, 'total', 0),
+            data_get($row, 'jenis_pembayaran', '-'),
+            data_get($row, 'keterangan', '-'),
+        ];
+    }
+
+    private function barokahExcelFilterLabel(Request $request): string
+    {
+        $prodi = $request->filled('prodi_id')
+            ? Prodi::query()->find($request->input('prodi_id'))
+            : null;
+
+        return collect([
+            $request->filled('search') ? 'Pencarian: '.$request->input('search') : null,
+            $request->filled('tipe') ? 'Tipe: '.ucfirst((string) $request->input('tipe')) : null,
+            $request->filled('jenis_kelamin') ? 'Jenis kelamin: '.$request->input('jenis_kelamin') : null,
+            $request->filled('status') ? 'Status: '.ucfirst((string) $request->input('status')) : null,
+            $request->filled('prodi_id') ? 'Prodi: '.($prodi?->nama ?? $request->input('prodi_id')) : null,
+        ])->filter()->implode(' | ') ?: 'Semua pegawai';
+    }
+
+    private function barokahExcelFileName(array $period): string
+    {
+        $label = preg_replace('/[^\pL\pN _-]+/u', '-', $period['label']);
+
+        return "Laporan Barokah Pegawai {$label}.xlsx";
     }
 
     public function exportExcel(Request $request)
@@ -1123,6 +2220,17 @@ class PegawaiController extends Controller
                 $dosen->where('prodi_id', $request->input('prodi_id'));
             });
         }
+    }
+
+    private function scopedPegawaiQuery(array $with = [])
+    {
+        $query = Pegawai::query();
+
+        if ($with !== []) {
+            $query->with($with);
+        }
+
+        return $query;
     }
 
     private function stats(Request $request): array

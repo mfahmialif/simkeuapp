@@ -26,7 +26,7 @@ class SeedRabPerformanceData extends Command
             'temp_rekap_table' => 'tmp_rab_perf_rekap_kg',
         ],
         'dosen_bulanan' => [
-            'label' => 'Dosen Bulanan',
+            'label' => 'Bulanan',
             'prefix' => 'DB',
             'rekap_table' => 'keuangan_pengeluaran_dosen_bulanan_rekap',
             'temp_rekap_table' => 'tmp_rab_perf_rekap_db',

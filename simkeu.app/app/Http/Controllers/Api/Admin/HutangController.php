@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Services\Helper;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -10,7 +11,7 @@ use Illuminate\Validation\Rule;
 
 class HutangController extends Controller
 {
-    private const MANAGE_ALL_ROLES = ['admin', 'keuangan', 'kabag'];
+    private const MANAGE_ALL_ROLES = ['admin', 'keuangan', 'kabag', 'kabag_pengeluaran'];
 
     public function index(Request $request)
     {
@@ -79,6 +80,16 @@ class HutangController extends Controller
         $payload['petugas_id'] = $this->canManageAll($request)
             ? (int) $payload['petugas_id']
             : $request->user()->id;
+
+        if (! $this->petugasInActiveScope((int) $payload['petugas_id'])) {
+            return response()->json([
+                'status' => false,
+                'message' => [
+                    'petugas_id' => ['Petugas tidak sesuai scope navbar aktif.'],
+                ],
+            ], 422);
+        }
+
         $payload['created_at'] = now();
         $payload['updated_at'] = now();
 
@@ -134,6 +145,16 @@ class HutangController extends Controller
         $payload['petugas_id'] = $this->canManageAll($request)
             ? (int) $payload['petugas_id']
             : $request->user()->id;
+
+        if (! $this->petugasInActiveScope((int) $payload['petugas_id'])) {
+            return response()->json([
+                'status' => false,
+                'message' => [
+                    'petugas_id' => ['Petugas tidak sesuai scope navbar aktif.'],
+                ],
+            ], 422);
+        }
+
         $payload['updated_at'] = now();
 
         DB::table('keuangan_hutang')->where('id', $data->id)->update($payload);
@@ -190,6 +211,11 @@ class HutangController extends Controller
                 DB::raw("COALESCE(users.name, '-') as petugas_name"),
             ])
             ->where('hutang.id', $id);
+        Helper::applyRelatedGenderScope(
+            $query,
+            'hutang.petugas_id',
+            'users'
+        );
 
         if (! $this->canManageAll($request)) {
             $query->where('hutang.petugas_id', $request->user()->id);
@@ -201,6 +227,11 @@ class HutangController extends Controller
     private function baseFilteredQuery(Request $request, bool $canManageAll)
     {
         $query = DB::table('keuangan_hutang as hutang');
+        Helper::applyRelatedGenderScope(
+            $query,
+            'hutang.petugas_id',
+            'users'
+        );
 
         if (! $canManageAll) {
             $query->where('hutang.petugas_id', $request->user()->id);
@@ -281,6 +312,11 @@ class HutangController extends Controller
         $query = DB::table('keuangan_hutang')
             ->select('pemberi_pinjaman')
             ->whereNotNull('pemberi_pinjaman');
+        Helper::applyRelatedGenderScope(
+            $query,
+            'keuangan_hutang.petugas_id',
+            'users'
+        );
 
         if (! $canManageAll) {
             $query->where('petugas_id', $request->user()->id);
@@ -300,5 +336,13 @@ class HutangController extends Controller
         $role = strtolower((string) optional($request->user()->role)->name);
 
         return in_array($role, self::MANAGE_ALL_ROLES, true);
+    }
+
+    private function petugasInActiveScope(int $petugasId): bool
+    {
+        $query = DB::table('users')->where('id', $petugasId);
+        Helper::applyGenderScope($query, 'users.jenis_kelamin');
+
+        return $query->exists();
     }
 }

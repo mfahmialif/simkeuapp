@@ -391,7 +391,7 @@ class TransportasiController extends Controller
 
     public function update(Request $request, $id)
     {
-        $data = KeuanganPengeluaranTransportasi::find($id);
+        $data = $this->findScopedPengeluaranModel(KeuanganPengeluaranTransportasi::class, $id);
 
         if (! $data) {
             return response()->json([
@@ -421,7 +421,7 @@ class TransportasiController extends Controller
 
     public function destroy($id)
     {
-        $data = KeuanganPengeluaranTransportasi::find($id);
+        $data = $this->findScopedPengeluaranModel(KeuanganPengeluaranTransportasi::class, $id);
 
         if (! $data) {
             return response()->json([
@@ -598,7 +598,7 @@ class TransportasiController extends Controller
         $satuan = $this->nullableString($request->satuan);
 
         $data->tanggal = $request->tanggal;
-        $data->petugas_id = auth()->id();
+        $data->petugas_id = $this->petugasIdForPengeluaran($request);
         $data->prioritas = $this->normalizePrioritas($request->prioritas);
         $data->nama_kegiatan = $request->nama_kegiatan;
         $data->nominal = $nominal;
@@ -677,6 +677,7 @@ class TransportasiController extends Controller
             ]);
 
         $this->joinRekap($query);
+        $this->applyPetugasFilter($query, new Request);
 
         return $query->where('keuangan_pengeluaran_transportasi.id', $id)->first();
     }
