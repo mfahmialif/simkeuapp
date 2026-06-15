@@ -1125,7 +1125,13 @@ class HelperController extends Controller
             $query = \App\Models\User::with('role:id,name')
                 ->whereHas('role', fn ($role) => $role->whereIn('name', $roleNames));
 
-            SimkeuHelper::applyGenderScope($query, 'users.jenis_kelamin');
+            $gender = $request->input('jenis_kelamin');
+
+            if (in_array($gender, ['Laki-laki', 'Perempuan'], true)) {
+                $query->where('users.jenis_kelamin', $gender);
+            } else {
+                SimkeuHelper::applyGenderScope($query, 'users.jenis_kelamin');
+            }
 
             if ($request->filled('search')) {
                 $search = trim((string) $request->search);

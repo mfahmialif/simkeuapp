@@ -2,13 +2,16 @@
 
 namespace App\Exports;
 
+use App\Exports\Concerns\AddsPimpinanSignature;
 use App\Http\Controllers\Operasi\MhsJenisTagihanController;
 use App\Services\TagihanMahasiswa;
 use Illuminate\Contracts\View\View;
 use Maatwebsite\Excel\Concerns\FromView;
+use Maatwebsite\Excel\Concerns\WithEvents;
 
-class LaporanTagihanExport implements FromView
+class LaporanTagihanExport implements FromView, WithEvents
 {
+    use AddsPimpinanSignature;
     /**
      * @return \Illuminate\Support\Collection
      */

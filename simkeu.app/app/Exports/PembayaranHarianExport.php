@@ -2,15 +2,18 @@
 
 namespace App\Exports;
 
+use App\Exports\Concerns\AddsPimpinanSignature;
 use App\Models\Prodi;
 use App\Services\Helper;
 use App\Services\TagihanLaporanFilter;
 use App\Models\KeuanganPembayaran;
 use Illuminate\Contracts\View\View;
 use Maatwebsite\Excel\Concerns\FromView;
+use Maatwebsite\Excel\Concerns\WithEvents;
 
-class PembayaranHarianExport implements FromView
+class PembayaranHarianExport implements FromView, WithEvents
 {
+    use AddsPimpinanSignature;
     /**
      * @return \Illuminate\Support\Collection
      */

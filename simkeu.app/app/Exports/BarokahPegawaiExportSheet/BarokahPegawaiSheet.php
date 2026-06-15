@@ -2,6 +2,7 @@
 
 namespace App\Exports\BarokahPegawaiExportSheet;
 
+use App\Services\PimpinanExcelSignature;
 use Maatwebsite\Excel\Concerns\FromArray;
 use Maatwebsite\Excel\Concerns\WithCustomValueBinder;
 use Maatwebsite\Excel\Concerns\WithEvents;
@@ -113,6 +114,8 @@ class BarokahPegawaiSheet extends DefaultValueBinder implements
                             ->setFormatCode('"Rp" #,##0');
                     }
                 }
+
+                PimpinanExcelSignature::append($event);
             },
         ];
     }

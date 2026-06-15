@@ -6,6 +6,7 @@ use App\Services\Helper;
 use App\Exports\pdf\CustomFpdf;
 use App\Http\Controllers\Operasi\MhsJenisTagihanController;
 use App\Services\TagihanMahasiswa;
+use App\Services\PimpinanSignatureService;
 
 class LaporanTagihanPdf
 {
@@ -210,6 +211,11 @@ class LaporanTagihanPdf
 
     public static function footer($data, $fpdf)
     {
+        $signer = PimpinanSignatureService::documentSigner(
+            @\Auth::user()->name,
+            'Petugas'
+        );
+
         $fpdf->setY(-70);
         $fpdf->SetFont('Arial', '', 9);
         $fpdf->Cell(0, 4, "", 0, 1, 'L');
@@ -235,7 +241,21 @@ class LaporanTagihanPdf
         $fpdf->Ln(0);
         $fpdf->MultiCell(150, 4, "Terimakasih Atas Pembayaran Anda", 0, 'L',);
         $posX += 150;
-        $fpdf->setXY($posX, $posY);
-        $fpdf->MultiCell(40, 4, '(' . @\Auth::user()->name . ')', 0, 'C');
+        if ($signer['pimpinan']) {
+            PimpinanSignatureService::drawFpdf(
+                $fpdf,
+                $signer['pimpinan'],
+                $posX + 8,
+                $posY - 2,
+                24,
+                14
+            );
+        }
+        $fpdf->setXY($posX, $posY + 14);
+        $fpdf->SetFont('Arial', 'BU', 9);
+        $fpdf->MultiCell(40, 4, $signer['nama'], 0, 'C');
+        $fpdf->SetFont('Arial', '', 8);
+        $fpdf->setX($posX);
+        $fpdf->MultiCell(40, 4, $signer['jabatan'] ?: '', 0, 'C');
     }
 }

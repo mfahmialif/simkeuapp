@@ -40,7 +40,8 @@ class RoleController extends Controller
 
         $query->orderBy($sortKey, $sortOrder);
 
-        $role = $query->paginate($request->get('limit', 10));
+        $limit = (int) $request->get('limit', 10);
+        $role  = $limit === 0 ? $query->get() : $query->paginate($limit);
 
         return response()->json([
             'status'  => true,

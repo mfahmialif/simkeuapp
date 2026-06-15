@@ -2,6 +2,7 @@
 
 namespace App\Exports;
 
+use App\Exports\Concerns\AddsPimpinanSignature;
 use App\Models\Ref;
 use App\Models\Prodi;
 use App\Services\Helper;
@@ -12,10 +13,12 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Contracts\View\View;
 use App\Models\KeuanganJenisPembayaran;
 use Maatwebsite\Excel\Concerns\FromView;
+use Maatwebsite\Excel\Concerns\WithEvents;
 use App\Models\KeuanganPembayaranTambahan;
 
-class PembayaranTotalanHarianExport implements FromView
+class PembayaranTotalanHarianExport implements FromView, WithEvents
 {
+    use AddsPimpinanSignature;
     /**
      * @return \Illuminate\Support\Collection
      */

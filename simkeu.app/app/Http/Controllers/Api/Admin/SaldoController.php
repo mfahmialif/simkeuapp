@@ -73,20 +73,24 @@ class SaldoController extends Controller
 
     public function index(Request $request)
     {
-        $rows = $this->saldoRows(self::MODULES);
-        $manualRows = $this->manualSaldoRows();
-        $petugasData = $this->groupSaldoRows($rows, $manualRows, self::MODULES);
-
-        // Convert to indexed array and sort by name
-        $results = array_values($petugasData);
-        usort($results, function ($a, $b) {
-            return strcmp($a['petugas_name'], $b['petugas_name']);
-        });
-
         return response()->json([
             'status' => true,
-            'data' => $results,
+            'data' => $this->saldoResults(),
         ]);
+    }
+
+    public function dashboardSummary(): array
+    {
+        $activeRows = array_values(array_filter(
+            $this->saldoResults(),
+            fn ($row) => collect($row['modules'] ?? [])
+                ->contains(fn ($module) => (int) ($module['saldo'] ?? 0) !== 0)
+        ));
+
+        return [
+            'total_saldo' => array_sum(array_column($activeRows, 'total_saldo')),
+            'jumlah' => count($activeRows),
+        ];
     }
 
     public function show($petugasId)
@@ -468,5 +472,19 @@ class SaldoController extends Controller
         }
 
         return $petugasData;
+    }
+
+    private function saldoResults(): array
+    {
+        $rows = $this->saldoRows(self::MODULES);
+        $manualRows = $this->manualSaldoRows();
+        $results = array_values($this->groupSaldoRows($rows, $manualRows, self::MODULES));
+
+        usort($results, fn ($left, $right) => strcmp(
+            $left['petugas_name'],
+            $right['petugas_name']
+        ));
+
+        return $results;
     }
 }

@@ -2,14 +2,17 @@
 
 namespace App\Exports;
 
+use App\Exports\Concerns\AddsPimpinanSignature;
 use Illuminate\Contracts\View\View;
 use Maatwebsite\Excel\Concerns\FromView;
 use Maatwebsite\Excel\Concerns\WithColumnWidths;
 use Maatwebsite\Excel\Concerns\WithStyles;
+use Maatwebsite\Excel\Concerns\WithEvents;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 
-class PemasukanUiiDalwaExport implements FromView, WithColumnWidths, WithStyles
+class PemasukanUiiDalwaExport implements FromView, WithColumnWidths, WithStyles, WithEvents
 {
+    use AddsPimpinanSignature;
     public $data;
     public $totals;
     public $title;

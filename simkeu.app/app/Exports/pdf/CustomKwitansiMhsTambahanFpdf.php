@@ -3,6 +3,7 @@
 namespace App\Exports\pdf;
 
 use App\Services\Helper;
+use App\Services\PimpinanSignatureService;
 use Codedge\Fpdf\Fpdf\Fpdf;
 use App\Models\KeuanganPembayaranTambahan;
 
@@ -110,10 +111,12 @@ class CustomKwitansiMhsTambahanFpdf extends Fpdf
 
         $transaksi = KeuanganPembayaranTambahan::where('nota', $data['nota'])->get();
        
-        $total = 0; 
+        $total = 0;
         foreach ($transaksi as $t) {
             $total += $t->jumlah;
         }
+        $fallbackName = $transaksi->first()?->user?->name ?? '-';
+        $signer = PimpinanSignatureService::documentSigner($fallbackName, 'Petugas');
 
         $this->setY(-45);
         $this->SetFont('Courier', '', 9);
@@ -136,11 +139,22 @@ class CustomKwitansiMhsTambahanFpdf extends Fpdf
         $this->Ln(0);
         $this->MultiCell(150, 4, "Terimakasih Atas Pembayaran Anda",  0,  'L', );
         $posX += 150;
-        $this->setXY($posX, $posY);
-        $this->MultiCell(40, 4, '(' . $transaksi[0]->user->name . ')', 0,  'C');
-        
-        // $this->Cell(0, 4, "", 0, 1, 'L');
-        // $this->Cell(155, 4, "Terimakasih Atas Pembayaran Anda", 0, 0, 'L');
+        if ($signer['pimpinan']) {
+            PimpinanSignatureService::drawFpdf(
+                $this,
+                $signer['pimpinan'],
+                $posX + 8,
+                $posY - 2,
+                24,
+                14
+            );
+        }
+        $this->setXY($posX, $posY + 14);
+        $this->SetFont('Courier', 'BU', 9);
+        $this->MultiCell(40, 4, $signer['nama'], 0, 'C');
+        $this->SetFont('Courier', '', 8);
+        $this->setX($posX);
+        $this->MultiCell(40, 4, $signer['jabatan'] ?: '', 0, 'C');
     }
 
 }

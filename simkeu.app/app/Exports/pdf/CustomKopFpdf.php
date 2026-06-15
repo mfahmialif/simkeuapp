@@ -5,6 +5,7 @@ namespace App\Exports\pdf;
 use Carbon\Carbon;
 use App\Services\Helper;
 use App\Services\Mahasiswa;
+use App\Services\PimpinanSignatureService;
 use Codedge\Fpdf\Fpdf\Fpdf;
 use App\Models\KeuanganDeposit;
 use App\Models\KeuanganKamarMhs;
@@ -61,22 +62,35 @@ class CustomKopFpdf extends Fpdf
 
     public function footer()
     {
+        $signer = PimpinanSignatureService::documentSigner(
+            @$this->dataSign['nama'],
+            @$this->dataSign['jabatan']
+        );
 
-        $this->setY(-45);
+        $this->setY(-50);
         $this->SetFont('Helvetica', '', 9);
 
         $this->Cell(0, 15, "", 0, 1);
-        // Tanggal - rata kanan
         $this->Cell(0, 4, "Bangil, " . $this->formatDate(Carbon::now()), 0, 1, 'R');
 
-        // Jarak sebelum tanda tangan
-        $this->Cell(0, 10, "", 0, 1);
+        $signatureY = $this->getY();
+        if ($signer['pimpinan']) {
+            PimpinanSignatureService::drawFpdf(
+                $this,
+                $signer['pimpinan'],
+                176,
+                $signatureY,
+                24,
+                14
+            );
+        }
 
-        // Nama penanda tangan - rata kanan
-        $this->Cell(0, 4, @$this->dataSign['nama'], 0, 1, 'R');
+        $this->setY($signatureY + 15);
+        $this->SetFont('Helvetica', 'BU', 9);
+        $this->Cell(0, 4, $signer['nama'], 0, 1, 'R');
 
-        // Nomor (NIP/Nomor lain) - rata kanan
-        $this->Cell(0, 4, @$this->dataSign['nomer'], 0, 1, 'R');
+        $this->SetFont('Helvetica', '', 8);
+        $this->Cell(0, 4, $signer['jabatan'] ?: (@$this->dataSign['nomer'] ?: ''), 0, 1, 'R');
     }
 
     public function formatDate($date){

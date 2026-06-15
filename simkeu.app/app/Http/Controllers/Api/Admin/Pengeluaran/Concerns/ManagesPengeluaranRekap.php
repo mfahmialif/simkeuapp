@@ -45,6 +45,7 @@ trait ManagesPengeluaranRekap
             'id' => "{$rekapTable}.id",
             'nama' => "{$rekapTable}.nama",
             'tanggal_rekap' => "{$rekapTable}.tanggal_rekap",
+            'tanggal_pencairan' => "{$rekapTable}.tanggal_pencairan",
             'created_at' => "{$rekapTable}.created_at",
         ];
 
@@ -105,6 +106,7 @@ trait ManagesPengeluaranRekap
             'id' => "{$rekapTable}.id",
             'nama' => "{$rekapTable}.nama",
             'tanggal_rekap' => "{$rekapTable}.tanggal_rekap",
+            'tanggal_pencairan' => "{$rekapTable}.tanggal_pencairan",
             'jumlah' => 'jumlah',
             'jumlah_data' => 'jumlah_data',
             'total_pengeluaran' => 'total_pengeluaran',
@@ -176,6 +178,7 @@ trait ManagesPengeluaranRekap
                 "{$rekapTable}.nama",
                 "{$rekapTable}.bulan_tahun",
                 "{$rekapTable}.tanggal_rekap",
+                "{$rekapTable}.tanggal_pencairan",
                 "{$rekapTable}.jumlah_sementara",
                 "{$rekapTable}.keterangan",
                 'petugas.name as petugas_nama',
@@ -230,6 +233,7 @@ trait ManagesPengeluaranRekap
             'nama' => ['required', 'string', 'max:255', Rule::unique($rekapTable, 'nama')],
             'bulan_tahun' => ['required', 'date_format:Y-m'],
             'tanggal_rekap' => ['required', 'date_format:Y-m-d'],
+            'tanggal_pencairan' => ['nullable', 'date_format:Y-m-d'],
             'petugas_id' => ['required', 'integer'],
             'jumlah_sementara' => $this->allowsEmptyRekapTemporary()
                 ? ['nullable', 'integer', 'min:0']
@@ -288,6 +292,7 @@ trait ManagesPengeluaranRekap
             ],
             'bulan_tahun' => ['required', 'date_format:Y-m'],
             'tanggal_rekap' => ['required', 'date_format:Y-m-d'],
+            'tanggal_pencairan' => ['nullable', 'date_format:Y-m-d'],
             'jumlah_sementara' => $hasDetails || $this->allowsEmptyRekapTemporary()
                 ? ['nullable', 'integer', 'min:0']
                 : ['required', 'integer', 'min:0'],
@@ -878,6 +883,7 @@ trait ManagesPengeluaranRekap
             'petugas_id' => $request->input('petugas_id'),
             'bulan_tahun' => $request->input('bulan_tahun'),
             'tanggal_rekap' => $request->input('tanggal_rekap'),
+            'tanggal_pencairan' => $request->input('tanggal_pencairan'),
             'jumlah_sementara' => $request->input(
                 'jumlah_sementara',
                 $request->input('jumlah')
@@ -932,9 +938,10 @@ trait ManagesPengeluaranRekap
 
     private function rekapSummaryQuery(Request $request, $filteredRekaps = null)
     {
+        $rekapTable = (new ($this->rekapModelClass()))->getTable();
         $query = $filteredRekaps
             ? DB::query()
-                ->fromSub((clone $filteredRekaps)->select('id'), 'filtered_rekap')
+                ->fromSub((clone $filteredRekaps)->select("{$rekapTable}.id"), 'filtered_rekap')
                 ->join($this->pengeluaranTable(), $this->pengeluaranTable().'.rekap_id', '=', 'filtered_rekap.id')
             : $this->newRekapPengeluaranQuery();
 
@@ -955,6 +962,7 @@ trait ManagesPengeluaranRekap
     private function lpjSummaryQuery(Request $request, $filteredRekaps = null)
     {
         $lpjTable = $this->lpjPengeluaranTable();
+        $rekapTable = (new ($this->rekapModelClass()))->getTable();
 
         if (! Schema::hasTable($lpjTable)) {
             return null;
@@ -962,7 +970,7 @@ trait ManagesPengeluaranRekap
 
         $query = $filteredRekaps
             ? DB::query()
-                ->fromSub((clone $filteredRekaps)->select('id'), 'filtered_rekap')
+                ->fromSub((clone $filteredRekaps)->select("{$rekapTable}.id"), 'filtered_rekap')
                 ->join("{$lpjTable} as lpj_detail", 'lpj_detail.rekap_id', '=', 'filtered_rekap.id')
             : DB::table("{$lpjTable} as lpj_detail");
 

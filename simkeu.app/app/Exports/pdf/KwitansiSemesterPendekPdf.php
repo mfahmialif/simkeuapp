@@ -5,6 +5,7 @@ namespace App\Exports\pdf;
 use App\Models\KeuanganPembayaranSemesterPendek;
 use App\Services\Helper;
 use App\Services\SemesterPendek;
+use App\Services\PimpinanSignatureService;
 use Codedge\Fpdf\Fpdf\Fpdf;
 
 class KwitansiSemesterPendekPdf
@@ -117,9 +118,24 @@ class KwitansiSemesterPendekPdf
         $fpdf->Ln(0);
         $fpdf->MultiCell(150, 4, "Terimakasih Atas Pembayaran Anda", 0, 'L');
         $posX += 150;
-        $fpdf->setXY($posX, $posY);
         $userName = $pembayaran->user ? $pembayaran->user->name : '-';
-        $fpdf->MultiCell(40, 4, '(' . $userName . ')', 0, 'C');
+        $signer = PimpinanSignatureService::documentSigner($userName, 'Petugas');
+        if ($signer['pimpinan']) {
+            PimpinanSignatureService::drawFpdf(
+                $fpdf,
+                $signer['pimpinan'],
+                $posX + 8,
+                $posY - 2,
+                24,
+                14
+            );
+        }
+        $fpdf->setXY($posX, $posY + 14);
+        $fpdf->SetFont('Courier', 'BU', 9);
+        $fpdf->MultiCell(40, 4, $signer['nama'], 0, 'C');
+        $fpdf->SetFont('Courier', '', 8);
+        $fpdf->setX($posX);
+        $fpdf->MultiCell(40, 4, $signer['jabatan'] ?: '', 0, 'C');
 
         // ─── Output ─────────────────────────────────────────
         $binary = $fpdf->Output('S');

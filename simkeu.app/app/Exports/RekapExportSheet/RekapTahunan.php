@@ -2,12 +2,15 @@
 
 namespace App\Exports\RekapExportSheet;
 
+use App\Exports\Concerns\AddsPimpinanSignature;
 use Illuminate\Contracts\View\View;
 use Maatwebsite\Excel\Concerns\FromView;
 use Maatwebsite\Excel\Concerns\WithTitle;
+use Maatwebsite\Excel\Concerns\WithEvents;
 
-class RekapTahunan implements FromView, WithTitle
+class RekapTahunan implements FromView, WithTitle, WithEvents
 {
+    use AddsPimpinanSignature;
     protected $tahun;
     protected $prodi;
     protected $tanggal;

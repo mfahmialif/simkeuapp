@@ -2,6 +2,8 @@
 
 namespace App\Exports;
 
+use App\Exports\Concerns\AddsPimpinanSignature;
+use Maatwebsite\Excel\Concerns\WithEvents;
 use PhpOffice\PhpSpreadsheet\Cell\Cell;
 use PhpOffice\PhpSpreadsheet\Style\Fill;
 use Maatwebsite\Excel\Concerns\WithStyles;
@@ -23,8 +25,10 @@ class ExcelExport extends DefaultValueBinder implements
     WithStyles,
     WithCustomValueBinder,
     WithColumnFormatting,
+    WithEvents,
     IValueBinder
 {
+    use AddsPimpinanSignature;
 
     private $data;
 

@@ -446,6 +446,7 @@ class LpjController extends Controller
             'nama' => $rekap->nama,
             'bulan_tahun' => $rekap->bulan_tahun,
             'tanggal_rekap' => $rekap->tanggal_rekap,
+            'tanggal_pencairan' => $rekap->tanggal_pencairan,
             'jumlah_sementara' => $jumlahSementara,
             'jumlah' => $jumlah,
             'jumlah_data' => $jumlahData,

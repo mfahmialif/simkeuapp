@@ -5,6 +5,7 @@ namespace App\Exports\pdf;
 use App\Services\Helper;
 use App\Services\Mahasiswa;
 use App\Services\MataUangFormatter;
+use App\Services\PimpinanSignatureService;
 use App\Services\TagihanMahasiswa;
 use Codedge\Fpdf\Fpdf\Fpdf;
 use App\Models\KeuanganDeposit;
@@ -155,8 +156,8 @@ class CustomKwitansiFpdf extends Fpdf
                 ->get();
         }
 
-        // Simpan nama petugas dari transaksi asli (sebelum filter)
         $namaPetugas = $transaksi->first()?->user?->name ?? '-';
+        $signer = PimpinanSignatureService::documentSigner($namaPetugas, 'Petugas');
 
         // Filter skripsi dari footer jika nilai belum lolos
         $hasSkripsi = $transaksi->contains(fn ($t) => TagihanMahasiswa::isSkripsiTagihan($t->tagihan));
@@ -188,8 +189,22 @@ class CustomKwitansiFpdf extends Fpdf
         $this->Ln(0);
         $this->MultiCell(150, 4, "Terimakasih Atas Pembayaran Anda", 0, 'L', );
         $posX += 150;
-        $this->setXY($posX, $posY);
-        $this->MultiCell(40, 4, '(' . $namaPetugas . ')', 0, 'C');
+        if ($signer['pimpinan']) {
+            PimpinanSignatureService::drawFpdf(
+                $this,
+                $signer['pimpinan'],
+                $posX + 8,
+                $posY - 2,
+                24,
+                14
+            );
+        }
+        $this->setXY($posX, $posY + 14);
+        $this->SetFont('Courier', 'BU', 9);
+        $this->MultiCell(40, 4, $signer['nama'], 0, 'C');
+        $this->SetFont('Courier', '', 8);
+        $this->setX($posX);
+        $this->MultiCell(40, 4, $signer['jabatan'] ?: '', 0, 'C');
     }
 
 }

@@ -18,59 +18,137 @@ class DashboardController extends Controller
         $jkUser = Helper::getJenisKelaminUser();
         $jkIdStr = (string)$jkUser->id; // 8, 9, or '%'
 
-        $data = Cache::remember('dashboard_widget_v8_' . md5($jkIdStr), 30, function () use ($jkUser) {
-            $today = Carbon::today()->format('Y-m-d');
-            $startOfWeek = Carbon::now()->startOfWeek()->format('Y-m-d');
-            $startOfMonth = Carbon::now()->startOfMonth()->format('Y-m-d');
+        $data = Cache::flexible('dashboard_widget_v11_' . md5($jkIdStr), [300, 86400], function () use ($jkUser) {
+            $today = Carbon::today();
+            $tomorrow = $today->copy()->addDay();
+            $startOfWeek = Carbon::now()->startOfWeek();
+            $startOfMonth = Carbon::now()->startOfMonth();
 
-            $selectRawPembayaran = "
-                COALESCE(SUM(CASE WHEN kp.jk_id = 8 THEN kp.jumlah ELSE 0 END), 0) as semua_laki,
-                SUM(CASE WHEN kp.jk_id = 8 THEN 1 ELSE 0 END) as count_semua_laki,
-                COALESCE(SUM(CASE WHEN kp.jk_id = 9 THEN kp.jumlah ELSE 0 END), 0) as semua_perempuan,
-                SUM(CASE WHEN kp.jk_id = 9 THEN 1 ELSE 0 END) as count_semua_perempuan,
-                COALESCE(SUM(CASE WHEN DATE(kp.tanggal) = ? AND kp.jk_id = 8 THEN kp.jumlah ELSE 0 END), 0) as harian_laki,
-                SUM(CASE WHEN DATE(kp.tanggal) = ? AND kp.jk_id = 8 THEN 1 ELSE 0 END) as count_harian_laki,
-                COALESCE(SUM(CASE WHEN DATE(kp.tanggal) = ? AND kp.jk_id = 9 THEN kp.jumlah ELSE 0 END), 0) as harian_perempuan,
-                SUM(CASE WHEN DATE(kp.tanggal) = ? AND kp.jk_id = 9 THEN 1 ELSE 0 END) as count_harian_perempuan,
-                COALESCE(SUM(CASE WHEN DATE(kp.tanggal) >= ? AND kp.jk_id = 8 THEN kp.jumlah ELSE 0 END), 0) as mingguan_laki,
-                SUM(CASE WHEN DATE(kp.tanggal) >= ? AND kp.jk_id = 8 THEN 1 ELSE 0 END) as count_mingguan_laki,
-                COALESCE(SUM(CASE WHEN DATE(kp.tanggal) >= ? AND kp.jk_id = 9 THEN kp.jumlah ELSE 0 END), 0) as mingguan_perempuan,
-                SUM(CASE WHEN DATE(kp.tanggal) >= ? AND kp.jk_id = 9 THEN 1 ELSE 0 END) as count_mingguan_perempuan,
-                COALESCE(SUM(CASE WHEN DATE(kp.tanggal) >= ? AND kp.jk_id = 8 THEN kp.jumlah ELSE 0 END), 0) as bulanan_laki,
-                SUM(CASE WHEN DATE(kp.tanggal) >= ? AND kp.jk_id = 8 THEN 1 ELSE 0 END) as count_bulanan_laki,
-                COALESCE(SUM(CASE WHEN DATE(kp.tanggal) >= ? AND kp.jk_id = 9 THEN kp.jumlah ELSE 0 END), 0) as bulanan_perempuan,
-                SUM(CASE WHEN DATE(kp.tanggal) >= ? AND kp.jk_id = 9 THEN 1 ELSE 0 END) as count_bulanan_perempuan
+            $currencySelect = "
+                COALESCE(mu.id, 0) as mata_uang_id,
+                COALESCE(mu.kode, 'IDR') as mata_uang_kode,
+                COALESCE(mu.nama, 'Rupiah') as mata_uang_nama,
+                COALESCE(mu.simbol, 'Rp') as mata_uang_simbol
             ";
-
-            $bindingsPembayaran = [
-                $today, $today, $today, $today,
-                $startOfWeek, $startOfWeek, $startOfWeek, $startOfWeek,
-                $startOfMonth, $startOfMonth, $startOfMonth, $startOfMonth
-            ];
-
-            $pembayaranRows = DB::table('keuangan_pembayaran as kp')
-                ->join('keuangan_tagihan as kt', 'kt.id', '=', 'kp.tagihan_id')
-                ->leftJoin('mata_uang as mu', 'mu.id', '=', 'kt.mata_uang_id')
-                ->where('kp.jk_id', 'LIKE', "%" . $jkUser->id . "%")
+            $overallAggregate = DB::table('keuangan_pembayaran as kp');
+            if ($jkUser->id !== '%') {
+                $overallAggregate->where('kp.jk_id', (int) $jkUser->id);
+            }
+            $overallAggregate
                 ->selectRaw("
-                    COALESCE(mu.id, 0) as mata_uang_id,
-                    COALESCE(mu.kode, 'IDR') as mata_uang_kode,
-                    COALESCE(mu.nama, 'Rupiah') as mata_uang_nama,
-                    COALESCE(mu.simbol, 'Rp') as mata_uang_simbol,
-                    {$selectRawPembayaran}
-                ", $bindingsPembayaran)
+                    kp.tagihan_id,
+                    kp.jk_id,
+                    COALESCE(SUM(kp.jumlah), 0) as total,
+                    COUNT(*) as jumlah
+                ")
+                ->groupBy('kp.tagihan_id', 'kp.jk_id');
+
+            $overallRows = DB::query()
+                ->fromSub($overallAggregate, 'payment')
+                ->join('keuangan_tagihan as kt', 'kt.id', '=', 'payment.tagihan_id')
+                ->leftJoin('mata_uang as mu', 'mu.id', '=', 'kt.mata_uang_id')
+                ->selectRaw("{$currencySelect}")
+                ->selectRaw("
+                    COALESCE(SUM(CASE WHEN payment.jk_id = 8 THEN payment.total ELSE 0 END), 0) as semua_laki,
+                    COALESCE(SUM(CASE WHEN payment.jk_id = 8 THEN payment.jumlah ELSE 0 END), 0) as count_semua_laki,
+                    COALESCE(SUM(CASE WHEN payment.jk_id = 9 THEN payment.total ELSE 0 END), 0) as semua_perempuan,
+                    COALESCE(SUM(CASE WHEN payment.jk_id = 9 THEN payment.jumlah ELSE 0 END), 0) as count_semua_perempuan
+                ")
                 ->groupBy('mu.id', 'mu.kode', 'mu.nama', 'mu.simbol')
                 ->get();
 
-            $selectRawSemesterPendek = str_replace(
-                ['kp.jk_id', 'kp.jumlah', 'kp.tanggal'],
-                ['jk_id', 'jumlah', 'tanggal'],
-                $selectRawPembayaran
-            );
+            $periodAggregate = DB::table('keuangan_pembayaran as kp')
+                ->where('kp.tanggal', '>=', $startOfMonth)
+                ->selectRaw("
+                    kp.tagihan_id,
+                    kp.jk_id,
+                    COALESCE(SUM(CASE WHEN kp.tanggal >= ? AND kp.tanggal < ? THEN kp.jumlah ELSE 0 END), 0) as harian_total,
+                    COALESCE(SUM(CASE WHEN kp.tanggal >= ? AND kp.tanggal < ? THEN 1 ELSE 0 END), 0) as harian_jumlah,
+                    COALESCE(SUM(CASE WHEN kp.tanggal >= ? THEN kp.jumlah ELSE 0 END), 0) as mingguan_total,
+                    COALESCE(SUM(CASE WHEN kp.tanggal >= ? THEN 1 ELSE 0 END), 0) as mingguan_jumlah,
+                    COALESCE(SUM(kp.jumlah), 0) as bulanan_total,
+                    COUNT(*) as bulanan_jumlah
+                ", [
+                    $today, $tomorrow,
+                    $today, $tomorrow,
+                    $startOfWeek, $startOfWeek,
+                ])
+                ->groupBy('kp.tagihan_id', 'kp.jk_id');
 
-            $sp = DB::table('keuangan_pembayaran_semester_pendek')
-                ->where('jk_id', 'LIKE', "%" . $jkUser->id . "%")
-                ->selectRaw($selectRawSemesterPendek, $bindingsPembayaran)
+            if ($jkUser->id !== '%') {
+                $periodAggregate->where('kp.jk_id', (int) $jkUser->id);
+            }
+
+            $periodRows = DB::query()
+                ->fromSub($periodAggregate, 'payment_period')
+                ->join('keuangan_tagihan as kt', 'kt.id', '=', 'payment_period.tagihan_id')
+                ->leftJoin('mata_uang as mu', 'mu.id', '=', 'kt.mata_uang_id')
+                ->selectRaw("{$currencySelect}")
+                ->selectRaw("
+                    COALESCE(SUM(CASE WHEN payment_period.jk_id = 8 THEN payment_period.harian_total ELSE 0 END), 0) as harian_laki,
+                    COALESCE(SUM(CASE WHEN payment_period.jk_id = 8 THEN payment_period.harian_jumlah ELSE 0 END), 0) as count_harian_laki,
+                    COALESCE(SUM(CASE WHEN payment_period.jk_id = 9 THEN payment_period.harian_total ELSE 0 END), 0) as harian_perempuan,
+                    COALESCE(SUM(CASE WHEN payment_period.jk_id = 9 THEN payment_period.harian_jumlah ELSE 0 END), 0) as count_harian_perempuan,
+                    COALESCE(SUM(CASE WHEN payment_period.jk_id = 8 THEN payment_period.mingguan_total ELSE 0 END), 0) as mingguan_laki,
+                    COALESCE(SUM(CASE WHEN payment_period.jk_id = 8 THEN payment_period.mingguan_jumlah ELSE 0 END), 0) as count_mingguan_laki,
+                    COALESCE(SUM(CASE WHEN payment_period.jk_id = 9 THEN payment_period.mingguan_total ELSE 0 END), 0) as mingguan_perempuan,
+                    COALESCE(SUM(CASE WHEN payment_period.jk_id = 9 THEN payment_period.mingguan_jumlah ELSE 0 END), 0) as count_mingguan_perempuan,
+                    COALESCE(SUM(CASE WHEN payment_period.jk_id = 8 THEN payment_period.bulanan_total ELSE 0 END), 0) as bulanan_laki,
+                    COALESCE(SUM(CASE WHEN payment_period.jk_id = 8 THEN payment_period.bulanan_jumlah ELSE 0 END), 0) as count_bulanan_laki,
+                    COALESCE(SUM(CASE WHEN payment_period.jk_id = 9 THEN payment_period.bulanan_total ELSE 0 END), 0) as bulanan_perempuan,
+                    COALESCE(SUM(CASE WHEN payment_period.jk_id = 9 THEN payment_period.bulanan_jumlah ELSE 0 END), 0) as count_bulanan_perempuan
+                ")
+                ->groupBy('mu.id', 'mu.kode', 'mu.nama', 'mu.simbol')
+                ->get()
+                ->keyBy(fn ($row) => (string) $row->mata_uang_id);
+
+            $periodFields = [
+                'harian_laki', 'count_harian_laki',
+                'harian_perempuan', 'count_harian_perempuan',
+                'mingguan_laki', 'count_mingguan_laki',
+                'mingguan_perempuan', 'count_mingguan_perempuan',
+                'bulanan_laki', 'count_bulanan_laki',
+                'bulanan_perempuan', 'count_bulanan_perempuan',
+            ];
+
+            $pembayaranRows = $overallRows->map(function ($row) use ($periodRows, $periodFields) {
+                $period = $periodRows->get((string) $row->mata_uang_id);
+
+                foreach ($periodFields as $field) {
+                    $row->{$field} = $period->{$field} ?? 0;
+                }
+
+                return $row;
+            });
+
+            $semesterPendekQuery = DB::table('keuangan_pembayaran_semester_pendek');
+            if ($jkUser->id !== '%') {
+                $semesterPendekQuery->where('jk_id', (int) $jkUser->id);
+            }
+            $sp = $semesterPendekQuery
+                ->selectRaw("
+                    COALESCE(SUM(CASE WHEN jk_id = 8 THEN jumlah ELSE 0 END), 0) as semua_laki,
+                    COALESCE(SUM(CASE WHEN jk_id = 8 THEN 1 ELSE 0 END), 0) as count_semua_laki,
+                    COALESCE(SUM(CASE WHEN jk_id = 9 THEN jumlah ELSE 0 END), 0) as semua_perempuan,
+                    COALESCE(SUM(CASE WHEN jk_id = 9 THEN 1 ELSE 0 END), 0) as count_semua_perempuan,
+                    COALESCE(SUM(CASE WHEN tanggal >= ? AND tanggal < ? AND jk_id = 8 THEN jumlah ELSE 0 END), 0) as harian_laki,
+                    COALESCE(SUM(CASE WHEN tanggal >= ? AND tanggal < ? AND jk_id = 8 THEN 1 ELSE 0 END), 0) as count_harian_laki,
+                    COALESCE(SUM(CASE WHEN tanggal >= ? AND tanggal < ? AND jk_id = 9 THEN jumlah ELSE 0 END), 0) as harian_perempuan,
+                    COALESCE(SUM(CASE WHEN tanggal >= ? AND tanggal < ? AND jk_id = 9 THEN 1 ELSE 0 END), 0) as count_harian_perempuan,
+                    COALESCE(SUM(CASE WHEN tanggal >= ? AND jk_id = 8 THEN jumlah ELSE 0 END), 0) as mingguan_laki,
+                    COALESCE(SUM(CASE WHEN tanggal >= ? AND jk_id = 8 THEN 1 ELSE 0 END), 0) as count_mingguan_laki,
+                    COALESCE(SUM(CASE WHEN tanggal >= ? AND jk_id = 9 THEN jumlah ELSE 0 END), 0) as mingguan_perempuan,
+                    COALESCE(SUM(CASE WHEN tanggal >= ? AND jk_id = 9 THEN 1 ELSE 0 END), 0) as count_mingguan_perempuan,
+                    COALESCE(SUM(CASE WHEN tanggal >= ? AND jk_id = 8 THEN jumlah ELSE 0 END), 0) as bulanan_laki,
+                    COALESCE(SUM(CASE WHEN tanggal >= ? AND jk_id = 8 THEN 1 ELSE 0 END), 0) as count_bulanan_laki,
+                    COALESCE(SUM(CASE WHEN tanggal >= ? AND jk_id = 9 THEN jumlah ELSE 0 END), 0) as bulanan_perempuan,
+                    COALESCE(SUM(CASE WHEN tanggal >= ? AND jk_id = 9 THEN 1 ELSE 0 END), 0) as count_bulanan_perempuan
+                ", [
+                    $today, $tomorrow, $today, $tomorrow,
+                    $today, $tomorrow, $today, $tomorrow,
+                    $startOfWeek, $startOfWeek, $startOfWeek, $startOfWeek,
+                    $startOfMonth, $startOfMonth, $startOfMonth, $startOfMonth,
+                ])
                 ->first();
 
             $umum = (object)[
@@ -187,17 +265,32 @@ class DashboardController extends Controller
                 'Semua' => $buildPeriod('semua'),
             ];
 
-            // KeuanganSaldo & KeuanganSaldoPengeluaran removed — will be remade
-            $saldoData = (object) ['total_saldo' => 0, 'jumlah' => 0];
-            $pengeluaranUmumData = (object) ['total' => 0, 'jumlah' => 0];
-            $pengeluaranDosenQuery = DB::table('keuangan_pengeluaran_dosen');
-            Helper::applyExpenseGenderScope($pengeluaranDosenQuery, 'keuangan_pengeluaran_dosen');
-            $pengeluaranDosenData = $pengeluaranDosenQuery
-                ->selectRaw('COALESCE(SUM(total), 0) as total, COUNT(*) as jumlah')
+            $saldoData = app(SaldoController::class)->dashboardSummary();
+            $expenseQueries = [];
+
+            foreach ($this->dashboardExpenseTables() as $table) {
+                $query = DB::table($table);
+                Helper::applyExpenseGenderScope($query, $table);
+
+                $expenseQueries[] = $query->selectRaw("
+                    COALESCE(SUM({$table}.total), 0) as total,
+                    COUNT({$table}.id) as jumlah
+                ");
+            }
+
+            $expenseUnion = array_shift($expenseQueries);
+            foreach ($expenseQueries as $expenseQuery) {
+                $expenseUnion->unionAll($expenseQuery);
+            }
+
+            $pengeluaranData = DB::query()
+                ->fromSub($expenseUnion, 'dashboard_expenses')
+                ->selectRaw('COALESCE(SUM(total), 0) as total, COALESCE(SUM(jumlah), 0) as jumlah')
                 ->first();
+
             $jumlahUser = User::count();
-            $saldo = (float) $saldoData->total_saldo;
-            $pengeluaran = (float) $pengeluaranUmumData->total + (float) $pengeluaranDosenData->total;
+            $saldo = (float) ($saldoData['total_saldo'] ?? 0);
+            $pengeluaran = (float) ($pengeluaranData->total ?? 0);
             $singleIdrTotal = fn (float $total) => [[
                 'key' => 'kode:IDR',
                 'mata_uang' => $defaultCurrency,
@@ -207,14 +300,14 @@ class DashboardController extends Controller
             return [
                 'saldo' => $saldo,
                 'saldoByCurrency' => $singleIdrTotal($saldo),
-                'jumlahSaldo' => (int) $saldoData->jumlah,
+                'jumlahSaldo' => (int) ($saldoData['jumlah'] ?? 0),
                 'pemasukanHarian' => $pemasukanBreakdown['Harian']['Keseluruhan']['value'] ?? 0,
                 'pemasukanHarianByCurrency' => $pemasukanBreakdown['Harian']['Keseluruhan']['by_currency'] ?? [],
                 'jumlahPemasukanHarian' => $pemasukanBreakdown['Harian']['Keseluruhan']['change'] ?? 0,
                 'pemasukanBreakdown' => $pemasukanBreakdown,
                 'pengeluaran' => $pengeluaran,
                 'pengeluaranByCurrency' => $singleIdrTotal($pengeluaran),
-                'jumlahPengeluaran' => (int) $pengeluaranUmumData->jumlah + (int) $pengeluaranDosenData->jumlah,
+                'jumlahPengeluaran' => (int) ($pengeluaranData->jumlah ?? 0),
                 'jumlahUser' => $jumlahUser,
             ];
         });
@@ -231,7 +324,7 @@ class DashboardController extends Controller
         try {
             $cacheKey = 'dashboard_finance_overview_v3_' . md5(json_encode($request->only(['th_akademik_id', 'prodi_id', 'jk_id'])));
 
-            $result = Cache::remember($cacheKey, 600, function () use ($request) {
+            $result = Cache::flexible($cacheKey, [600, 86400], function () use ($request) {
                 // Bundle grouping via CASE expression
                 $caseExpr = "CASE
                     WHEN keuangan_tagihan.nama LIKE '%SPP%' THEN 'SPP'
@@ -618,11 +711,14 @@ class DashboardController extends Controller
     public function statistic()
     {
         try {
-            $result = Cache::remember('dashboard_statistic_v2', 300, function () {
+            $jkUser = Helper::getJenisKelaminUser();
+            $jkIdStr = (string) $jkUser->id;
+
+            $result = Cache::flexible('dashboard_statistic_v3_' . md5($jkIdStr), [300, 86400], function () use ($jkUser) {
                 $startDate = Carbon::now()->subDays(9)->startOfDay();
                 $endDate   = Carbon::now()->endOfDay();
 
-                $rows = DB::table('keuangan_pembayaran as kp')
+                $rowsQuery = DB::table('keuangan_pembayaran as kp')
                     ->join('keuangan_tagihan as kt', 'kt.id', '=', 'kp.tagihan_id')
                     ->leftJoin('mata_uang as mu', 'mu.id', '=', 'kt.mata_uang_id')
                     ->selectRaw("
@@ -641,24 +737,50 @@ class DashboardController extends Controller
                         'mu.kode',
                         'mu.nama',
                         'mu.simbol'
-                    )
+                    );
 
-                    ->unionAll(
-                        DB::table('keuangan_pembayaran_semester_pendek')
-                            ->selectRaw("
-                                DATE(tanggal) AS tanggal,
-                                SUM(jumlah) AS nominal,
-                                'in' AS tipe,
-                                0 as mata_uang_id,
-                                'IDR' as mata_uang_kode,
-                                'Rupiah' as mata_uang_nama,
-                                'Rp' as mata_uang_simbol
-                            ")
-                            ->whereBetween('tanggal', [$startDate, $endDate])
-                            ->groupBy(DB::raw('DATE(tanggal)'))
-                    )
-                    // keuangan_saldo_pemasukan & keuangan_saldo_pengeluaran unions removed — tables will be remade
-                    ->get();
+                if ($jkUser->id !== '%') {
+                    $rowsQuery->where('kp.jk_id', (int) $jkUser->id);
+                }
+
+                $semesterPendekQuery = DB::table('keuangan_pembayaran_semester_pendek')
+                    ->selectRaw("
+                        DATE(tanggal) AS tanggal,
+                        SUM(jumlah) AS nominal,
+                        'in' AS tipe,
+                        0 as mata_uang_id,
+                        'IDR' as mata_uang_kode,
+                        'Rupiah' as mata_uang_nama,
+                        'Rp' as mata_uang_simbol
+                    ")
+                    ->whereBetween('tanggal', [$startDate, $endDate])
+                    ->groupBy(DB::raw('DATE(tanggal)'));
+
+                if ($jkUser->id !== '%') {
+                    $semesterPendekQuery->where('jk_id', (int) $jkUser->id);
+                }
+
+                $rowsQuery->unionAll($semesterPendekQuery);
+
+                foreach ($this->dashboardExpenseTables() as $table) {
+                    $expenseQuery = DB::table($table)
+                        ->selectRaw("
+                            DATE({$table}.tanggal) AS tanggal,
+                            SUM({$table}.total) AS nominal,
+                            'out' AS tipe,
+                            0 as mata_uang_id,
+                            'IDR' as mata_uang_kode,
+                            'Rupiah' as mata_uang_nama,
+                            'Rp' as mata_uang_simbol
+                        ")
+                        ->whereBetween("{$table}.tanggal", [$startDate, $endDate])
+                        ->groupBy(DB::raw("DATE({$table}.tanggal)"));
+
+                    Helper::applyExpenseGenderScope($expenseQuery, $table);
+                    $rowsQuery->unionAll($expenseQuery);
+                }
+
+                $rows = $rowsQuery->get();
 
                 $period = new \DatePeriod($startDate, new \DateInterval('P1D'), $endDate->copy()->addDay());
                 $categories = [];
@@ -728,13 +850,13 @@ class DashboardController extends Controller
             $roleName = auth()->user()?->role?->name;
             $sources = $this->barokahSourcesForRole($roleName);
 
-            $result = Cache::remember(
-                'dashboard_barokah_summary_v1_' . md5(
+            $result = Cache::flexible(
+                'dashboard_barokah_summary_v4_' . md5(
                     ($roleName ?? 'none')
                     .(Helper::activeGenderScope() ?? 'semua')
-                    .Carbon::now()->format('Y-m-d')
+                    .Carbon::now()->format('Y-m')
                 ),
-                300,
+                [300, 86400],
                 function () use ($sources, $roleName) {
                     $now = Carbon::now();
                     $today = $now->copy()->toDateString();
@@ -772,9 +894,13 @@ class DashboardController extends Controller
                         $totalColumn = "{$table}.total";
                         $baseQuery = $this->barokahSourceQuery($source);
 
-                        $moduleTotal = (clone $baseQuery)
-                            ->selectRaw("COALESCE(SUM({$totalColumn}), 0) as total, COUNT({$table}.id) as jumlah")
-                            ->first();
+                        $summaryRow = $this->barokahSummaryRow(
+                            clone $baseQuery,
+                            $source,
+                            $today,
+                            $year,
+                            $month
+                        );
 
                         $modules[] = [
                             'key' => $source['key'],
@@ -782,37 +908,18 @@ class DashboardController extends Controller
                             'path' => $source['path'],
                             'icon' => $source['icon'],
                             'color' => $source['color'],
-                            'total' => (float) ($moduleTotal->total ?? 0),
-                            'jumlah' => (int) ($moduleTotal->jumlah ?? 0),
+                            'total' => (float) ($summaryRow->total ?? 0),
+                            'jumlah' => (int) ($summaryRow->jumlah ?? 0),
                         ];
 
-                        $this->addBarokahStat(
-                            $stats['hari_ini'],
-                            (clone $baseQuery)->whereDate($dateColumn, $today),
-                            $table,
-                            $totalColumn
-                        );
-
-                        $this->addBarokahStat(
-                            $stats['bulan_ini'],
-                            $this->applyBarokahMonthScope((clone $baseQuery), $source, $year, $month),
-                            $table,
-                            $totalColumn
-                        );
-
-                        $this->addBarokahStat(
-                            $stats['tahun_ini'],
-                            $this->applyBarokahYearScope((clone $baseQuery), $source, $year),
-                            $table,
-                            $totalColumn
-                        );
-
-                        $this->addBarokahStat(
-                            $stats['keseluruhan'],
-                            (clone $baseQuery),
-                            $table,
-                            $totalColumn
-                        );
+                        $stats['hari_ini']['total'] += (float) ($summaryRow->hari_total ?? 0);
+                        $stats['hari_ini']['jumlah'] += (int) ($summaryRow->hari_jumlah ?? 0);
+                        $stats['bulan_ini']['total'] += (float) ($summaryRow->bulan_total ?? 0);
+                        $stats['bulan_ini']['jumlah'] += (int) ($summaryRow->bulan_jumlah ?? 0);
+                        $stats['tahun_ini']['total'] += (float) ($summaryRow->tahun_total ?? 0);
+                        $stats['tahun_ini']['jumlah'] += (int) ($summaryRow->tahun_jumlah ?? 0);
+                        $stats['keseluruhan']['total'] += (float) ($summaryRow->total ?? 0);
+                        $stats['keseluruhan']['jumlah'] += (int) ($summaryRow->jumlah ?? 0);
 
                         $dailyRows = (clone $baseQuery)
                             ->whereBetween($dateColumn, [$startOfMonth, $endOfMonth])
@@ -842,18 +949,32 @@ class DashboardController extends Controller
                             }
                         }
 
-                        $pegawaiRows = (clone $baseQuery)
+                        if (empty($source['has_pegawai'])) {
+                            continue;
+                        }
+
+                        $pegawaiAggregate = (clone $baseQuery)
                             ->selectRaw("
-                                COALESCE(pegawai.id, 0) as pegawai_id,
-                                COALESCE(pegawai.kode, '-') as kode,
-                                COALESCE(pegawai.nama, 'Tanpa Pegawai') as nama,
-                                COALESCE(pegawai.tipe, '-') as tipe,
+                                COALESCE({$table}.pegawai_id, 0) as pegawai_id,
                                 COALESCE(SUM({$totalColumn}), 0) as total,
                                 COUNT({$table}.id) as jumlah
                             ")
-                            ->groupBy('pegawai.id', 'pegawai.kode', 'pegawai.nama', 'pegawai.tipe')
+                            ->groupBy("{$table}.pegawai_id")
                             ->orderByDesc('total')
-                            ->limit(10)
+                            ->limit(10);
+
+                        $pegawaiRows = DB::query()
+                            ->fromSub($pegawaiAggregate, 'barokah')
+                            ->leftJoin('pegawai', 'pegawai.id', '=', 'barokah.pegawai_id')
+                            ->selectRaw("
+                                barokah.pegawai_id,
+                                COALESCE(pegawai.kode, '-') as kode,
+                                COALESCE(pegawai.nama, 'Tanpa Pegawai') as nama,
+                                COALESCE(pegawai.tipe, '-') as tipe,
+                                barokah.total,
+                                barokah.jumlah
+                            ")
+                            ->orderByDesc('barokah.total')
                             ->get();
 
                         foreach ($pegawaiRows as $row) {
@@ -893,6 +1014,13 @@ class DashboardController extends Controller
 
                     return [
                         'role' => $roleName,
+                        'detail_path' => in_array(
+                            $roleName,
+                            ['admin', 'pimpinan', 'keuangan', 'kabag', 'kabag_pengeluaran'],
+                            true
+                        )
+                            ? '/admin/laporan/pengeluaran/pengeluaran-harian'
+                            : ($modules[0]['path'] ?? null),
                         'modules' => $modules,
                         'stats' => $stats,
                         'charts' => [
@@ -939,23 +1067,38 @@ class DashboardController extends Controller
     public function krsReport(Request $request)
     {
         try {
-            $apiKey = config('simkeu.simkeu_api_key');
-            $url = config('simkeu.simkeu_url') . "krs/getDataInfo";
-
             $post = array_filter($request->only(['th_akademik_id', 'prodi_id', 'kelas_id', 'th_angkatan_id']), function ($v) {
                 return $v !== null && $v !== '';
             });
+            ksort($post);
+            $cacheKey = 'dashboard_krs_report_v2_'.md5(json_encode($post));
 
-            $ch = curl_init($url);
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_POSTFIELDS, $post);
-            curl_setopt($ch, CURLOPT_HTTPHEADER, [
-                "apikey: $apiKey",
-            ]);
-            $response = curl_exec($ch);
-            curl_close($ch);
+            $data = Cache::flexible($cacheKey, [300, 86400], function () use ($post) {
+                $apiKey = config('simkeu.simkeu_api_key');
+                $url = config('simkeu.simkeu_url') . "krs/getDataInfo";
+                $ch = curl_init($url);
 
-            $data = json_decode($response, true);
+                curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+                curl_setopt($ch, CURLOPT_POSTFIELDS, $post);
+                curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 3);
+                curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+                curl_setopt($ch, CURLOPT_HTTPHEADER, [
+                    "apikey: $apiKey",
+                ]);
+
+                $response = curl_exec($ch);
+                $error = curl_error($ch);
+                $statusCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                curl_close($ch);
+
+                if ($response === false || $statusCode >= 400) {
+                    throw new \RuntimeException(
+                        $error ?: "Layanan KRS tidak merespons dengan benar."
+                    );
+                }
+
+                return json_decode($response, true, 512, JSON_THROW_ON_ERROR);
+            });
 
             return response()->json([
                 'status' => true,
@@ -1437,6 +1580,18 @@ class DashboardController extends Controller
         return array_values($rows);
     }
 
+    private function dashboardExpenseTables(): array
+    {
+        return [
+            'keuangan_pengeluaran_dosen',
+            'keuangan_pengeluaran_dosen_kegiatan',
+            'keuangan_pengeluaran_pegawai_bulanan',
+            'keuangan_pengeluaran_transportasi',
+            'keuangan_pengeluaran_rumah_tangga',
+            'keuangan_pengeluaran_sarana_prasarana',
+        ];
+    }
+
     private function barokahSourcesForRole(?string $roleName): array
     {
         $allSources = [
@@ -1447,6 +1602,7 @@ class DashboardController extends Controller
                 'path' => '/admin/pengeluaran/dosen-tatapmuka',
                 'icon' => 'ri-user-voice-line',
                 'color' => 'primary',
+                'has_pegawai' => true,
             ],
             'kegiatan' => [
                 'key' => 'kegiatan',
@@ -1455,6 +1611,7 @@ class DashboardController extends Controller
                 'path' => '/admin/pengeluaran/dosen-kegiatan',
                 'icon' => 'ri-calendar-event-line',
                 'color' => 'info',
+                'has_pegawai' => true,
             ],
             'dosen_bulanan' => [
                 'key' => 'dosen_bulanan',
@@ -1465,6 +1622,34 @@ class DashboardController extends Controller
                 'color' => 'warning',
                 'pegawai_tipe' => null,
                 'uses_periode' => true,
+                'has_pegawai' => true,
+            ],
+            'transportasi' => [
+                'key' => 'transportasi',
+                'label' => 'Transportasi',
+                'table' => 'keuangan_pengeluaran_transportasi',
+                'path' => '/admin/pengeluaran/transportasi',
+                'icon' => 'ri-car-line',
+                'color' => 'secondary',
+                'has_pegawai' => false,
+            ],
+            'rumah_tangga' => [
+                'key' => 'rumah_tangga',
+                'label' => 'Rumah Tangga',
+                'table' => 'keuangan_pengeluaran_rumah_tangga',
+                'path' => '/admin/pengeluaran/rumah-tangga',
+                'icon' => 'ri-home-office-line',
+                'color' => 'success',
+                'has_pegawai' => false,
+            ],
+            'sarana_prasarana' => [
+                'key' => 'sarana_prasarana',
+                'label' => 'Sarana Prasarana',
+                'table' => 'keuangan_pengeluaran_sarana_prasarana',
+                'path' => '/admin/pengeluaran/sarana-prasarana',
+                'icon' => 'ri-tools-line',
+                'color' => 'warning',
+                'has_pegawai' => false,
             ],
         ];
 
@@ -1484,80 +1669,99 @@ class DashboardController extends Controller
     {
         $table = $source['table'];
 
-        $query = DB::table($table)
-            ->leftJoin('pegawai', 'pegawai.id', '=', "{$table}.pegawai_id");
+        $query = DB::table($table);
         Helper::applyExpenseGenderScope($query, $table);
 
         if (! empty($source['pegawai_tipe'])) {
+            $query->leftJoin('pegawai', 'pegawai.id', '=', "{$table}.pegawai_id");
             $query->where('pegawai.tipe', $source['pegawai_tipe']);
         }
 
         return $query;
     }
 
-    private function addBarokahStat(array &$stat, $query, string $table, string $totalColumn): void
-    {
-        $row = $query
-            ->selectRaw("COALESCE(SUM({$totalColumn}), 0) as total, COUNT({$table}.id) as jumlah")
-            ->first();
-
-        $stat['total'] += (float) ($row->total ?? 0);
-        $stat['jumlah'] += (int) ($row->jumlah ?? 0);
-    }
-
-    private function applyBarokahMonthScope($query, array $source, int $year, int $month)
-    {
+    private function barokahSummaryRow(
+        $query,
+        array $source,
+        string $today,
+        int $year,
+        int $month
+    ) {
         $table = $source['table'];
+        $dateColumn = "{$table}.tanggal";
+        $totalColumn = "{$table}.total";
+        $dayStart = Carbon::parse($today)->startOfDay();
+        $dayEnd = $dayStart->copy()->addDay();
+        $monthStart = Carbon::create($year, $month, 1)->startOfDay();
+        $monthEnd = $monthStart->copy()->addMonth();
+        $yearStart = Carbon::create($year, 1, 1)->startOfDay();
+        $yearEnd = $yearStart->copy()->addYear();
+
+        $dayCondition = "{$dateColumn} >= ? AND {$dateColumn} < ?";
+        $dayBindings = [$dayStart, $dayEnd];
 
         if (! empty($source['uses_periode'])) {
-            return $query->where(function ($q) use ($table, $year, $month) {
-                $q->where(function ($sq) use ($table, $year, $month) {
-                    $sq->where("{$table}.tahun", $year)
-                        ->where("{$table}.bulan", $month);
-                })->orWhere(function ($sq) use ($table, $year, $month) {
-                    $sq->whereNull("{$table}.tahun")
-                        ->whereYear("{$table}.tanggal", $year)
-                        ->whereMonth("{$table}.tanggal", $month);
-                });
-            });
+            $monthCondition = "((
+                {$table}.tahun = ? AND {$table}.bulan = ?
+            ) OR (
+                {$table}.tahun IS NULL
+                AND {$dateColumn} >= ?
+                AND {$dateColumn} < ?
+            ))";
+            $monthBindings = [$year, $month, $monthStart, $monthEnd];
+            $yearCondition = "((
+                {$table}.tahun = ?
+            ) OR (
+                {$table}.tahun IS NULL
+                AND {$dateColumn} >= ?
+                AND {$dateColumn} < ?
+            ))";
+            $yearBindings = [$year, $yearStart, $yearEnd];
+        } else {
+            $monthCondition = "{$dateColumn} >= ? AND {$dateColumn} < ?";
+            $monthBindings = [$monthStart, $monthEnd];
+            $yearCondition = "{$dateColumn} >= ? AND {$dateColumn} < ?";
+            $yearBindings = [$yearStart, $yearEnd];
         }
 
         return $query
-            ->whereYear("{$table}.tanggal", $year)
-            ->whereMonth("{$table}.tanggal", $month);
-    }
-
-    private function applyBarokahYearScope($query, array $source, int $year)
-    {
-        $table = $source['table'];
-
-        if (! empty($source['uses_periode'])) {
-            return $query->where(function ($q) use ($table, $year) {
-                $q->where("{$table}.tahun", $year)
-                    ->orWhere(function ($sq) use ($table, $year) {
-                        $sq->whereNull("{$table}.tahun")
-                            ->whereYear("{$table}.tanggal", $year);
-                    });
-            });
-        }
-
-        return $query->whereYear("{$table}.tanggal", $year);
+            ->selectRaw("
+                COALESCE(SUM({$totalColumn}), 0) as total,
+                COUNT({$table}.id) as jumlah,
+                COALESCE(SUM(CASE WHEN {$dayCondition} THEN {$totalColumn} ELSE 0 END), 0) as hari_total,
+                COALESCE(SUM(CASE WHEN {$dayCondition} THEN 1 ELSE 0 END), 0) as hari_jumlah,
+                COALESCE(SUM(CASE WHEN {$monthCondition} THEN {$totalColumn} ELSE 0 END), 0) as bulan_total,
+                COALESCE(SUM(CASE WHEN {$monthCondition} THEN 1 ELSE 0 END), 0) as bulan_jumlah,
+                COALESCE(SUM(CASE WHEN {$yearCondition} THEN {$totalColumn} ELSE 0 END), 0) as tahun_total,
+                COALESCE(SUM(CASE WHEN {$yearCondition} THEN 1 ELSE 0 END), 0) as tahun_jumlah
+            ", [
+                ...$dayBindings,
+                ...$dayBindings,
+                ...$monthBindings,
+                ...$monthBindings,
+                ...$yearBindings,
+                ...$yearBindings,
+            ])
+            ->first();
     }
 
     private function barokahMonthlyRows($query, array $source, int $year)
     {
         $table = $source['table'];
         $totalColumn = "{$table}.total";
+        $start = Carbon::create($year, 1, 1)->startOfDay();
+        $end = $start->copy()->addYear();
 
         if (! empty($source['uses_periode'])) {
             $periodExpr = "COALESCE({$table}.bulan, MONTH({$table}.tanggal))";
 
             return $query
-                ->where(function ($q) use ($table, $year) {
+                ->where(function ($q) use ($table, $year, $start, $end) {
                     $q->where("{$table}.tahun", $year)
-                        ->orWhere(function ($sq) use ($table, $year) {
+                        ->orWhere(function ($sq) use ($table, $start, $end) {
                             $sq->whereNull("{$table}.tahun")
-                                ->whereYear("{$table}.tanggal", $year);
+                                ->where("{$table}.tanggal", '>=', $start)
+                                ->where("{$table}.tanggal", '<', $end);
                         });
                 })
                 ->selectRaw("{$periodExpr} as period, COALESCE(SUM({$totalColumn}), 0) as total")
@@ -1566,7 +1770,8 @@ class DashboardController extends Controller
         }
 
         return $query
-            ->whereYear("{$table}.tanggal", $year)
+            ->where("{$table}.tanggal", '>=', $start)
+            ->where("{$table}.tanggal", '<', $end)
             ->selectRaw("MONTH({$table}.tanggal) as period, COALESCE(SUM({$totalColumn}), 0) as total")
             ->groupBy(DB::raw("MONTH({$table}.tanggal)"))
             ->get();
@@ -1576,16 +1781,19 @@ class DashboardController extends Controller
     {
         $table = $source['table'];
         $totalColumn = "{$table}.total";
+        $start = Carbon::create($startYear, 1, 1)->startOfDay();
+        $end = Carbon::create($endYear + 1, 1, 1)->startOfDay();
 
         if (! empty($source['uses_periode'])) {
             $periodExpr = "COALESCE({$table}.tahun, YEAR({$table}.tanggal))";
 
             return $query
-                ->where(function ($q) use ($table, $startYear, $endYear) {
+                ->where(function ($q) use ($table, $startYear, $endYear, $start, $end) {
                     $q->whereBetween("{$table}.tahun", [$startYear, $endYear])
-                        ->orWhere(function ($sq) use ($table, $startYear, $endYear) {
+                        ->orWhere(function ($sq) use ($table, $start, $end) {
                             $sq->whereNull("{$table}.tahun")
-                                ->whereBetween(DB::raw("YEAR({$table}.tanggal)"), [$startYear, $endYear]);
+                                ->where("{$table}.tanggal", '>=', $start)
+                                ->where("{$table}.tanggal", '<', $end);
                         });
                 })
                 ->selectRaw("{$periodExpr} as period, COALESCE(SUM({$totalColumn}), 0) as total")
@@ -1594,7 +1802,8 @@ class DashboardController extends Controller
         }
 
         return $query
-            ->whereBetween(DB::raw("YEAR({$table}.tanggal)"), [$startYear, $endYear])
+            ->where("{$table}.tanggal", '>=', $start)
+            ->where("{$table}.tanggal", '<', $end)
             ->selectRaw("YEAR({$table}.tanggal) as period, COALESCE(SUM({$totalColumn}), 0) as total")
             ->groupBy(DB::raw("YEAR({$table}.tanggal)"))
             ->get();

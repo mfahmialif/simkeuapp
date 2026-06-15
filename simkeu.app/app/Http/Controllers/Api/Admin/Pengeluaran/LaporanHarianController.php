@@ -5,7 +5,6 @@ namespace App\Http\Controllers\Api\Admin\Pengeluaran;
 use App\Exports\PemasukanTunaiHarianBulananExport;
 use App\Exports\PemasukanTunaiHarianTahunanExport;
 use App\Http\Controllers\Controller;
-use App\Services\Helper;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -85,7 +84,7 @@ class LaporanHarianController extends Controller
                 'columns' => $columns,
                 'all_data' => $allData,
                 'stats' => $this->yearStats($allData, count($columns)),
-                'filter_options' => $this->filterOptions($modules),
+                'filter_options' => $this->filterOptions($modules, $request),
             ]);
         }
 
@@ -111,7 +110,7 @@ class LaporanHarianController extends Controller
             'data' => $monthData['data'],
             'totals' => $monthData['totals'],
             'stats' => $monthData['stats'],
-            'filter_options' => $this->filterOptions($modules),
+            'filter_options' => $this->filterOptions($modules, $request),
         ]);
     }
 
@@ -170,7 +169,6 @@ class LaporanHarianController extends Controller
                     $start->toDateString(),
                     $end->toDateString(),
                 ]);
-            Helper::applyExpenseGenderScope($query, $table);
 
             if ($request->filled('jenis_pembayaran')) {
                 $query->where(
@@ -179,19 +177,7 @@ class LaporanHarianController extends Controller
                 );
             }
 
-            if ($request->filled('petugas_id')) {
-                $query->where("{$table}.petugas_id", $request->integer('petugas_id'));
-            }
-
-            if ($request->filled('jenis_kelamin')) {
-                $query->whereExists(function ($userQuery) use ($table, $request) {
-                    $userQuery
-                        ->selectRaw('1')
-                        ->from('users')
-                        ->whereColumn('users.id', "{$table}.petugas_id")
-                        ->where('users.jenis_kelamin', $request->input('jenis_kelamin'));
-                });
-            }
+            $this->applyPetugasFilters($query, $table, $request);
 
             $rows = $query
                 ->selectRaw("DATE({$table}.tanggal) as tanggal")
@@ -302,7 +288,7 @@ class LaporanHarianController extends Controller
         ];
     }
 
-    private function filterOptions(array $modules): array
+    private function filterOptions(array $modules, Request $request): array
     {
         $paymentTypes = collect();
 
@@ -313,12 +299,14 @@ class LaporanHarianController extends Controller
                 continue;
             }
 
+            $query = DB::table($table)
+                ->whereNotNull('jenis_pembayaran')
+                ->where('jenis_pembayaran', '<>', '');
+
+            $this->applyPetugasFilters($query, $table, $request);
+
             $paymentTypes = $paymentTypes->merge(
-                tap(DB::table($table), fn ($query) => Helper::applyExpenseGenderScope($query, $table))
-                    ->whereNotNull('jenis_pembayaran')
-                    ->where('jenis_pembayaran', '<>', '')
-                    ->distinct()
-                    ->pluck('jenis_pembayaran')
+                $query->distinct()->pluck('jenis_pembayaran')
             );
         }
 
@@ -331,6 +319,25 @@ class LaporanHarianController extends Controller
                 ->values()
                 ->all(),
         ];
+    }
+
+    private function applyPetugasFilters($query, string $table, Request $request): void
+    {
+        if ($request->filled('petugas_id')) {
+            $query->where("{$table}.petugas_id", $request->integer('petugas_id'));
+        }
+
+        if ($request->filled('jenis_kelamin')) {
+            $gender = $request->input('jenis_kelamin');
+
+            $query->whereExists(function ($userQuery) use ($table, $gender) {
+                $userQuery
+                    ->selectRaw('1')
+                    ->from('users')
+                    ->whereColumn('users.id', "{$table}.petugas_id")
+                    ->where('users.jenis_kelamin', $gender);
+            });
+        }
     }
 
     private function usableTable(string $table): bool

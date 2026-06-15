@@ -17,6 +17,7 @@ use App\Http\Controllers\Api\Admin\PegawaiController;
 use App\Http\Controllers\Api\Admin\DashboardController;
 use App\Http\Controllers\Api\Admin\MahasiswaController;
 use App\Http\Controllers\Api\Admin\MataUangController;
+use App\Http\Controllers\Api\Admin\PimpinanController;
 use App\Http\Controllers\Api\Admin\ThAkademikController;
 use App\Http\Controllers\Api\Admin\AktifkanMahasiswaController;
 use App\Http\Controllers\Api\Admin\FormSchaduleController;
@@ -301,11 +302,13 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
             Route::get("{$bulananPath}/form-data", [DosenBulananController::class, 'formData']);
             Route::post("{$bulananPath}/batch-store", [DosenBulananController::class, 'batchStore'])->middleware($roleBulananWrite);
             Route::get("{$bulananPath}/rekap", [DosenBulananController::class, 'rekapIndex']);
+            Route::get("{$bulananPath}/rekap/export-excel", [DosenBulananController::class, 'rekapExportExcel']);
             Route::post("{$bulananPath}/rekap", [DosenBulananController::class, 'rekapStore'])->middleware($roleBulananWrite);
             Route::post("{$bulananPath}/rekap/bulk-update", [DosenBulananController::class, 'rekapBulkUpdate'])->middleware($roleBulananWrite);
             Route::post("{$bulananPath}/rekap/{id}/release", [DosenBulananController::class, 'rekapRelease'])->middleware($roleBulananWrite);
             Route::put("{$bulananPath}/rekap/{id}", [DosenBulananController::class, 'rekapUpdate'])->middleware($roleBulananWrite);
             Route::delete("{$bulananPath}/rekap/{id}", [DosenBulananController::class, 'rekapDestroy'])->middleware($roleBulananWrite);
+            Route::get("{$bulananPath}/rekap/{id}/export-excel", [DosenBulananController::class, 'rekapDetailExportExcel']);
             Route::get("{$bulananPath}/rekap/{id}/lpj", [LpjController::class, 'dosenBulananShow']);
             Route::post("{$bulananPath}/rekap/{id}/lpj/copy", [LpjController::class, 'dosenBulananCopy'])->middleware($roleBulananWrite);
             Route::put("{$bulananPath}/rekap/{id}/lpj", [LpjController::class, 'dosenBulananUpdate'])->middleware($roleBulananWrite);
@@ -322,9 +325,15 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
         ->middleware('role:admin,keuangan,kabag,kabag_pengeluaran,barokahdosen_tatapmuka,barokahdosen_kegiatan,barokahdosen_bulanan');
     Route::delete('laporan/rab/kas/manual/{id}', [RabController::class, 'destroyKasManual'])
         ->middleware('role:admin,keuangan,kabag,kabag_pengeluaran,barokahdosen_tatapmuka,barokahdosen_kegiatan,barokahdosen_bulanan');
+    Route::get('laporan/rab/export-excel', [RabController::class, 'exportExcel'])
+        ->middleware('role:admin,pimpinan,keuangan,kabag,kabag_pengeluaran,barokahdosen_tatapmuka,barokahdosen_kegiatan,barokahdosen_bulanan');
+    Route::get('laporan/rab/export-rekapan', [RabController::class, 'exportRekapan'])
+        ->middleware('role:admin,pimpinan,keuangan,kabag,kabag_pengeluaran,barokahdosen_tatapmuka,barokahdosen_kegiatan,barokahdosen_bulanan');
     Route::get('laporan/rab', [RabController::class, 'index'])
         ->middleware('role:admin,pimpinan,keuangan,kabag,kabag_pengeluaran,barokahdosen_tatapmuka,barokahdosen_kegiatan,barokahdosen_bulanan');
     Route::post('laporan/rab', [RabController::class, 'store'])
+        ->middleware('role:admin,keuangan,kabag,kabag_pengeluaran,barokahdosen_tatapmuka,barokahdosen_kegiatan,barokahdosen_bulanan');
+    Route::put('laporan/rab/tanggal-pencairan', [RabController::class, 'updateTanggalPencairan'])
         ->middleware('role:admin,keuangan,kabag,kabag_pengeluaran,barokahdosen_tatapmuka,barokahdosen_kegiatan,barokahdosen_bulanan');
 
 
@@ -333,6 +342,8 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
     Route::apiResource('th-akademik', ThAkademikController::class);
     Route::apiResource('prodi', ProdiController::class);
     Route::apiResource('mata-uang', MataUangController::class);
+    Route::get('pimpinan/aktif', [PimpinanController::class, 'active']);
+    Route::apiResource('pimpinan', PimpinanController::class)->middleware('role:admin');
     Route::apiResource('ref', RefController::class);
     Route::get('pegawai/dosen-siakad/preview', [PegawaiController::class, 'previewDosenSiakad'])->middleware('role:admin');
     Route::get('pegawai/dosen-siakad/ids', [PegawaiController::class, 'dosenSiakadIds'])->middleware('role:admin');

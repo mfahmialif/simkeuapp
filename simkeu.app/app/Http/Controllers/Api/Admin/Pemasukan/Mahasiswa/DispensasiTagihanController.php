@@ -20,15 +20,31 @@ class DispensasiTagihanController extends Controller
             ->leftJoin('keuangan_tagihan', 'keuangan_dispensasi_tagihan.jenis_tagihan_id', '=', 'keuangan_tagihan.id')
             ->leftJoin('th_akademik', 'keuangan_dispensasi_tagihan.th_akademik_id', '=', 'th_akademik.id');
         if ($request->filled('search')) {
-            $query->where(function ($q) use ($request) {
-                $q->where('nim', 'LIKE',"%$request->search%")
-                    ->orWhere('keterangan', 'LIKE',"%$request->search%");
+            $search = trim((string) $request->search);
+            $query->where(function ($q) use ($search) {
+                $q->where('keuangan_dispensasi_tagihan.nim', 'LIKE', "%{$search}%")
+                    ->orWhere('keuangan_dispensasi_tagihan.keterangan', 'LIKE', "%{$search}%")
+                    ->orWhere('keuangan_dispensasi_tagihan.jenis', 'LIKE', "%{$search}%")
+                    ->orWhere('keuangan_dispensasi_tagihan.jumlah', 'LIKE', "%{$search}%")
+                    ->orWhere('keuangan_tagihan.nama', 'LIKE', "%{$search}%")
+                    ->orWhere('th_akademik.kode', 'LIKE', "%{$search}%")
+                    ->orWhere('th_akademik.nama', 'LIKE', "%{$search}%")
+                    ->orWhere('users.name', 'LIKE', "%{$search}%");
             });
         }
 
         $query = Helper::whereMahasiswaJkChunk($query, 'keuangan_dispensasi_tagihan.nim');
 
-        $sortKey = $request->input('sort_key', 'id');
+        $sortable = [
+            'id' => 'keuangan_dispensasi_tagihan.id',
+            'th_akademik' => 'th_akademik.kode',
+            'nim' => 'keuangan_dispensasi_tagihan.nim',
+            'tagihan' => 'keuangan_tagihan.nama',
+            'jumlah' => 'keuangan_dispensasi_tagihan.jumlah',
+            'keterangan' => 'keuangan_dispensasi_tagihan.keterangan',
+            'created_at' => 'keuangan_dispensasi_tagihan.created_at',
+        ];
+        $sortKey = $sortable[$request->input('sort_key')] ?? 'keuangan_dispensasi_tagihan.id';
         $sortOrder = $request->input('sort_order', 'desc');
         $query->orderBy($sortKey, $sortOrder);
 

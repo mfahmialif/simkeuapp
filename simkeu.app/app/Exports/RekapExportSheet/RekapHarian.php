@@ -2,15 +2,18 @@
 
 namespace App\Exports\RekapExportSheet;
 
+use App\Exports\Concerns\AddsPimpinanSignature;
 use App\Http\Services\Prodi;
 use App\Models\MhsTransaksiTagihan;
 use Maatwebsite\Excel\Concerns\FromQuery;
 use Maatwebsite\Excel\Concerns\FromView;
 use Illuminate\Contracts\View\View;
 use Maatwebsite\Excel\Concerns\WithTitle;
+use Maatwebsite\Excel\Concerns\WithEvents;
 
-class RekapHarian implements FromView, WithTitle
+class RekapHarian implements FromView, WithTitle, WithEvents
 {
+    use AddsPimpinanSignature;
     protected $tahun;
     protected $prodi;
     protected $tanggal;
