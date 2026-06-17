@@ -37,7 +37,7 @@ class DosenBulananController extends Controller
 
     protected const PEGAWAI_LABEL = 'Pegawai';
 
-    protected const JENIS_PEMBAYARAN = ['CUS BSI', 'Transfer'];
+    protected const JENIS_PEMBAYARAN = ['CUZ BSI', 'Transfer'];
 
     protected const REQUIRE_PERIODE = false;
 
@@ -269,7 +269,7 @@ class DosenBulananController extends Controller
                     'barokah_bulanan' => (int) ($amountSource?->barokah_bulanan ?? 0),
                     'barokah_dosen_tetap' => (int) ($amountSource?->barokah_dosen_tetap ?? 0),
                     'barokah_struktural' => (int) ($amountSource?->barokah_struktural ?? 0),
-                    'jenis_pembayaran' => $pengeluaran?->jenis_pembayaran ?? 'CUS BSI',
+                    'jenis_pembayaran' => $pengeluaran?->jenis_pembayaran ?? 'CUZ BSI',
                     'bukti_transfer_url' => $this->buktiTransferUrl($pengeluaran?->bukti_transfer),
                     'lampiran' => $pengeluaran
                         ? $this->appendLampiranUrls((object) ['lampiran' => $pengeluaran->lampiran])->lampiran
@@ -361,7 +361,7 @@ class DosenBulananController extends Controller
                 $struktural = (int) round($this->number($item['barokah_struktural'] ?? 0));
                 $total = $dosenTetap + $struktural;
                 $records = $recordsByPegawai->get($item['pegawai_id'], collect());
-                $paymentType = $item['jenis_pembayaran'] ?? $payload['jenis_pembayaran'] ?? 'CUS BSI';
+                $paymentType = $item['jenis_pembayaran'] ?? $payload['jenis_pembayaran'] ?? 'CUZ BSI';
 
                 if ($total === 0) {
                     if ($records->isNotEmpty()) {
@@ -678,7 +678,7 @@ class DosenBulananController extends Controller
     {
         $data = $this->bsiRows($request);
 
-        return Excel::download(new BsiPayrollExport($data, $this->bsiMessage()), 'CUS BSI '.static::MODULE_NAME.'.xlsx');
+        return Excel::download(new BsiPayrollExport($data, $this->bsiMessage()), 'CUZ BSI '.static::MODULE_NAME.'.xlsx');
     }
 
     public function copyBsi(Request $request)
@@ -692,8 +692,20 @@ class DosenBulananController extends Controller
                 'text' => $export->clipboardText(),
                 'total' => $data->count(),
             ],
-            'message' => 'Data CUS BSI berhasil disiapkan.',
+            'message' => 'Data CUZ BSI berhasil disiapkan.',
         ]);
+    }
+
+    public function exportBsiTxt(Request $request)
+    {
+        $data = $this->bsiRows($request);
+        $export = new BsiPayrollExport($data, $this->bsiMessage());
+
+        $filename = 'Template Batch Payment_' . date('Y-m-d_H-i-s') . '.txt';
+
+        return response($export->txtContent())
+            ->header('Content-Type', 'text/plain')
+            ->header('Content-Disposition', 'attachment; filename="' . $filename . '"');
     }
 
     protected function bsiRows(Request $request)
@@ -717,7 +729,7 @@ class DosenBulananController extends Controller
         $this->applyRekapFilter($query, $request);
 
         return $query
-            ->where('keuangan_pengeluaran_pegawai_bulanan.jenis_pembayaran', 'CUS BSI')
+            ->where('keuangan_pengeluaran_pegawai_bulanan.jenis_pembayaran', 'CUZ BSI')
             ->groupBy($this->bsiGroupColumns())
             ->orderBy('pegawai.nama')
             ->get();

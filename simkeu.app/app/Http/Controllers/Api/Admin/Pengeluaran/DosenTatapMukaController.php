@@ -26,7 +26,7 @@ class DosenTatapMukaController extends Controller
     use ManagesLampiran;
     use ManagesPengeluaranRekap;
 
-    private const JENIS_PEMBAYARAN = ['CUS BSI', 'Transfer'];
+    private const JENIS_PEMBAYARAN = ['CUZ BSI', 'Transfer'];
 
     private const BUKTI_TRANSFER_DIR = 'tatapmuka';
 
@@ -409,7 +409,7 @@ class DosenTatapMukaController extends Controller
     {
         $data = $this->bsiRows($request);
 
-        return Excel::download(new BsiPayrollExport($data, 'barokah mengajar'), 'CUS BSI Barokah Dosen Tatapmuka.xlsx');
+        return Excel::download(new BsiPayrollExport($data, 'barokah mengajar'), 'CUZ BSI Barokah Dosen Tatapmuka.xlsx');
     }
 
     public function copyBsi(Request $request)
@@ -423,8 +423,20 @@ class DosenTatapMukaController extends Controller
                 'text' => $export->clipboardText(),
                 'total' => $data->count(),
             ],
-            'message' => 'Data CUS BSI berhasil disiapkan.',
+            'message' => 'Data CUZ BSI berhasil disiapkan.',
         ]);
+    }
+
+    public function exportBsiTxt(Request $request)
+    {
+        $data = $this->bsiRows($request);
+        $export = new BsiPayrollExport($data, 'barokah mengajar');
+
+        $filename = 'Template Batch Payment_' . date('Y-m-d_H-i-s') . '.txt';
+
+        return response($export->txtContent())
+            ->header('Content-Type', 'text/plain')
+            ->header('Content-Disposition', 'attachment; filename="' . $filename . '"');
     }
 
     private function bsiRows(Request $request)
@@ -490,7 +502,7 @@ class DosenTatapMukaController extends Controller
         }
 
         return $query
-            ->where('keuangan_pengeluaran_dosen.jenis_pembayaran', 'CUS BSI')
+            ->where('keuangan_pengeluaran_dosen.jenis_pembayaran', 'CUZ BSI')
             ->groupBy($this->bsiGroupColumns())
             ->orderBy('pegawai.nama')
             ->get();

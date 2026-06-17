@@ -285,7 +285,7 @@ class SeedRabPerformanceData extends Command
                 MOD(numbers.`n`, 3),
                 IF(MOD(numbers.`n`, 3) = 0, 'Seminar proposal sintetis', NULL),
                 200000 + (MOD(numbers.`n`, 20) * 25000),
-                IF(MOD(numbers.`n`, 4) = 0, 'Transfer', 'CUS BSI'),
+                IF(MOD(numbers.`n`, 4) = 0, 'Transfer', 'CUZ BSI'),
                 CONCAT(?, ' Tatap muka #', LPAD(numbers.`n` + 1, 7, '0')),
                 NOW(),
                 NOW()
@@ -325,7 +325,7 @@ class SeedRabPerformanceData extends Command
                 50000 + (MOD(numbers.`n`, 8) * 25000),
                 100000 + (MOD(numbers.`n`, 12) * 50000),
                 150000 + (MOD(numbers.`n`, 20) * 50000),
-                IF(MOD(numbers.`n`, 4) = 0, 'Transfer', 'CUS BSI'),
+                IF(MOD(numbers.`n`, 4) = 0, 'Transfer', 'CUZ BSI'),
                 CONCAT(?, ' Kegiatan #', LPAD(numbers.`n` + 1, 7, '0')),
                 NOW(),
                 NOW()
@@ -396,7 +396,7 @@ class SeedRabPerformanceData extends Command
                     INTERVAL MOD(FLOOR(numbers.`n` / {$rekapCount}), 28) DAY
                 ),
                 {$componentColumns},
-                IF(MOD(numbers.`n`, 4) = 0, 'Transfer', 'CUS BSI'),
+                IF(MOD(numbers.`n`, 4) = 0, 'Transfer', 'CUZ BSI'),
                 CONCAT(?, ' {$label} #', LPAD(numbers.`n` + 1, 7, '0')),
                 NOW(),
                 NOW()

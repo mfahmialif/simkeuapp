@@ -29,9 +29,9 @@ class DosenKegiatanController extends Controller
 
     private const KATEGORI_DETAIL = ['pegawai', 'non_pegawai'];
 
-    private const JENIS_PEMBAYARAN_PEGAWAI = ['CUS BSI', 'Transfer'];
+    private const JENIS_PEMBAYARAN_PEGAWAI = ['CUZ BSI', 'Transfer'];
 
-    private const JENIS_PEMBAYARAN_NON_PEGAWAI = ['Tunai', 'CUS BSI', 'Transfer'];
+    private const JENIS_PEMBAYARAN_NON_PEGAWAI = ['Tunai', 'CUZ BSI', 'Transfer'];
 
     private const BUKTI_TRANSFER_DIR = 'kegiatan';
 
@@ -555,7 +555,7 @@ class DosenKegiatanController extends Controller
     {
         $data = $this->bsiRows($request);
 
-        return Excel::download(new BsiPayrollExport($data, 'barokah kegiatan'), 'CUS BSI Barokah Pegawai Kegiatan.xlsx');
+        return Excel::download(new BsiPayrollExport($data, 'barokah kegiatan'), 'CUZ BSI Barokah Pegawai Kegiatan.xlsx');
     }
 
     public function copyBsi(Request $request)
@@ -569,8 +569,20 @@ class DosenKegiatanController extends Controller
                 'text' => $export->clipboardText(),
                 'total' => $data->count(),
             ],
-            'message' => 'Data CUS BSI berhasil disiapkan.',
+            'message' => 'Data CUZ BSI berhasil disiapkan.',
         ]);
+    }
+
+    public function exportBsiTxt(Request $request)
+    {
+        $data = $this->bsiRows($request);
+        $export = new BsiPayrollExport($data, 'barokah kegiatan');
+
+        $filename = 'Template Batch Payment_' . date('Y-m-d_H-i-s') . '.txt';
+
+        return response($export->txtContent())
+            ->header('Content-Type', 'text/plain')
+            ->header('Content-Disposition', 'attachment; filename="' . $filename . '"');
     }
 
     private function bsiRows(Request $request)
@@ -592,7 +604,7 @@ class DosenKegiatanController extends Controller
         $this->applyPetugasFilter($query, $request);
 
         return $query
-            ->where('keuangan_pengeluaran_dosen_kegiatan.jenis_pembayaran', 'CUS BSI')
+            ->where('keuangan_pengeluaran_dosen_kegiatan.jenis_pembayaran', 'CUZ BSI')
             ->where('keuangan_pengeluaran_dosen_kegiatan.kategori_detail', 'pegawai')
             ->whereNotNull('keuangan_pengeluaran_dosen_kegiatan.pegawai_id')
             ->groupBy($this->bsiGroupColumns())

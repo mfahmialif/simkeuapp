@@ -2,8 +2,6 @@
 
 namespace App\Exports;
 
-use App\Exports\Concerns\AddsPimpinanSignature;
-use Maatwebsite\Excel\Concerns\WithEvents;
 use PhpOffice\PhpSpreadsheet\Cell\Cell;
 use PhpOffice\PhpSpreadsheet\Style\Fill;
 use Maatwebsite\Excel\Concerns\WithStyles;
@@ -25,11 +23,8 @@ class ExcelExport extends DefaultValueBinder implements
     WithStyles,
     WithCustomValueBinder,
     WithColumnFormatting,
-    WithEvents,
     IValueBinder
 {
-    use AddsPimpinanSignature;
-
     private $data;
 
     public function __construct($data)
@@ -85,11 +80,35 @@ class ExcelExport extends DefaultValueBinder implements
 
     public function columnFormats(): array
     {
-        return [
-            'H' => '"Rp" #,##0',
-            'I' => '"Rp" #,##0',
-            'J' => '"Rp" #,##0',
-        ];
+        $formats = [];
+        $firstRow = $this->collection()[0] ?? [];
+
+        $moneyKeywords = ['barokah', 'nominal', 'total', 'transport', 'subtotal', 'harga', 'biaya', 'honor', 'potongan', 'pajak', 'bersih', 'jumlah_dana'];
+
+        $columnIndex = 1;
+        foreach (array_keys($firstRow) as $key) {
+            $isMoney = false;
+            foreach ($moneyKeywords as $keyword) {
+                if (stripos($key, $keyword) !== false) {
+                    $isMoney = true;
+                    break;
+                }
+            }
+
+            // Pengecualian jika ada kolom berawalan total tapi bukan uang
+            if (in_array($key, ['total_jam', 'total_sks', 'hari', 'bulan', 'tahun'])) {
+                $isMoney = false;
+            }
+
+            if ($isMoney) {
+                $columnLetter = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($columnIndex);
+                $formats[$columnLetter] = '_-"Rp"* #,##0_-;-"Rp"* #,##0_-;_-"Rp"* "-"_-;_-@_-';
+            }
+            
+            $columnIndex++;
+        }
+
+        return $formats;
     }
 
 

@@ -24,7 +24,7 @@ class TransportasiController extends Controller
     use ManagesLampiran;
     use ManagesPengeluaranRekap;
 
-    private const JENIS_PEMBAYARAN = ['Tunai', 'Transfer'];
+    private const JENIS_PEMBAYARAN = ['Tunai', 'CUZ BSI', 'Transfer'];
 
     private const PRIORITAS_INPUT = ['Tinggi', 'Sedang', 'Rendah', 'tinggi', 'sedang', 'rendah'];
 
@@ -535,6 +535,60 @@ class TransportasiController extends Controller
             ->get();
 
         return Excel::download(new ExcelExport($data), 'Laporan Pengeluaran Transportasi.xlsx');
+    }
+
+    public function exportBsi(Request $request)
+    {
+        $data = $this->bsiRows($request);
+
+        return Excel::download(new \App\Exports\BsiPayrollExport($data, 'Pengeluaran Transportasi'), 'CUZ BSI Pengeluaran Transportasi.xlsx');
+    }
+
+    public function copyBsi(Request $request)
+    {
+        $data = $this->bsiRows($request);
+        $export = new \App\Exports\BsiPayrollExport($data, 'Pengeluaran Transportasi');
+
+        return response()->json([
+            'status' => true,
+            'data' => [
+                'text' => $export->clipboardText(),
+                'total' => $data->count(),
+            ],
+            'message' => 'Data CUZ BSI berhasil disiapkan.',
+        ]);
+    }
+
+    public function exportBsiTxt(Request $request)
+    {
+        $data = $this->bsiRows($request);
+        $export = new \App\Exports\BsiPayrollExport($data, 'Pengeluaran Transportasi');
+
+        $filename = 'Template Batch Payment_' . date('Y-m-d_H-i-s') . '.txt';
+
+        return response($export->txtContent())
+            ->header('Content-Type', 'text/plain')
+            ->header('Content-Disposition', 'attachment; filename="' . $filename . '"');
+    }
+
+    protected function bsiRows(Request $request)
+    {
+        $query = KeuanganPengeluaranTransportasi::query()
+            ->select([
+                'keuangan_pengeluaran_transportasi.total as amount',
+                'keuangan_pengeluaran_transportasi.nama_kegiatan as message',
+            ]);
+
+        $this->joinRekap($query);
+        $this->applySearchFilter($query, $request);
+        $this->applyDateFilter($query, $request);
+        $this->applyRekapFilter($query, $request);
+        $this->applyPetugasFilter($query, $request);
+
+        return $query
+            ->where('keuangan_pengeluaran_transportasi.jenis_pembayaran', 'CUZ BSI')
+            ->orderBy('keuangan_pengeluaran_transportasi.tanggal')
+            ->get();
     }
 
     protected function rekapModelClass(): string

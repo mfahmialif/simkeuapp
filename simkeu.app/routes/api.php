@@ -205,6 +205,7 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
         Route::get('/dosen/print-slip/{id}', [DosenTatapMukaController::class, 'printSlip']);
         Route::get('/dosen/export-excel', [DosenTatapMukaController::class, 'exportExcel']);
         Route::get('/dosen/export-bsi', [DosenTatapMukaController::class, 'exportBsi']);
+        Route::get('/dosen/export-bsi-txt', [DosenTatapMukaController::class, 'exportBsiTxt']);
         Route::get('/dosen/copy-bsi', [DosenTatapMukaController::class, 'copyBsi']);
         Route::get('/dosen/rekap', [DosenTatapMukaController::class, 'rekapIndex']);
         Route::get('/dosen/rekap/export-excel', [DosenTatapMukaController::class, 'rekapExportExcel']);
@@ -227,6 +228,7 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
         Route::get('/dosen-kegiatan/by-date', [PengeluaranDosenKegiatanController::class, 'byDate']);
         Route::get('/dosen-kegiatan/export-excel', [PengeluaranDosenKegiatanController::class, 'exportExcel']);
         Route::get('/dosen-kegiatan/export-bsi', [PengeluaranDosenKegiatanController::class, 'exportBsi']);
+        Route::get('/dosen-kegiatan/export-bsi-txt', [PengeluaranDosenKegiatanController::class, 'exportBsiTxt']);
         Route::get('/dosen-kegiatan/copy-bsi', [PengeluaranDosenKegiatanController::class, 'copyBsi']);
         Route::post('/dosen-kegiatan/batch-store', [PengeluaranDosenKegiatanController::class, 'batchStore'])->middleware($roleKegiatanWrite);
         Route::post('/dosen-kegiatan/batch-update', [PengeluaranDosenKegiatanController::class, 'batchUpdate'])->middleware($roleKegiatanWrite);
@@ -249,6 +251,9 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
         // Rumah Tangga
         $roleRumahTanggaWrite = 'role:admin,pimpinan,keuangan,kabag_pengeluaran,rumahtangga';
         Route::get('/rumah-tangga/export-excel', [PengeluaranRumahTanggaController::class, 'exportExcel']);
+        Route::get('/rumah-tangga/export-bsi', [PengeluaranRumahTanggaController::class, 'exportBsi']);
+        Route::get('/rumah-tangga/export-bsi-txt', [PengeluaranRumahTanggaController::class, 'exportBsiTxt']);
+        Route::get('/rumah-tangga/copy-bsi', [PengeluaranRumahTanggaController::class, 'copyBsi']);
         Route::post('/rumah-tangga/batch-store', [PengeluaranRumahTanggaController::class, 'batchStore'])->middleware($roleRumahTanggaWrite);
         Route::post('/rumah-tangga/batch-update', [PengeluaranRumahTanggaController::class, 'batchUpdate'])->middleware($roleRumahTanggaWrite);
         Route::get('/rumah-tangga/rekap', [PengeluaranRumahTanggaController::class, 'rekapIndex']);
@@ -270,6 +275,9 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
         // Sarana Prasarana
         $roleSarprasWrite = 'role:admin,pimpinan,keuangan,kabag_pengeluaran,sarpras';
         Route::get('/sarana-prasarana/export-excel', [PengeluaranSaranaPrasaranaController::class, 'exportExcel']);
+        Route::get('/sarana-prasarana/export-bsi', [PengeluaranSaranaPrasaranaController::class, 'exportBsi']);
+        Route::get('/sarana-prasarana/export-bsi-txt', [PengeluaranSaranaPrasaranaController::class, 'exportBsiTxt']);
+        Route::get('/sarana-prasarana/copy-bsi', [PengeluaranSaranaPrasaranaController::class, 'copyBsi']);
         Route::post('/sarana-prasarana/batch-store', [PengeluaranSaranaPrasaranaController::class, 'batchStore'])->middleware($roleSarprasWrite);
         Route::post('/sarana-prasarana/batch-update', [PengeluaranSaranaPrasaranaController::class, 'batchUpdate'])->middleware($roleSarprasWrite);
         Route::get('/sarana-prasarana/rekap', [PengeluaranSaranaPrasaranaController::class, 'rekapIndex']);
@@ -291,6 +299,9 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
         // Transportasi
         $roleTransportasiWrite = 'role:admin,pimpinan,keuangan,kabag_pengeluaran,transportasi';
         Route::get('/transportasi/export-excel', [PengeluaranTransportasiController::class, 'exportExcel']);
+        Route::get('/transportasi/export-bsi', [PengeluaranTransportasiController::class, 'exportBsi']);
+        Route::get('/transportasi/export-bsi-txt', [PengeluaranTransportasiController::class, 'exportBsiTxt']);
+        Route::get('/transportasi/copy-bsi', [PengeluaranTransportasiController::class, 'copyBsi']);
         Route::post('/transportasi/batch-store', [PengeluaranTransportasiController::class, 'batchStore'])->middleware($roleTransportasiWrite);
         Route::post('/transportasi/batch-update', [PengeluaranTransportasiController::class, 'batchUpdate'])->middleware($roleTransportasiWrite);
         Route::get('/transportasi/rekap', [PengeluaranTransportasiController::class, 'rekapIndex']);
@@ -313,6 +324,7 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
         $roleBulananWrite = 'role:admin,pimpinan,keuangan,kabag_pengeluaran,barokahdosen_bulanan';
         foreach (['bulanan', 'dosen-bulanan'] as $bulananPath) {
             Route::get("{$bulananPath}/export-bsi", [DosenBulananController::class, 'exportBsi']);
+            Route::get("{$bulananPath}/export-bsi-txt", [DosenBulananController::class, 'exportBsiTxt']);
             Route::get("{$bulananPath}/copy-bsi", [DosenBulananController::class, 'copyBsi']);
             Route::get("{$bulananPath}/form-data", [DosenBulananController::class, 'formData']);
             Route::post("{$bulananPath}/batch-store", [DosenBulananController::class, 'batchStore'])->middleware($roleBulananWrite);

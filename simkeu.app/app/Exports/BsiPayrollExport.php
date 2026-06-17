@@ -40,7 +40,7 @@ class BsiPayrollExport extends DefaultValueBinder implements
         'CUST REF NO',
         'MESSAGE (65)',
         'EXTENDED PAYMENT DETAIL',
-        'BENEFICIARY NOTIF EMAIL',
+        'BENEFICIARY NOTIF EMAIL(100)',
         'SMS NOTIF (100)',
     ];
 
@@ -71,6 +71,28 @@ class BsiPayrollExport extends DefaultValueBinder implements
         return $this->payrollRows(false)
             ->map(fn (array $row) => implode("\t", array_map(fn ($value) => $this->clipboardValue($value), $row)))
             ->implode("\r\n");
+    }
+
+    public function txtContent(): string
+    {
+        $rows = $this->payrollRows(true);
+        $totalRecords = $rows->count();
+        $totalAmount = $rows->sum(fn ($row) => $row[4]);
+        
+        $date = date('Y-m-d');
+        
+        $lines = [];
+        $lines[] = "0|BYPASSIDFU|{$date}|{$totalRecords}|{$totalAmount}|";
+        // Ensure format exactly matches the requested string for header, just to be safe.
+        $lines[] = "0|BENEFICIARY ACCT (35)|BENEFICIARY ACCT NAME |CREDIT AMOUNT CCY|AMOUNT|CUST REF NO|MESSAGE (65)|EXTENDED PAYMENT DETAIL|BENEFICIARY NOTIF EMAIL(100)|SMS NOTIF (100)|";
+        
+        foreach ($rows as $row) {
+            // Because the template has "0|" for header, and "1|" for rows. We already have $row[0] = index + 1
+            // So we can just implode.
+            $lines[] = implode('|', array_map(fn ($value) => $this->clipboardValue($value), $row)) . '|';
+        }
+
+        return implode("\r\n", $lines);
     }
 
     private function payrollRows(bool $withNumber): Collection

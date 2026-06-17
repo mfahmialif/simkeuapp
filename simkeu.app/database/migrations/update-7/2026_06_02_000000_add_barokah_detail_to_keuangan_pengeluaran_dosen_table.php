@@ -28,7 +28,7 @@ return new class extends Migration
                 'barokah_uas' => 0,
                 'jumlah_mahasiswa_uas' => 0,
                 'barokah_sempro' => 0,
-                'jenis_pembayaran' => 'CUS BSI',
+                'jenis_pembayaran' => 'CUZ BSI',
             ]);
     }
 
