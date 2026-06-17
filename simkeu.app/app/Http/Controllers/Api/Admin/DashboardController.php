@@ -1661,6 +1661,9 @@ class DashboardController extends Controller
             'barokahdosen_tatapmuka' => [$allSources['tatapmuka']],
             'barokahdosen_kegiatan' => [$allSources['kegiatan']],
             'barokahdosen_bulanan' => [$allSources['dosen_bulanan']],
+            'transportasi' => [$allSources['transportasi']],
+            'rumahtangga' => [$allSources['rumah_tangga']],
+            'sarpras' => [$allSources['sarana_prasarana']],
             default => [],
         };
     }
