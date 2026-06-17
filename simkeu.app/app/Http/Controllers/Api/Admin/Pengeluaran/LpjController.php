@@ -72,32 +72,32 @@ class LpjController extends Controller
 
     public function dosenShow(Request $request, $id)
     {
-        return $this->showModule('dosen', $id);
+        return $this->showModule($request, 'dosen', $id);
     }
 
     public function kegiatanShow(Request $request, $id)
     {
-        return $this->showModule('kegiatan', $id);
+        return $this->showModule($request, 'kegiatan', $id);
     }
 
     public function rumahTanggaShow(Request $request, $id)
     {
-        return $this->showModule('rumah_tangga', $id);
+        return $this->showModule($request, 'rumah_tangga', $id);
     }
 
     public function saranaPrasaranaShow(Request $request, $id)
     {
-        return $this->showModule('sarana_prasarana', $id);
+        return $this->showModule($request, 'sarana_prasarana', $id);
     }
 
     public function transportasiShow(Request $request, $id)
     {
-        return $this->showModule('transportasi', $id);
+        return $this->showModule($request, 'transportasi', $id);
     }
 
     public function dosenBulananShow(Request $request, $id)
     {
-        return $this->showModule('dosen_bulanan', $id);
+        return $this->showModule($request, 'dosen_bulanan', $id);
     }
 
     public function dosenCopy(Request $request, $id)
@@ -135,9 +135,19 @@ class LpjController extends Controller
         return $this->updateModule($request, 'dosen', $id);
     }
 
+    public function dosenDelete(Request $request, $id)
+    {
+        return $this->deleteModule($request, 'dosen', $id);
+    }
+
     public function kegiatanUpdate(Request $request, $id)
     {
         return $this->updateModule($request, 'kegiatan', $id);
+    }
+
+    public function kegiatanDelete(Request $request, $id)
+    {
+        return $this->deleteModule($request, 'kegiatan', $id);
     }
 
     public function rumahTanggaUpdate(Request $request, $id)
@@ -145,9 +155,19 @@ class LpjController extends Controller
         return $this->updateModule($request, 'rumah_tangga', $id);
     }
 
+    public function rumahTanggaDelete(Request $request, $id)
+    {
+        return $this->deleteModule($request, 'rumah_tangga', $id);
+    }
+
     public function saranaPrasaranaUpdate(Request $request, $id)
     {
         return $this->updateModule($request, 'sarana_prasarana', $id);
+    }
+
+    public function saranaPrasaranaDelete(Request $request, $id)
+    {
+        return $this->deleteModule($request, 'sarana_prasarana', $id);
     }
 
     public function transportasiUpdate(Request $request, $id)
@@ -155,12 +175,22 @@ class LpjController extends Controller
         return $this->updateModule($request, 'transportasi', $id);
     }
 
+    public function transportasiDelete(Request $request, $id)
+    {
+        return $this->deleteModule($request, 'transportasi', $id);
+    }
+
     public function dosenBulananUpdate(Request $request, $id)
     {
         return $this->updateModule($request, 'dosen_bulanan', $id);
     }
 
-    private function showModule(string $module, $rekapId)
+    public function dosenBulananDelete(Request $request, $id)
+    {
+        return $this->deleteModule($request, 'dosen_bulanan', $id);
+    }
+
+    private function showModule(Request $request, string $module, $rekapId)
     {
         $source = $this->source($module);
         $rekap = $this->rekapSummary($source, $rekapId);
@@ -182,7 +212,7 @@ class LpjController extends Controller
                 'title' => $source['title'],
                 'rekap' => $rekap,
                 'lpj' => $lpj,
-                'details' => $this->lpjRows($source, $rekapId),
+                'details' => $this->lpjRows($source, $rekapId, $request),
             ],
             'message' => 'LPJ retrieved successfully',
         ]);
@@ -285,7 +315,18 @@ class LpjController extends Controller
     {
         $source = $this->source($module);
         $rules = [
+            'partial' => ['nullable', 'boolean'],
+            'deleted_ids' => ['nullable', 'array', 'max:500'],
+            'deleted_ids.*' => [
+                'integer',
+                Rule::exists($source['lpj_table'], 'id'),
+            ],
             'items' => ['present', 'array', 'max:500'],
+            'items.*.id' => [
+                'nullable',
+                'integer',
+                Rule::exists($source['lpj_table'], 'id'),
+            ],
         ];
 
         if (in_array($source['type'], ['rumah-tangga', 'sarana-prasarana'], true)) {
@@ -318,25 +359,98 @@ class LpjController extends Controller
                 return null;
             }
 
-            $this->deleteLpjRows($source, $rekapId);
-
             $columns = Schema::getColumnListing($source['lpj_table']);
             $now = now();
+            $isPartial = $request->boolean('partial');
+
+            if (! $isPartial) {
+                $this->deleteLpjRows($source, $rekapId);
+            } else {
+                $deletedIds = collect($request->input('deleted_ids', []))
+                    ->map(fn ($id) => (int) $id)
+                    ->filter()
+                    ->unique()
+                    ->values();
+
+                if ($deletedIds->isNotEmpty()) {
+                    $deleteQuery = DB::table($source['lpj_table'])
+                        ->where('rekap_id', $rekapId)
+                        ->whereIn('id', $deletedIds->all());
+                    $this->applyDetailGenderScope(
+                        $deleteQuery,
+                        $source['lpj_table'],
+                        $source['lpj_table']
+                    );
+
+                    if ($source['pegawai_tipe'] && Schema::hasColumn($source['lpj_table'], 'pegawai_tipe')) {
+                        $deleteQuery->where('pegawai_tipe', $source['pegawai_tipe']);
+                    }
+
+                    $deleteQuery->delete();
+                }
+            }
+
             $rows = collect($request->input('items', []))
-                ->map(fn ($item) => $this->normalizeLpjRow(
-                    $source,
-                    (array) $item,
-                    $rekapId,
-                    $columns,
-                    $now,
-                    $rekap->petugas_id ?? auth()->id()
-                ))
+                ->map(function ($item) use ($source, $rekapId, $columns, $now, $rekap, $isPartial) {
+                    $item = (array) $item;
+                    $id = $this->nullableInt($item['id'] ?? null);
+                    unset($item['id']);
+
+                    $row = $this->normalizeLpjRow(
+                        $source,
+                        $item,
+                        $rekapId,
+                        $columns,
+                        $now,
+                        $rekap->petugas_id ?? auth()->id()
+                    );
+
+                    return [
+                        'id' => $isPartial ? $id : null,
+                        'data' => $row,
+                    ];
+                })
                 ->values()
                 ->all();
 
-            foreach (array_chunk($rows, 500) as $chunk) {
-                if ($chunk) {
-                    DB::table($source['lpj_table'])->insert($chunk);
+            if ($isPartial) {
+                $updated = 0;
+                $created = 0;
+
+                foreach ($rows as $row) {
+                    $id = $row['id'];
+                    $data = $row['data'];
+
+                    if ($id) {
+                        $updateQuery = DB::table($source['lpj_table'])
+                            ->where('rekap_id', $rekapId)
+                            ->where('id', $id);
+                        $this->applyDetailGenderScope(
+                            $updateQuery,
+                            $source['lpj_table'],
+                            $source['lpj_table']
+                        );
+
+                        if ($source['pegawai_tipe'] && Schema::hasColumn($source['lpj_table'], 'pegawai_tipe')) {
+                            $updateQuery->where('pegawai_tipe', $source['pegawai_tipe']);
+                        }
+
+                        unset($data['id'], $data['created_at']);
+                        $affected = $updateQuery->update($data);
+                        $updated += $affected;
+
+                        continue;
+                    }
+
+                    DB::table($source['lpj_table'])->insert($data);
+                    $created++;
+                }
+            } else {
+                $insertRows = array_map(fn ($row) => $row['data'], $rows);
+                foreach (array_chunk($insertRows, 500) as $chunk) {
+                    if ($chunk) {
+                        DB::table($source['lpj_table'])->insert($chunk);
+                    }
                 }
             }
 
@@ -368,6 +482,87 @@ class LpjController extends Controller
             'status' => true,
             'data' => $result,
             'message' => 'Detail LPJ berhasil diperbarui.',
+        ]);
+    }
+
+    private function deleteModule(Request $request, string $module, $rekapId)
+    {
+        $validator = Validator::make($request->all(), [
+            'ids' => ['required', 'array', 'min:1', 'max:100'],
+            'ids.*' => ['required', 'integer', 'min:1'],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'message' => $validator->errors(),
+            ], 422);
+        }
+
+        $source = $this->source($module);
+        $ids = collect($validator->validated()['ids'])
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values();
+
+        $result = DB::transaction(function () use ($ids, $source, $rekapId) {
+            $rekapQuery = DB::table($source['rekap_table'])
+                ->where('id', $rekapId);
+            Helper::applyRelatedGenderScope(
+                $rekapQuery,
+                "{$source['rekap_table']}.petugas_id",
+                'users'
+            );
+            $rekap = $rekapQuery->lockForUpdate()->first();
+
+            if (! $rekap) {
+                return null;
+            }
+
+            $deleteQuery = DB::table($source['lpj_table'])
+                ->where('rekap_id', $rekapId)
+                ->whereIn('id', $ids->all());
+            $this->applyDetailGenderScope(
+                $deleteQuery,
+                $source['lpj_table'],
+                $source['lpj_table']
+            );
+
+            if ($source['pegawai_tipe'] && Schema::hasColumn($source['lpj_table'], 'pegawai_tipe')) {
+                $deleteQuery->where('pegawai_tipe', $source['pegawai_tipe']);
+            }
+
+            $deleted = $deleteQuery->delete();
+
+            $rekapSummary = $this->rekapSummary($source, $rekapId);
+            $lpjSummary = $this->lpjSummary($source, $rekapId, $rekapSummary['jumlah']);
+
+            $this->upsertStatus($source, $rekapId, [
+                'sama_dengan_rab' => false,
+                'total_rab' => $rekapSummary['jumlah'],
+                'total_lpj' => $lpjSummary['total_lpj'],
+                'selesai_at' => $lpjSummary['jumlah_data'] > 0 ? now() : null,
+            ]);
+
+            return [
+                'deleted' => $deleted,
+                'total_rab' => $rekapSummary['jumlah'],
+                'total_lpj' => $lpjSummary['total_lpj'],
+                'selisih' => $rekapSummary['jumlah'] - $lpjSummary['total_lpj'],
+            ];
+        });
+
+        if (! $result) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Rekap not found',
+            ], 404);
+        }
+
+        return response()->json([
+            'status' => true,
+            'data' => $result,
+            'message' => $result['deleted'].' data LPJ berhasil dihapus.',
         ]);
     }
 
@@ -494,9 +689,10 @@ class LpjController extends Controller
         ];
     }
 
-    private function lpjRows(array $source, $rekapId)
+    private function lpjRows(array $source, $rekapId, ?Request $request = null)
     {
         $select = ['lpj.*'];
+        $lpjColumns = Schema::getColumnListing($source['lpj_table']);
 
         $query = DB::table("{$source['lpj_table']} as lpj")
             ->leftJoin("{$source['rekap_table']} as rekap", 'rekap.id', '=', 'lpj.rekap_id')
@@ -542,17 +738,121 @@ class LpjController extends Controller
             $query->where('lpj.pegawai_tipe', $source['pegawai_tipe']);
         }
 
-        return $query
-            ->orderBy('lpj.id')
-            ->get()
-            ->map(function ($row) {
-                if (isset($row->lampiran) && is_string($row->lampiran)) {
-                    $row->lampiran = json_decode($row->lampiran, true) ?: [];
-                }
+        $this->applyLpjSearchFilter($query, $source, $request, $lpjColumns);
+        $this->applyLpjSorting($query, $source, $request, $lpjColumns);
 
-                return $row;
-            })
+        if ($request?->has('limit')) {
+            $perPage = max(1, min(100, (int) $request->input('limit', 10)));
+            $page = max(1, (int) $request->input('page', 1));
+            $total = (clone $query)->count();
+            $items = $query
+                ->forPage($page, $perPage)
+                ->get()
+                ->map(fn ($row) => $this->normalizeLpjOutputRow($row))
+                ->values();
+
+            return new \Illuminate\Pagination\LengthAwarePaginator(
+                $items,
+                $total,
+                $perPage,
+                $page,
+                [
+                    'path' => $request->url(),
+                    'query' => $request->query(),
+                ]
+            );
+        }
+
+        return $query
+            ->get()
+            ->map(fn ($row) => $this->normalizeLpjOutputRow($row))
             ->values();
+    }
+
+    private function normalizeLpjOutputRow($row)
+    {
+        if (isset($row->lampiran) && is_string($row->lampiran)) {
+            $row->lampiran = json_decode($row->lampiran, true) ?: [];
+        }
+
+        return $row;
+    }
+
+    private function applyLpjSearchFilter($query, array $source, ?Request $request, array $lpjColumns): void
+    {
+        $search = trim((string) $request?->input('search', ''));
+
+        if ($search === '') {
+            return;
+        }
+
+        $hasColumn = fn (string $column) => in_array($column, $lpjColumns, true);
+
+        $query->where(function ($q) use ($search, $source, $hasColumn) {
+            foreach ([
+                'tanggal',
+                'kategori_detail',
+                'nama_kegiatan',
+                'kelompok_anggaran',
+                'prioritas',
+                'satuan',
+                'jenis_pembayaran',
+                'keterangan',
+            ] as $column) {
+                if ($hasColumn($column)) {
+                    $q->orWhere("lpj.{$column}", 'LIKE', "%{$search}%");
+                }
+            }
+
+            foreach (['nominal', 'volume', 'jumlah', 'transport', 'barokah', 'total'] as $column) {
+                if ($hasColumn($column)) {
+                    $q->orWhere("lpj.{$column}", 'LIKE', "%{$search}%");
+                }
+            }
+
+            if (Schema::hasColumn($source['lpj_table'], 'petugas_id')) {
+                $q->orWhere('petugas.name', 'LIKE', "%{$search}%");
+            }
+
+            if (Schema::hasColumn($source['lpj_table'], 'pegawai_id')) {
+                $q->orWhere('pegawai.nama', 'LIKE', "%{$search}%")
+                    ->orWhere('pegawai.kode', 'LIKE', "%{$search}%")
+                    ->orWhere('prodi.nama', 'LIKE', "%{$search}%")
+                    ->orWhere('staff.jabatan', 'LIKE', "%{$search}%");
+            }
+        });
+    }
+
+    private function applyLpjSorting($query, array $source, ?Request $request, array $lpjColumns): void
+    {
+        $hasColumn = fn (string $column) => in_array($column, $lpjColumns, true);
+        $sortColumns = [
+            'id' => 'lpj.id',
+            'tanggal' => $hasColumn('tanggal') ? 'lpj.tanggal' : 'lpj.id',
+            'kategori_detail' => $hasColumn('kategori_detail') ? 'lpj.kategori_detail' : 'lpj.id',
+            'kelompok_anggaran' => $hasColumn('kelompok_anggaran') ? 'lpj.kelompok_anggaran' : 'lpj.id',
+            'uraian' => $hasColumn('nama_kegiatan') ? 'lpj.nama_kegiatan' : 'lpj.id',
+            'volume' => $hasColumn('volume') ? 'lpj.volume' : 'lpj.id',
+            'satuan' => $hasColumn('satuan') ? 'lpj.satuan' : 'lpj.id',
+            'nominal' => $hasColumn('nominal') ? 'lpj.nominal' : 'lpj.id',
+            'prioritas' => $hasColumn('prioritas') ? 'lpj.prioritas' : 'lpj.id',
+            'jenis_pembayaran' => $hasColumn('jenis_pembayaran') ? 'lpj.jenis_pembayaran' : 'lpj.id',
+            'total' => $hasColumn('total') ? 'lpj.total' : 'lpj.id',
+            'keterangan' => $hasColumn('keterangan') ? 'lpj.keterangan' : 'lpj.id',
+        ];
+
+        if (Schema::hasColumn($source['lpj_table'], 'petugas_id')) {
+            $sortColumns['petugas_nama'] = 'petugas.name';
+        }
+
+        if (Schema::hasColumn($source['lpj_table'], 'pegawai_id')) {
+            $sortColumns['pegawai'] = 'pegawai.nama';
+        }
+
+        $sortKey = $request?->input('sort_key', 'id') ?: 'id';
+        $sortOrder = $request?->input('sort_order', 'asc') === 'desc' ? 'desc' : 'asc';
+
+        $query->orderBy($sortColumns[$sortKey] ?? 'lpj.id', $sortOrder);
     }
 
     private function normalizeLpjRow(

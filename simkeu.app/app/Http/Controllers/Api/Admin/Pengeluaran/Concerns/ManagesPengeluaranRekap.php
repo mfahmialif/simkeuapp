@@ -2,8 +2,10 @@
 
 namespace App\Http\Controllers\Api\Admin\Pengeluaran\Concerns;
 
+use App\Exports\BarokahBulananRekapExport;
 use App\Models\User;
 use App\Services\Helper;
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -11,6 +13,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use Maatwebsite\Excel\Facades\Excel;
 
 trait ManagesPengeluaranRekap
 {
@@ -124,6 +127,110 @@ trait ManagesPengeluaranRekap
         ]);
     }
 
+    public function rekapExportExcel(Request $request)
+    {
+        $data = $this->exportableRekapRows($request);
+        $period = $this->genericRekapExportPeriodLabel($request);
+        $moduleName = $this->genericRekapExportModuleName();
+        $title = trim('REKAP '.strtoupper($moduleName).' '.$period);
+        $headings = [
+            'NO',
+            'NAMA REKAP',
+            'PERIODE',
+            'TGL REKAP',
+            'DATA',
+            'TOTAL RAB',
+            'TOTAL LPJ',
+            'SELISIH',
+            'KETERANGAN',
+        ];
+
+        $rows = $data->values()->map(function ($item, $index) {
+            $totalRab = (int) ($item->jumlah ?? 0);
+            $totalLpj = (int) ($item->total_lpj ?? 0);
+
+            return [
+                $index + 1,
+                $item->nama,
+                $this->formatGenericRekapExportPeriod($item->bulan_tahun),
+                $this->formatGenericRekapExportDate($item->tanggal_rekap),
+                (int) ($item->jumlah_data ?? 0),
+                $totalRab,
+                $totalLpj,
+                $totalRab - $totalLpj,
+                $item->keterangan ?: '',
+            ];
+        })->all();
+
+        $totalRow = [
+            '',
+            'TOTAL',
+            '',
+            '',
+            $data->sum(fn ($item) => (int) ($item->jumlah_data ?? 0)),
+            $data->sum(fn ($item) => (int) ($item->jumlah ?? 0)),
+            $data->sum(fn ($item) => (int) ($item->total_lpj ?? 0)),
+            $data->sum(fn ($item) => (int) ($item->jumlah ?? 0) - (int) ($item->total_lpj ?? 0)),
+            '',
+        ];
+
+        return Excel::download(
+            new BarokahBulananRekapExport(
+                $title,
+                $headings,
+                $rows,
+                [6, 7, 8],
+                $totalRow
+            ),
+            $this->genericRekapExportFilename(trim('Rekapan '.$moduleName.' '.$period))
+        );
+    }
+
+    public function rekapDetailExportExcel(Request $request, $id)
+    {
+        $modelClass = $this->rekapModelClass();
+        $rekap = $this->findScopedRekapModel($modelClass, $id);
+
+        if (! $rekap) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Rekap not found',
+            ], 404);
+        }
+
+        $tab = $request->input('tab') === 'lpj' ? 'lpj' : 'rab';
+        $data = $this->genericRekapDetailExportRows($request, (int) $rekap->id, $tab);
+
+        if (
+            $tab === 'lpj'
+            && $data->isEmpty()
+            && $this->genericRekapDetailLpjSameAsRab((int) $rekap->id)
+        ) {
+            $data = $this->genericRekapDetailExportRows($request, (int) $rekap->id, 'rab');
+        }
+
+        $config = $this->genericRekapDetailExportConfig();
+        $rows = $data->values()->map($config['row'])->all();
+        $totalRow = array_fill(0, count($config['headings']), '');
+        $totalRow[1] = 'TOTAL';
+        $totalRow[$config['total_column'] - 1] = $data->sum(fn ($item) => (int) ($item->total ?? 0));
+        $period = $this->formatGenericRekapExportPeriod($rekap->bulan_tahun);
+        $moduleName = $this->genericRekapExportModuleName();
+        $titlePrefix = $tab === 'lpj' ? 'DETAIL LPJ' : 'DETAIL RAB';
+
+        return Excel::download(
+            new BarokahBulananRekapExport(
+                trim($titlePrefix.' '.strtoupper($moduleName).' '.$period),
+                $config['headings'],
+                $rows,
+                $config['amount_columns'],
+                $totalRow,
+                $config['text_columns'] ?? []
+            ),
+            $this->genericRekapExportFilename($titlePrefix.' '.($rekap->nama ?: $moduleName))
+        );
+    }
+
     private function fastRekapIndex(Request $request, $filteredRekaps, string $sortColumn, string $sortOrder)
     {
         $data = (clone $filteredRekaps)
@@ -167,6 +274,396 @@ trait ManagesPengeluaranRekap
             'data' => $data,
             'message' => 'Rekap retrieved successfully',
         ]);
+    }
+
+    private function exportableRekapRows(Request $request)
+    {
+        $modelClass = $this->rekapModelClass();
+        $rekapTable = (new $modelClass)->getTable();
+        $filteredRekaps = $this->filteredRekapBaseQuery($request, $modelClass, $rekapTable);
+        $sortKey = $request->input('sort_key', 'id');
+        $sortOrder = $request->input('sort_order', 'desc') === 'asc' ? 'asc' : 'desc';
+        $sortColumns = [
+            'id' => "{$rekapTable}.id",
+            'nama' => "{$rekapTable}.nama",
+            'tanggal_rekap' => "{$rekapTable}.tanggal_rekap",
+            'tanggal_pencairan' => "{$rekapTable}.tanggal_pencairan",
+            'created_at' => "{$rekapTable}.created_at",
+        ];
+
+        $data = (clone $filteredRekaps)
+            ->orderBy($sortColumns[$sortKey] ?? "{$rekapTable}.id", $sortOrder)
+            ->get();
+
+        $ids = $data->pluck('id')->filter()->values()->all();
+        $summaries = $this->rekapSummariesForIds($request, $ids);
+        $lpjSummaries = $this->lpjSummariesForIds($request, $ids);
+        $lpjStatuses = $this->lpjStatusesForIds($ids);
+
+        return $data->each(function ($item) use ($summaries, $lpjSummaries, $lpjStatuses) {
+            $summary = $summaries->get($item->id);
+            $jumlahData = (int) ($summary->jumlah_data ?? 0);
+            $totalPengeluaran = (int) ($summary->total_pengeluaran ?? 0);
+            $amounts = $this->resolveRekapAmounts(
+                $item->jumlah_sementara === null ? null : (int) $item->jumlah_sementara,
+                $jumlahData,
+                $totalPengeluaran
+            );
+            $lpjSummary = $lpjSummaries->get($item->id);
+            $lpjStatus = $lpjStatuses->get($item->id);
+            $jumlahLpj = (int) ($lpjSummary->jumlah_lpj ?? 0);
+            $sameAsRab = (bool) ($lpjStatus->sama_dengan_rab ?? false);
+
+            $item->jumlah_data = $jumlahData;
+            $item->total_pengeluaran = $totalPengeluaran;
+            $item->jumlah = $amounts['jumlah'];
+            $item->is_jumlah_sementara = $amounts['is_jumlah_sementara'];
+            $item->selisih_sementara = $amounts['selisih_sementara'];
+            $item->jumlah_lpj = $jumlahLpj;
+            $item->total_lpj = $jumlahLpj > 0
+                ? (int) ($lpjSummary->total_lpj ?? 0)
+                : ($sameAsRab ? (int) (($lpjStatus->total_lpj ?? 0) ?: $item->jumlah) : 0);
+            $item->lpj_sama_dengan_rab = $sameAsRab;
+            $this->castRekapSummary($item);
+        });
+    }
+
+    private function genericRekapDetailExportRows(Request $request, int $rekapId, string $tab)
+    {
+        $table = $tab === 'lpj' ? $this->lpjPengeluaranTable() : $this->pengeluaranTable();
+
+        if (! Schema::hasTable($table)) {
+            return collect();
+        }
+
+        $modelClass = $this->rekapModelClass();
+        $rekapTable = (new $modelClass)->getTable();
+        $query = DB::table("{$table} as detail")
+            ->leftJoin("{$rekapTable} as rekap", 'rekap.id', '=', 'detail.rekap_id')
+            ->leftJoin('users as petugas', function ($join) {
+                $join->on('petugas.id', '=', DB::raw('COALESCE(detail.petugas_id, rekap.petugas_id)'));
+            })
+            ->where('detail.rekap_id', $rekapId);
+
+        $this->joinGenericRekapDetailExportRelations($query);
+        $this->applyPengeluaranGenderScope($query, $table, 'detail');
+        $this->applyGenericRekapDetailExportSearch($query, $request, $table);
+
+        $select = [
+            'detail.*',
+            'rekap.nama as rekap_nama',
+            'petugas.name as petugas_nama',
+        ];
+
+        if (in_array($this->pengeluaranTable(), [
+            'keuangan_pengeluaran_dosen',
+            'keuangan_pengeluaran_dosen_kegiatan',
+        ], true)) {
+            $select = [
+                ...$select,
+                'pegawai.kode as kode_pegawai',
+                'pegawai.nama as nama_pegawai',
+                'pegawai.tipe as tipe_pegawai',
+                'prodi.nama as prodi',
+                'staff.jabatan as jabatan',
+            ];
+        } else {
+            $select = [
+                ...$select,
+                DB::raw('NULL as kode_pegawai'),
+                DB::raw('NULL as nama_pegawai'),
+                DB::raw('NULL as tipe_pegawai'),
+                DB::raw('NULL as prodi'),
+                DB::raw('NULL as jabatan'),
+            ];
+        }
+
+        $query->select($select);
+
+        $sortKey = (string) $request->input('sort_key', 'id');
+        $sortOrder = $request->input('sort_order', 'desc') === 'asc' ? 'asc' : 'desc';
+        $sortColumns = [
+            'id' => 'detail.id',
+            'tanggal' => 'detail.tanggal',
+            'pegawai' => 'pegawai.nama',
+            'kategori_detail' => 'detail.kategori_detail',
+            'kelompok_anggaran' => 'detail.kelompok_anggaran',
+            'uraian' => 'detail.nama_kegiatan',
+            'volume' => 'detail.volume',
+            'satuan' => 'detail.satuan',
+            'nominal' => 'detail.nominal',
+            'prioritas' => 'detail.prioritas',
+            'total' => 'detail.total',
+        ];
+        $sortColumn = $sortColumns[$sortKey] ?? 'detail.id';
+
+        if ($this->sortColumnExistsForGenericDetail($sortColumn, $table)) {
+            $query->orderBy($sortColumn, $sortOrder);
+        }
+
+        if ($sortColumn !== 'detail.id') {
+            $query->orderBy('detail.id', $sortOrder);
+        }
+
+        return $query->get();
+    }
+
+    private function joinGenericRekapDetailExportRelations($query): void
+    {
+        if (! in_array($this->pengeluaranTable(), [
+            'keuangan_pengeluaran_dosen',
+            'keuangan_pengeluaran_dosen_kegiatan',
+        ], true)) {
+            return;
+        }
+
+        $query
+            ->leftJoin('pegawai', 'pegawai.id', '=', 'detail.pegawai_id')
+            ->leftJoin('dosen', 'dosen.pegawai_id', '=', 'pegawai.id')
+            ->leftJoin('prodi', 'prodi.id', '=', 'dosen.prodi_id')
+            ->leftJoin('staff', 'staff.pegawai_id', '=', 'pegawai.id');
+    }
+
+    private function applyGenericRekapDetailExportSearch($query, Request $request, string $table): void
+    {
+        if (! $request->filled('search')) {
+            return;
+        }
+
+        $search = trim((string) $request->search);
+        $detailColumns = [
+            'tanggal',
+            'kategori_detail',
+            'kelompok_anggaran',
+            'nama_kegiatan',
+            'prioritas',
+            'volume',
+            'satuan',
+            'nominal',
+            'transport',
+            'transport_motor',
+            'transport_mobil',
+            'transport_mobil_tol',
+            'transport_mobil_tanpa_tol',
+            'hari_transport_motor',
+            'hari_transport_mobil',
+            'hari_transport_mobil_tol',
+            'hari_transport_mobil_tanpa_tol',
+            'barokah',
+            'barokah_mengajar_biasa',
+            'barokah_mengajar_double_degree',
+            'jam',
+            'jam_mengajar_double_degree',
+            'barokah_uas',
+            'jumlah_mahasiswa_uas',
+            'barokah_sempro',
+            'jam_sempro',
+            'keterangan_sempro',
+            'total',
+            'jenis_pembayaran',
+            'keterangan',
+        ];
+        $joinedColumns = in_array($this->pengeluaranTable(), [
+            'keuangan_pengeluaran_dosen',
+            'keuangan_pengeluaran_dosen_kegiatan',
+        ], true)
+            ? ['pegawai.kode', 'pegawai.nama', 'pegawai.tipe', 'prodi.nama', 'staff.jabatan']
+            : [];
+
+        $query->where(function ($q) use ($detailColumns, $joinedColumns, $search, $table) {
+            foreach ($detailColumns as $column) {
+                if (Schema::hasColumn($table, $column)) {
+                    $q->orWhere("detail.{$column}", 'LIKE', "%{$search}%");
+                }
+            }
+
+            foreach ($joinedColumns as $column) {
+                $q->orWhere($column, 'LIKE', "%{$search}%");
+            }
+
+            $q->orWhere('petugas.name', 'LIKE', "%{$search}%");
+        });
+    }
+
+    private function genericRekapDetailExportConfig(): array
+    {
+        return match ($this->pengeluaranTable()) {
+            'keuangan_pengeluaran_dosen' => [
+                'headings' => [
+                    'NO',
+                    'TANGGAL',
+                    'KODE',
+                    'NAMA',
+                    'PRODI',
+                    'TRANSPORT MOTOR',
+                    'HARI MOTOR',
+                    'TRANSPORT MOBIL',
+                    'HARI MOBIL',
+                    'BAROKAH MENGAJAR',
+                    'JAM',
+                    'BAROKAH DOUBLE DEGREE',
+                    'JAM DOUBLE DEGREE',
+                    'BAROKAH UAS',
+                    'JML MHS UAS',
+                    'BAROKAH SEMPRO',
+                    'JAM SEMPRO',
+                    'TOTAL',
+                    'JENIS PEMBAYARAN',
+                    'KETERANGAN',
+                ],
+                'row' => fn ($item, $index) => [
+                    $index + 1,
+                    $this->formatGenericRekapExportDate($item->tanggal ?? null),
+                    (string) ($item->kode_pegawai ?? ''),
+                    $item->nama_pegawai ?: '-',
+                    $item->prodi ?: '-',
+                    (int) ($item->transport_motor ?? $item->transport ?? 0),
+                    (int) ($item->hari_transport_motor ?? $item->hari ?? 0),
+                    (int) ($item->transport_mobil ?? $item->transport_mobil_tanpa_tol ?? 0),
+                    (int) ($item->hari_transport_mobil ?? $item->hari_transport_mobil_tanpa_tol ?? 0),
+                    (int) ($item->barokah_mengajar_biasa ?? $item->barokah ?? 0),
+                    (int) ($item->jam ?? 0),
+                    (int) ($item->barokah_mengajar_double_degree ?? 0),
+                    (int) ($item->jam_mengajar_double_degree ?? 0),
+                    (int) ($item->barokah_uas ?? 0),
+                    (int) ($item->jumlah_mahasiswa_uas ?? 0),
+                    (int) ($item->barokah_sempro ?? 0),
+                    (int) ($item->jam_sempro ?? 0),
+                    (int) ($item->total ?? 0),
+                    $item->jenis_pembayaran ?: '',
+                    $item->keterangan ?: ($item->keterangan_sempro ?? ''),
+                ],
+                'amount_columns' => [6, 8, 10, 12, 14, 16, 18],
+                'text_columns' => [3],
+                'total_column' => 18,
+            ],
+            'keuangan_pengeluaran_dosen_kegiatan' => [
+                'headings' => [
+                    'NO',
+                    'TANGGAL',
+                    'KATEGORI',
+                    'KODE',
+                    'NAMA',
+                    'TIPE',
+                    'PRODI/JABATAN',
+                    'NAMA KEGIATAN',
+                    'TRANSPORT',
+                    'BAROKAH',
+                    'NOMINAL',
+                    'TOTAL',
+                    'JENIS PEMBAYARAN',
+                    'KETERANGAN',
+                ],
+                'row' => fn ($item, $index) => [
+                    $index + 1,
+                    $this->formatGenericRekapExportDate($item->tanggal ?? null),
+                    $item->kategori_detail ?: '-',
+                    (string) ($item->kode_pegawai ?? ''),
+                    $item->nama_pegawai ?: '-',
+                    $item->tipe_pegawai ?: '-',
+                    $item->prodi ?: ($item->jabatan ?: '-'),
+                    $item->nama_kegiatan ?: '-',
+                    (int) ($item->transport ?? 0),
+                    (int) ($item->barokah ?? 0),
+                    (int) ($item->nominal ?? 0),
+                    (int) ($item->total ?? 0),
+                    $item->jenis_pembayaran ?: '',
+                    $item->keterangan ?: '',
+                ],
+                'amount_columns' => [9, 10, 11, 12],
+                'text_columns' => [4],
+                'total_column' => 12,
+            ],
+            'keuangan_pengeluaran_transportasi' => [
+                'headings' => [
+                    'NO',
+                    'TANGGAL',
+                    'PRIORITAS',
+                    'URAIAN',
+                    'VOLUME',
+                    'SATUAN',
+                    'HARGA SATUAN',
+                    'TOTAL',
+                    'JENIS PEMBAYARAN',
+                    'PETUGAS',
+                    'KETERANGAN',
+                ],
+                'row' => fn ($item, $index) => [
+                    $index + 1,
+                    $this->formatGenericRekapExportDate($item->tanggal ?? null),
+                    $item->prioritas ?: '-',
+                    $item->nama_kegiatan ?: '-',
+                    $item->volume === null ? '' : (int) $item->volume,
+                    $item->satuan ?: '',
+                    (int) ($item->nominal ?? 0),
+                    (int) ($item->total ?? 0),
+                    $item->jenis_pembayaran ?: '',
+                    $item->petugas_nama ?: '',
+                    $item->keterangan ?: '',
+                ],
+                'amount_columns' => [7, 8],
+                'total_column' => 8,
+            ],
+            default => [
+                'headings' => [
+                    'NO',
+                    'TANGGAL',
+                    'KELOMPOK ANGGARAN',
+                    'URAIAN',
+                    'VOLUME',
+                    'SATUAN',
+                    'HARGA SATUAN',
+                    'TOTAL',
+                    'JENIS PEMBAYARAN',
+                    'PETUGAS',
+                    'KETERANGAN',
+                ],
+                'row' => fn ($item, $index) => [
+                    $index + 1,
+                    $this->formatGenericRekapExportDate($item->tanggal ?? null),
+                    $item->kelompok_anggaran ?: '-',
+                    $item->nama_kegiatan ?: '-',
+                    $item->volume === null ? '' : (int) $item->volume,
+                    $item->satuan ?: '',
+                    (int) ($item->nominal ?? 0),
+                    (int) ($item->total ?? 0),
+                    $item->jenis_pembayaran ?: '',
+                    $item->petugas_nama ?: '',
+                    $item->keterangan ?: '',
+                ],
+                'amount_columns' => [7, 8],
+                'total_column' => 8,
+            ],
+        };
+    }
+
+    private function sortColumnExistsForGenericDetail(string $sortColumn, string $table): bool
+    {
+        if (! str_starts_with($sortColumn, 'detail.')) {
+            return true;
+        }
+
+        return Schema::hasColumn($table, substr($sortColumn, strlen('detail.')));
+    }
+
+    private function genericRekapDetailLpjSameAsRab(int $rekapId): bool
+    {
+        if (! Schema::hasTable('keuangan_pengeluaran_lpj_rekap_status')) {
+            return false;
+        }
+
+        $rekapTable = (new ($this->rekapModelClass()))->getTable();
+        $lpjModuleKey = $this->lpjModuleKey($rekapTable);
+
+        if (! $lpjModuleKey) {
+            return false;
+        }
+
+        return DB::table('keuangan_pengeluaran_lpj_rekap_status')
+            ->where('module_key', $lpjModuleKey)
+            ->where('rekap_id', $rekapId)
+            ->where('sama_dengan_rab', 1)
+            ->exists();
     }
 
     private function simpleRekapIndex(Request $request, string $modelClass, string $rekapTable)
@@ -1169,6 +1666,70 @@ trait ManagesPengeluaranRekap
             END,
             0
         )";
+    }
+
+    private function genericRekapExportModuleName(): string
+    {
+        return match ($this->pengeluaranTable()) {
+            'keuangan_pengeluaran_dosen' => 'Barokah Dosen Tatapmuka',
+            'keuangan_pengeluaran_dosen_kegiatan' => 'Barokah Pegawai Kegiatan',
+            'keuangan_pengeluaran_rumah_tangga' => 'Rumah Tangga',
+            'keuangan_pengeluaran_sarana_prasarana' => 'Sarana Prasarana',
+            'keuangan_pengeluaran_transportasi' => 'Transportasi',
+            default => 'Pengeluaran',
+        };
+    }
+
+    private function genericRekapExportPeriodLabel(Request $request): string
+    {
+        if ($request->filled('bulan') && $request->filled('tahun')) {
+            $bulan = (int) $request->bulan;
+            $tahun = (int) $request->tahun;
+
+            if ($bulan >= 1 && $bulan <= 12 && $tahun > 0) {
+                return strtoupper(Carbon::create($tahun, $bulan, 1)->locale('id')->translatedFormat('F Y'));
+            }
+        }
+
+        if ($request->filled('tahun')) {
+            return (string) $request->tahun;
+        }
+
+        return '';
+    }
+
+    private function formatGenericRekapExportPeriod($value): string
+    {
+        if (! $value) {
+            return '';
+        }
+
+        try {
+            return strtoupper(Carbon::parse($value)->locale('id')->translatedFormat('F Y'));
+        } catch (\Throwable) {
+            return (string) $value;
+        }
+    }
+
+    private function formatGenericRekapExportDate($value): string
+    {
+        if (! $value) {
+            return '';
+        }
+
+        try {
+            return Carbon::parse($value)->format('d/m/Y');
+        } catch (\Throwable) {
+            return (string) $value;
+        }
+    }
+
+    private function genericRekapExportFilename(string $name): string
+    {
+        $safeName = trim(preg_replace('/[\\\\\/:*?"<>|]+/', '-', $name));
+        $safeName = trim(preg_replace('/\s+/', ' ', $safeName));
+
+        return ($safeName ?: 'Rekapan Pengeluaran').'.xlsx';
     }
 
     private function lpjPengeluaranTable(): string

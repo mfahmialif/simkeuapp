@@ -535,6 +535,402 @@ class SaranaPrasaranaController extends Controller
         return Excel::download(new ExcelExport($data), 'Laporan Pengeluaran Sarana Prasarana.xlsx');
     }
 
+    public function rekapDetailExportExcel(Request $request, $id)
+    {
+        $rekap = $this->findScopedRekapModel(KeuanganPengeluaranSaranaPrasaranaRekap::class, $id);
+
+        if (! $rekap) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Rekap not found',
+            ], 404);
+        }
+
+        $tab = $request->input('tab') === 'lpj' ? 'lpj' : 'rab';
+        $data = $this->saranaPrasaranaDetailExportRows($request, (int) $rekap->id, $tab);
+
+        if (
+            $tab === 'lpj'
+            && $data->isEmpty()
+            && $this->saranaPrasaranaLpjSameAsRab((int) $rekap->id)
+        ) {
+            $data = $this->saranaPrasaranaDetailExportRows($request, (int) $rekap->id, 'rab');
+        }
+
+        $rows = $data->values()->map(fn ($item) => [
+            'kelompok_anggaran' => $item->kelompok_anggaran ?: '-',
+            'deskripsi' => $item->nama_kegiatan ?: '-',
+            'volume' => $item->volume === null ? '' : (int) $item->volume,
+            'satuan' => $item->satuan ?: '',
+            'harga_satuan' => (int) ($item->nominal ?? 0),
+            'jumlah_harga' => (int) ($item->total ?? 0),
+        ])->all();
+        $total = array_sum(array_column($rows, 'jumlah_harga'));
+        $title = $tab === 'lpj'
+            ? 'LAPORAN PERTANGGUNGJAWABAN (LPJ)'
+            : 'RENCANA ANGGARAN BIAYA (RAB)';
+        $filenamePrefix = $tab === 'lpj' ? 'Detail LPJ' : 'Detail RAB';
+        $filename = $this->saranaPrasaranaExportFilename(
+            $filenamePrefix.' '.($rekap->nama ?: 'Sarana Prasarana')
+        );
+
+        return $this->downloadSaranaPrasaranaRabSpreadsheet(
+            $title,
+            $rekap->nama ?: '-',
+            $this->formatIndonesianDate($rekap->tanggal_rekap ?: $rekap->bulan_tahun),
+            $rows,
+            $total,
+            $filename,
+            strtoupper($tab)
+        );
+    }
+
+    private function saranaPrasaranaDetailExportRows(Request $request, int $rekapId, string $tab)
+    {
+        $table = $tab === 'lpj'
+            ? 'keuangan_pengeluaran_sarana_prasarana_lpj'
+            : 'keuangan_pengeluaran_sarana_prasarana';
+
+        if (! \Illuminate\Support\Facades\Schema::hasTable($table)) {
+            return collect();
+        }
+
+        $query = DB::table("{$table} as detail")
+            ->leftJoin('keuangan_pengeluaran_sarana_prasarana_rekap as rekap', 'rekap.id', '=', 'detail.rekap_id')
+            ->leftJoin('users as petugas', function ($join) {
+                $join->on('petugas.id', '=', DB::raw('COALESCE(detail.petugas_id, rekap.petugas_id)'));
+            })
+            ->where('detail.rekap_id', $rekapId)
+            ->select([
+                'detail.id',
+                'detail.tanggal',
+                'detail.kelompok_anggaran',
+                'detail.nama_kegiatan',
+                'detail.volume',
+                'detail.satuan',
+                'detail.nominal',
+                'detail.total',
+                'detail.jenis_pembayaran',
+                'detail.keterangan',
+                'petugas.name as petugas_nama',
+            ]);
+
+        $this->applyPengeluaranGenderScope($query, $table, 'detail');
+        $this->applySaranaPrasaranaDetailExportSearch($query, $request);
+
+        return $query
+            ->orderBy('detail.kelompok_anggaran')
+            ->orderBy('detail.id')
+            ->get();
+    }
+
+    private function applySaranaPrasaranaDetailExportSearch($query, Request $request): void
+    {
+        if (! $request->filled('search')) {
+            return;
+        }
+
+        $search = trim((string) $request->search);
+
+        $query->where(function ($q) use ($search) {
+            $q->where('detail.tanggal', 'LIKE', "%{$search}%")
+                ->orWhere('detail.kelompok_anggaran', 'LIKE', "%{$search}%")
+                ->orWhere('detail.nama_kegiatan', 'LIKE', "%{$search}%")
+                ->orWhere('detail.nominal', 'LIKE', "%{$search}%")
+                ->orWhere('detail.volume', 'LIKE', "%{$search}%")
+                ->orWhere('detail.satuan', 'LIKE', "%{$search}%")
+                ->orWhere('detail.total', 'LIKE', "%{$search}%")
+                ->orWhere('detail.jenis_pembayaran', 'LIKE', "%{$search}%")
+                ->orWhere('detail.keterangan', 'LIKE', "%{$search}%")
+                ->orWhere('petugas.name', 'LIKE', "%{$search}%");
+        });
+    }
+
+    private function saranaPrasaranaLpjSameAsRab(int $rekapId): bool
+    {
+        if (! \Illuminate\Support\Facades\Schema::hasTable('keuangan_pengeluaran_lpj_rekap_status')) {
+            return false;
+        }
+
+        return DB::table('keuangan_pengeluaran_lpj_rekap_status')
+            ->where('module_key', 'sarana_prasarana')
+            ->where('rekap_id', $rekapId)
+            ->where('sama_dengan_rab', 1)
+            ->exists();
+    }
+
+    private function downloadSaranaPrasaranaRabSpreadsheet(
+        string $title,
+        string $rekapName,
+        string $periode,
+        array $rows,
+        int $total,
+        string $filename,
+        string $sheetTitle
+    ) {
+        $spreadsheet = $this->saranaPrasaranaRabSpreadsheet(
+            $title,
+            $rekapName,
+            $periode,
+            $rows,
+            $total,
+            $sheetTitle
+        );
+
+        return response()->streamDownload(function () use ($spreadsheet) {
+            $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+            $writer->save('php://output');
+            $spreadsheet->disconnectWorksheets();
+        }, $filename, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ]);
+    }
+
+    private function saranaPrasaranaRabSpreadsheet(
+        string $title,
+        string $rekapName,
+        string $periode,
+        array $rows,
+        int $total,
+        string $sheetTitle
+    ): \PhpOffice\PhpSpreadsheet\Spreadsheet {
+        $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet;
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->setTitle($sheetTitle);
+        $sheet->setShowGridlines(true);
+
+        $this->addSaranaPrasaranaKopDrawing($sheet);
+        $this->applySaranaPrasaranaColumnWidths($sheet);
+
+        for ($row = 1; $row <= 8; $row++) {
+            $sheet->getRowDimension($row)->setRowHeight(23);
+        }
+
+        $sheet->mergeCells('A9:I9');
+        $sheet->mergeCells('A10:I10');
+        $sheet->mergeCells('A11:I11');
+        $sheet->setCellValue('A9', $title);
+        $sheet->setCellValue('A10', 'SARANA PRASARANA UNIVERSITAS ISLAM INTERNASIONAL');
+        $sheet->setCellValue("A11", "DARULLUGHA WADDA'WAH");
+
+        $sheet->setCellValue('A12', 'Nama Rekap');
+        $sheet->setCellValue('B12', ':');
+        $sheet->setCellValue('C12', $rekapName);
+        $sheet->setCellValue('A13', 'Priode');
+        $sheet->setCellValue('B13', ':');
+        $sheet->setCellValue('C13', $periode);
+
+        $headerRow = 15;
+        $firstDataRow = 16;
+        $rowCount = max(count($rows), 1);
+        $lastDataRow = $firstDataRow + $rowCount - 1;
+        $totalRow = $lastDataRow + 1;
+
+        $sheet->setCellValue("A{$headerRow}", 'No');
+        $sheet->setCellValue("B{$headerRow}", 'Uraian Kegiatan');
+        $sheet->setCellValue("C{$headerRow}", 'Deskripsi');
+        $sheet->setCellValue("D{$headerRow}", 'Vol');
+        $sheet->setCellValue("E{$headerRow}", 'Satuan');
+        $sheet->mergeCells("F{$headerRow}:G{$headerRow}");
+        $sheet->setCellValue("F{$headerRow}", 'Harga Satuan (Rp)');
+        $sheet->mergeCells("H{$headerRow}:I{$headerRow}");
+        $sheet->setCellValue("H{$headerRow}", 'Jumlah Harga (Rp)');
+
+        if ($rows === []) {
+            $sheet->setCellValue("A{$firstDataRow}", 1);
+            $sheet->setCellValue("B{$firstDataRow}", '-');
+            $sheet->setCellValue("C{$firstDataRow}", 'Tidak ada data');
+            $sheet->setCellValue("F{$firstDataRow}", 'Rp');
+            $sheet->setCellValue("G{$firstDataRow}", 0);
+            $sheet->setCellValue("H{$firstDataRow}", 'Rp');
+            $sheet->setCellValue("I{$firstDataRow}", 0);
+        } else {
+            $groups = [];
+            $currentGroup = null;
+
+            foreach ($rows as $index => $rowData) {
+                $rowNumber = $firstDataRow + $index;
+                $group = $rowData['kelompok_anggaran'] ?: '-';
+
+                if ($currentGroup === null || $currentGroup['label'] !== $group) {
+                    if ($currentGroup !== null) {
+                        $groups[] = $currentGroup;
+                    }
+
+                    $currentGroup = [
+                        'label' => $group,
+                        'start' => $rowNumber,
+                        'end' => $rowNumber,
+                    ];
+                } else {
+                    $currentGroup['end'] = $rowNumber;
+                }
+
+                $sheet->setCellValue("A{$rowNumber}", $index + 1);
+                $sheet->setCellValue("C{$rowNumber}", $rowData['deskripsi']);
+                $sheet->setCellValue("D{$rowNumber}", $rowData['volume']);
+                $sheet->setCellValue("E{$rowNumber}", $rowData['satuan']);
+                $sheet->setCellValue("F{$rowNumber}", 'Rp');
+                $sheet->setCellValue("G{$rowNumber}", $rowData['harga_satuan']);
+                $sheet->setCellValue("H{$rowNumber}", 'Rp');
+                $sheet->setCellValue("I{$rowNumber}", $rowData['jumlah_harga']);
+                $sheet->getRowDimension($rowNumber)->setRowHeight(24);
+            }
+
+            if ($currentGroup !== null) {
+                $groups[] = $currentGroup;
+            }
+
+            foreach ($groups as $group) {
+                if ($group['start'] < $group['end']) {
+                    $sheet->mergeCells("B{$group['start']}:B{$group['end']}");
+                }
+
+                $sheet->setCellValue("B{$group['start']}", $group['label']);
+            }
+        }
+
+        $sheet->mergeCells("A{$totalRow}:G{$totalRow}");
+        $sheet->setCellValue("A{$totalRow}", 'Total');
+        $sheet->setCellValue("H{$totalRow}", 'Rp');
+        $sheet->setCellValue("I{$totalRow}", $total);
+
+        $tableRange = "A{$headerRow}:I{$totalRow}";
+        $headerRange = "A{$headerRow}:I{$headerRow}";
+
+        $sheet->getStyle('A9:I11')->getFont()
+            ->setName('Times New Roman')
+            ->setBold(true)
+            ->setSize(13);
+        $sheet->getStyle('A9:I11')->getAlignment()
+            ->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER)
+            ->setVertical(\PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_CENTER);
+        $sheet->getStyle('A12:C13')->getFont()
+            ->setName('Times New Roman')
+            ->setSize(12);
+
+        $sheet->getStyle($tableRange)->getFont()
+            ->setName('Times New Roman')
+            ->setSize(12);
+        $sheet->getStyle($headerRange)->getFont()->setBold(true);
+        $sheet->getStyle($headerRange)->getFill()
+            ->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
+            ->getStartColor()->setRGB('D9D9D9');
+        $sheet->getStyle($tableRange)->getBorders()->getAllBorders()
+            ->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN)
+            ->getColor()->setRGB('000000');
+        $sheet->getStyle($tableRange)->getAlignment()
+            ->setVertical(\PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_CENTER)
+            ->setWrapText(true);
+        $sheet->getStyle("A{$headerRow}:I{$headerRow}")->getAlignment()
+            ->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
+        $sheet->getStyle("A{$firstDataRow}:B{$totalRow}")->getAlignment()
+            ->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
+        $sheet->getStyle("D{$firstDataRow}:F{$totalRow}")->getAlignment()
+            ->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
+        $sheet->getStyle("H{$firstDataRow}:H{$totalRow}")->getAlignment()
+            ->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
+        $sheet->getStyle("G{$firstDataRow}:G{$totalRow}")->getAlignment()
+            ->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_RIGHT);
+        $sheet->getStyle("I{$firstDataRow}:I{$totalRow}")->getAlignment()
+            ->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_RIGHT);
+        $sheet->getStyle("A{$totalRow}:I{$totalRow}")->getFont()->setBold(true);
+        $sheet->getStyle("G{$firstDataRow}:G{$totalRow}")->getNumberFormat()
+            ->setFormatCode('#,##0');
+        $sheet->getStyle("I{$firstDataRow}:I{$totalRow}")->getNumberFormat()
+            ->setFormatCode('#,##0');
+
+        $sheet->freezePane("A{$firstDataRow}");
+        $sheet->setTopLeftCell('A1');
+        $sheet->setSelectedCell('A1');
+
+        return $spreadsheet;
+    }
+
+    private function addSaranaPrasaranaKopDrawing(\PhpOffice\PhpSpreadsheet\Worksheet\Worksheet $sheet): void
+    {
+        $paths = [
+            public_path('img/kop uiidalwa mantap.png'),
+            base_path('../public_html/img/kop uiidalwa mantap.png'),
+            base_path('public_html/img/kop uiidalwa mantap.png'),
+        ];
+
+        $path = collect($paths)->first(fn ($candidate) => is_file($candidate));
+
+        if (! $path) {
+            return;
+        }
+
+        $drawing = new \PhpOffice\PhpSpreadsheet\Worksheet\Drawing;
+        $drawing->setName('Kop UIIDalwa');
+        $drawing->setDescription('Kop UIIDalwa');
+        $drawing->setPath($path);
+        $drawing->setCoordinates('A1');
+        $drawing->setOffsetX(8);
+        $drawing->setOffsetY(6);
+        $drawing->setResizeProportional(false);
+        $drawing->setWidth(805);
+        $drawing->setHeight(172);
+        $drawing->setWorksheet($sheet);
+    }
+
+    private function applySaranaPrasaranaColumnWidths(\PhpOffice\PhpSpreadsheet\Worksheet\Worksheet $sheet): void
+    {
+        $widths = [
+            'A' => 6,
+            'B' => 24,
+            'C' => 32,
+            'D' => 7,
+            'E' => 10,
+            'F' => 5,
+            'G' => 15,
+            'H' => 5,
+            'I' => 17,
+        ];
+
+        foreach ($widths as $column => $width) {
+            $sheet->getColumnDimension($column)->setWidth($width);
+        }
+    }
+
+    private function formatIndonesianDate($value): string
+    {
+        if (! $value) {
+            return '-';
+        }
+
+        try {
+            $date = \Carbon\Carbon::parse($value);
+        } catch (Throwable) {
+            return (string) $value;
+        }
+
+        $months = [
+            1 => 'Januari',
+            2 => 'Februari',
+            3 => 'Maret',
+            4 => 'April',
+            5 => 'Mei',
+            6 => 'Juni',
+            7 => 'Juli',
+            8 => 'Agustus',
+            9 => 'September',
+            10 => 'Oktober',
+            11 => 'November',
+            12 => 'Desember',
+        ];
+
+        return $date->day.' '.$months[$date->month].' '.$date->year;
+    }
+
+    private function saranaPrasaranaExportFilename(string $name): string
+    {
+        $cleanName = trim((string) preg_replace('/[\\\\\\/:"*?<>|]+/', '-', $name));
+        $cleanName = $cleanName !== '' ? $cleanName : 'Detail RAB Sarana Prasarana';
+
+        return "{$cleanName}.xlsx";
+    }
+
     protected function rekapModelClass(): string
     {
         return KeuanganPengeluaranSaranaPrasaranaRekap::class;
