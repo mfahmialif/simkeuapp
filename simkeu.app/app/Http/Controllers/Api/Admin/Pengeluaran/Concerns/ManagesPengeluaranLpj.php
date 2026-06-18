@@ -1,17 +1,17 @@
 <?php
 
-namespace App\Http\Controllers\Api\Admin\Pengeluaran;
+namespace App\Http\Controllers\Api\Admin\Pengeluaran\Concerns;
 
-use App\Http\Controllers\Controller;
 use App\Services\Helper;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 
-class LpjController extends Controller
+trait ManagesPengeluaranLpj
 {
     private const MODULES = [
         'dosen' => [
@@ -70,130 +70,37 @@ class LpjController extends Controller
         ],
     ];
 
-    public function dosenShow(Request $request, $id)
-    {
-        return $this->showModule($request, 'dosen', $id);
-    }
-
-    public function kegiatanShow(Request $request, $id)
-    {
-        return $this->showModule($request, 'kegiatan', $id);
-    }
-
-    public function rumahTanggaShow(Request $request, $id)
-    {
-        return $this->showModule($request, 'rumah_tangga', $id);
-    }
-
-    public function saranaPrasaranaShow(Request $request, $id)
-    {
-        return $this->showModule($request, 'sarana_prasarana', $id);
-    }
-
-    public function transportasiShow(Request $request, $id)
-    {
-        return $this->showModule($request, 'transportasi', $id);
-    }
-
-    public function dosenBulananShow(Request $request, $id)
-    {
-        return $this->showModule($request, 'dosen_bulanan', $id);
-    }
-
-    public function dosenCopy(Request $request, $id)
-    {
-        return $this->copyModule($request, 'dosen', $id);
-    }
-
-    public function kegiatanCopy(Request $request, $id)
-    {
-        return $this->copyModule($request, 'kegiatan', $id);
-    }
-
-    public function rumahTanggaCopy(Request $request, $id)
-    {
-        return $this->copyModule($request, 'rumah_tangga', $id);
-    }
-
-    public function saranaPrasaranaCopy(Request $request, $id)
-    {
-        return $this->copyModule($request, 'sarana_prasarana', $id);
-    }
-
-    public function transportasiCopy(Request $request, $id)
-    {
-        return $this->copyModule($request, 'transportasi', $id);
-    }
-
-    public function dosenBulananCopy(Request $request, $id)
-    {
-        return $this->copyModule($request, 'dosen_bulanan', $id);
-    }
-
-    public function dosenUpdate(Request $request, $id)
-    {
-        return $this->updateModule($request, 'dosen', $id);
-    }
-
-    public function dosenDelete(Request $request, $id)
-    {
-        return $this->deleteModule($request, 'dosen', $id);
-    }
-
-    public function kegiatanUpdate(Request $request, $id)
-    {
-        return $this->updateModule($request, 'kegiatan', $id);
-    }
-
-    public function kegiatanDelete(Request $request, $id)
-    {
-        return $this->deleteModule($request, 'kegiatan', $id);
-    }
-
-    public function rumahTanggaUpdate(Request $request, $id)
-    {
-        return $this->updateModule($request, 'rumah_tangga', $id);
-    }
-
-    public function rumahTanggaDelete(Request $request, $id)
-    {
-        return $this->deleteModule($request, 'rumah_tangga', $id);
-    }
-
-    public function saranaPrasaranaUpdate(Request $request, $id)
-    {
-        return $this->updateModule($request, 'sarana_prasarana', $id);
-    }
-
-    public function saranaPrasaranaDelete(Request $request, $id)
-    {
-        return $this->deleteModule($request, 'sarana_prasarana', $id);
-    }
-
-    public function transportasiUpdate(Request $request, $id)
-    {
-        return $this->updateModule($request, 'transportasi', $id);
-    }
-
-    public function transportasiDelete(Request $request, $id)
-    {
-        return $this->deleteModule($request, 'transportasi', $id);
-    }
-
-    public function dosenBulananUpdate(Request $request, $id)
-    {
-        return $this->updateModule($request, 'dosen_bulanan', $id);
-    }
-
-    public function dosenBulananDelete(Request $request, $id)
-    {
-        return $this->deleteModule($request, 'dosen_bulanan', $id);
-    }
+    private const FILE_DIRECTORIES = [
+        'tatapmuka' => [
+            'bukti' => 'tatapmuka',
+            'lampiran' => 'tatapmuka',
+        ],
+        'kegiatan' => [
+            'bukti' => 'kegiatan',
+            'lampiran' => 'kegiatan',
+        ],
+        'rumah-tangga' => [
+            'bukti' => 'rumah-tangga',
+            'lampiran' => 'rumah-tangga',
+        ],
+        'sarana-prasarana' => [
+            'bukti' => 'sarana-prasarana',
+            'lampiran' => 'sarana-prasarana',
+        ],
+        'transportasi' => [
+            'bukti' => 'transportasi',
+            'lampiran' => 'transportasi',
+        ],
+        'dosen-bulanan' => [
+            'bukti' => 'bulanan',
+            'lampiran' => 'bulanan',
+        ],
+    ];
 
     private function showModule(Request $request, string $module, $rekapId)
     {
         $source = $this->source($module);
-        $rekap = $this->rekapSummary($source, $rekapId);
+        $rekap = $this->lpjRekapSummary($source, $rekapId);
 
         if (! $rekap) {
             return response()->json([
@@ -248,6 +155,8 @@ class LpjController extends Controller
                 return null;
             }
 
+            $this->existingLpjRows($source, $rekapId)
+                ->each(fn ($row) => $this->deleteStoredFilesForRow($source, $row));
             $this->deleteLpjRows($source, $rekapId);
 
             $copyColumns = $this->copyColumns($source);
@@ -272,7 +181,7 @@ class LpjController extends Controller
                 DB::table($source['lpj_table'])->insert($chunk);
             }
 
-            $rekapSummary = $this->rekapSummary($source, $rekapId);
+            $rekapSummary = $this->lpjRekapSummary($source, $rekapId);
             $lpjSummary = $this->lpjSummary($source, $rekapId, $rekapSummary['jumlah']);
             $totalLpj = $lpjSummary['jumlah_data'] > 0
                 ? $lpjSummary['total_lpj']
@@ -327,6 +236,11 @@ class LpjController extends Controller
                 'integer',
                 Rule::exists($source['lpj_table'], 'id'),
             ],
+            'items.*.bukti_transfer' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:4096'],
+            'items.*.lampiran' => ['nullable', 'array', 'max:10'],
+            'items.*.lampiran.*' => ['file', 'mimes:jpg,jpeg,png,pdf,doc,docx,xls,xlsx', 'max:10240'],
+            'items.*.hapus_lampiran' => ['nullable', 'array'],
+            'items.*.hapus_lampiran.*' => ['string', 'max:500'],
         ];
 
         if (in_array($source['type'], ['rumah-tangga', 'sarana-prasarana'], true)) {
@@ -362,8 +276,18 @@ class LpjController extends Controller
             $columns = Schema::getColumnListing($source['lpj_table']);
             $now = now();
             $isPartial = $request->boolean('partial');
+            $existingRowsById = $this->existingLpjRows($source, $rekapId);
+            $submittedIds = collect($request->input('items', []))
+                ->map(fn ($item) => $this->nullableInt($item['id'] ?? null))
+                ->filter()
+                ->unique()
+                ->values();
 
             if (! $isPartial) {
+                $existingRowsById
+                    ->except($submittedIds->all())
+                    ->each(fn ($row) => $this->deleteStoredFilesForRow($source, $row));
+
                 $this->deleteLpjRows($source, $rekapId);
             } else {
                 $deletedIds = collect($request->input('deleted_ids', []))
@@ -373,6 +297,10 @@ class LpjController extends Controller
                     ->values();
 
                 if ($deletedIds->isNotEmpty()) {
+                    $existingRowsById
+                        ->only($deletedIds->all())
+                        ->each(fn ($row) => $this->deleteStoredFilesForRow($source, $row));
+
                     $deleteQuery = DB::table($source['lpj_table'])
                         ->where('rekap_id', $rekapId)
                         ->whereIn('id', $deletedIds->all());
@@ -391,10 +319,14 @@ class LpjController extends Controller
             }
 
             $rows = collect($request->input('items', []))
-                ->map(function ($item) use ($source, $rekapId, $columns, $now, $rekap, $isPartial) {
+                ->map(function ($item, $index) use ($request, $source, $rekapId, $columns, $now, $rekap, $isPartial, $existingRowsById) {
                     $item = (array) $item;
                     $id = $this->nullableInt($item['id'] ?? null);
+                    $existingRow = $id ? $existingRowsById->get($id) : null;
                     unset($item['id']);
+
+                    $item['bukti_transfer'] = $this->resolveItemBuktiTransfer($request, $source, $item, $index, $existingRow);
+                    $item['lampiran'] = $this->resolveItemLampiran($request, $source, $item, $index, $existingRow);
 
                     $row = $this->normalizeLpjRow(
                         $source,
@@ -454,7 +386,7 @@ class LpjController extends Controller
                 }
             }
 
-            $rekapSummary = $this->rekapSummary($source, $rekapId);
+            $rekapSummary = $this->lpjRekapSummary($source, $rekapId);
             $lpjSummary = $this->lpjSummary($source, $rekapId, $rekapSummary['jumlah']);
             $this->upsertStatus($source, $rekapId, [
                 'sama_dengan_rab' => false,
@@ -519,6 +451,10 @@ class LpjController extends Controller
                 return null;
             }
 
+            $this->existingLpjRows($source, $rekapId)
+                ->only($ids->all())
+                ->each(fn ($row) => $this->deleteStoredFilesForRow($source, $row));
+
             $deleteQuery = DB::table($source['lpj_table'])
                 ->where('rekap_id', $rekapId)
                 ->whereIn('id', $ids->all());
@@ -534,7 +470,7 @@ class LpjController extends Controller
 
             $deleted = $deleteQuery->delete();
 
-            $rekapSummary = $this->rekapSummary($source, $rekapId);
+            $rekapSummary = $this->lpjRekapSummary($source, $rekapId);
             $lpjSummary = $this->lpjSummary($source, $rekapId, $rekapSummary['jumlah']);
 
             $this->upsertStatus($source, $rekapId, [
@@ -601,6 +537,125 @@ class LpjController extends Controller
         $query->delete();
     }
 
+    private function existingLpjRows(array $source, $rekapId)
+    {
+        $query = DB::table($source['lpj_table'])
+            ->where('rekap_id', $rekapId);
+        $this->applyDetailGenderScope(
+            $query,
+            $source['lpj_table'],
+            $source['lpj_table']
+        );
+
+        if ($source['pegawai_tipe'] && Schema::hasColumn($source['lpj_table'], 'pegawai_tipe')) {
+            $query->where('pegawai_tipe', $source['pegawai_tipe']);
+        }
+
+        return $query->get()->keyBy('id');
+    }
+
+    private function resolveItemBuktiTransfer(Request $request, array $source, array $item, int $index, $existingRow): ?string
+    {
+        $existingPath = is_string($existingRow->bukti_transfer ?? null)
+            ? $existingRow->bukti_transfer
+            : null;
+        $file = $this->itemUploadedFile($request, $index, 'bukti_transfer');
+
+        if ($file instanceof UploadedFile) {
+            $newPath = $this->storeBuktiTransfer($file, $this->fileDirectory($source, 'bukti'));
+
+            if ($existingPath) {
+                $this->deleteBuktiTransfer($existingPath);
+            }
+
+            return $newPath;
+        }
+
+        if (strcasecmp((string) ($item['jenis_pembayaran'] ?? ''), 'Transfer') !== 0) {
+            if ($existingPath) {
+                $this->deleteBuktiTransfer($existingPath);
+            }
+
+            return null;
+        }
+
+        return $existingPath;
+    }
+
+    private function resolveItemLampiran(Request $request, array $source, array $item, int $index, $existingRow): array
+    {
+        $removedLampiran = Arr::wrap($item['hapus_lampiran'] ?? []);
+        $lampiranFiles = $this->itemUploadedFiles($request, $index, 'lampiran');
+        $rowRequest = Request::create('/', 'POST', [
+            'hapus_lampiran' => $removedLampiran,
+        ]);
+
+        if ($lampiranFiles !== []) {
+            $rowRequest->files->set('lampiran', $lampiranFiles);
+        }
+
+        return $this->updateLampiran(
+            $rowRequest,
+            $existingRow->lampiran ?? null,
+            $this->fileDirectory($source, 'lampiran')
+        );
+    }
+
+    private function itemUploadedFile(Request $request, int $index, string $field): ?UploadedFile
+    {
+        $file = $request->file("items.{$index}.{$field}");
+
+        if ($file instanceof UploadedFile) {
+            return $file;
+        }
+
+        if (is_array($file)) {
+            foreach ($file as $candidate) {
+                if ($candidate instanceof UploadedFile) {
+                    return $candidate;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private function itemUploadedFiles(Request $request, int $index, string $field): array
+    {
+        $files = $request->file("items.{$index}.{$field}", []);
+
+        if ($files instanceof UploadedFile) {
+            return [$files];
+        }
+
+        if (! is_array($files)) {
+            return [];
+        }
+
+        return array_values(array_filter(
+            $files,
+            fn ($file) => $file instanceof UploadedFile
+        ));
+    }
+
+    private function fileDirectory(array $source, string $type): string
+    {
+        return self::FILE_DIRECTORIES[$source['type']][$type]
+            ?? self::FILE_DIRECTORIES[$source['type']]['lampiran']
+            ?? $source['module_key'];
+    }
+
+    private function deleteStoredFilesForRow(array $source, $row): void
+    {
+        if (isset($row->bukti_transfer)) {
+            $this->deleteBuktiTransfer($row->bukti_transfer);
+        }
+
+        if (isset($row->lampiran)) {
+            $this->deleteLampiran($row->lampiran);
+        }
+    }
+
     private function copyColumns(array $source): array
     {
         $sourceColumns = collect(Schema::getColumnListing($source['detail_table']));
@@ -608,12 +663,12 @@ class LpjController extends Controller
 
         return $sourceColumns
             ->intersect($lpjColumns)
-            ->reject(fn ($column) => in_array($column, ['id', 'created_at', 'updated_at'], true))
+            ->reject(fn ($column) => in_array($column, ['id', 'created_at', 'updated_at', 'lampiran', 'bukti_transfer'], true))
             ->values()
             ->all();
     }
 
-    private function rekapSummary(array $source, $rekapId): ?array
+    private function lpjRekapSummary(array $source, $rekapId): ?array
     {
         $rekapQuery = DB::table($source['rekap_table'])->where('id', $rekapId);
         Helper::applyRelatedGenderScope(
@@ -774,6 +829,9 @@ class LpjController extends Controller
         if (isset($row->lampiran) && is_string($row->lampiran)) {
             $row->lampiran = json_decode($row->lampiran, true) ?: [];
         }
+
+        $this->appendLampiranUrls($row);
+        $row->bukti_transfer_url = $this->buktiTransferUrl($row->bukti_transfer ?? null);
 
         return $row;
     }

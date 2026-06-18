@@ -6,6 +6,7 @@ use App\Exports\ExcelExport;
 use App\Http\Controllers\Api\Admin\Pengeluaran\Concerns\BuildsPengeluaranIndex;
 use App\Http\Controllers\Api\Admin\Pengeluaran\Concerns\ManagesBuktiTransfer;
 use App\Http\Controllers\Api\Admin\Pengeluaran\Concerns\ManagesLampiran;
+use App\Http\Controllers\Api\Admin\Pengeluaran\Concerns\ManagesPengeluaranLpj;
 use App\Http\Controllers\Api\Admin\Pengeluaran\Concerns\ManagesPengeluaranRekap;
 use App\Http\Controllers\Controller;
 use App\Models\KeuanganPengeluaranSaranaPrasarana;
@@ -22,6 +23,7 @@ class SaranaPrasaranaController extends Controller
     use BuildsPengeluaranIndex;
     use ManagesBuktiTransfer;
     use ManagesLampiran;
+    use ManagesPengeluaranLpj;
     use ManagesPengeluaranRekap;
 
     private const JENIS_PEMBAYARAN = ['Tunai', 'CUZ BSI', 'Transfer'];
@@ -29,6 +31,26 @@ class SaranaPrasaranaController extends Controller
     private const BUKTI_TRANSFER_DIR = 'sarana-prasarana';
 
     private const LAMPIRAN_DIR = 'sarana-prasarana';
+
+    public function lpjShow(Request $request, $id)
+    {
+        return $this->showModule($request, 'sarana_prasarana', $id);
+    }
+
+    public function lpjCopy(Request $request, $id)
+    {
+        return $this->copyModule($request, 'sarana_prasarana', $id);
+    }
+
+    public function lpjUpdate(Request $request, $id)
+    {
+        return $this->updateModule($request, 'sarana_prasarana', $id);
+    }
+
+    public function lpjDelete(Request $request, $id)
+    {
+        return $this->deleteModule($request, 'sarana_prasarana', $id);
+    }
 
     public function index(Request $request)
     {

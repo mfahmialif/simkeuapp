@@ -8,6 +8,7 @@ use App\Exports\ExcelExport;
 use App\Http\Controllers\Api\Admin\Pengeluaran\Concerns\BuildsPengeluaranIndex;
 use App\Http\Controllers\Api\Admin\Pengeluaran\Concerns\ManagesBuktiTransfer;
 use App\Http\Controllers\Api\Admin\Pengeluaran\Concerns\ManagesLampiran;
+use App\Http\Controllers\Api\Admin\Pengeluaran\Concerns\ManagesPengeluaranLpj;
 use App\Http\Controllers\Api\Admin\Pengeluaran\Concerns\ManagesPengeluaranRekap;
 use App\Http\Controllers\Controller;
 use App\Models\KeuanganPengeluaranDosenBulananRekap;
@@ -27,6 +28,7 @@ class DosenBulananController extends Controller
     use BuildsPengeluaranIndex;
     use ManagesBuktiTransfer;
     use ManagesLampiran;
+    use ManagesPengeluaranLpj;
     use ManagesPengeluaranRekap;
 
     private ?array $searchPegawaiIds = null;
@@ -48,6 +50,26 @@ class DosenBulananController extends Controller
     protected const LAMPIRAN_DIR = 'bulanan';
 
     protected const REKAP_MODEL = KeuanganPengeluaranDosenBulananRekap::class;
+
+    public function lpjShow(Request $request, $id)
+    {
+        return $this->showModule($request, 'dosen_bulanan', $id);
+    }
+
+    public function lpjCopy(Request $request, $id)
+    {
+        return $this->copyModule($request, 'dosen_bulanan', $id);
+    }
+
+    public function lpjUpdate(Request $request, $id)
+    {
+        return $this->updateModule($request, 'dosen_bulanan', $id);
+    }
+
+    public function lpjDelete(Request $request, $id)
+    {
+        return $this->deleteModule($request, 'dosen_bulanan', $id);
+    }
 
     public function index(Request $request)
     {

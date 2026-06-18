@@ -6,6 +6,7 @@ use App\Exports\ExcelExport;
 use App\Http\Controllers\Api\Admin\Pengeluaran\Concerns\BuildsPengeluaranIndex;
 use App\Http\Controllers\Api\Admin\Pengeluaran\Concerns\ManagesBuktiTransfer;
 use App\Http\Controllers\Api\Admin\Pengeluaran\Concerns\ManagesLampiran;
+use App\Http\Controllers\Api\Admin\Pengeluaran\Concerns\ManagesPengeluaranLpj;
 use App\Http\Controllers\Api\Admin\Pengeluaran\Concerns\ManagesPengeluaranRekap;
 use App\Http\Controllers\Controller;
 use App\Models\KeuanganPengeluaranRumahTangga;
@@ -22,6 +23,7 @@ class RumahTanggaController extends Controller
     use BuildsPengeluaranIndex;
     use ManagesBuktiTransfer;
     use ManagesLampiran;
+    use ManagesPengeluaranLpj;
     use ManagesPengeluaranRekap;
 
     private const JENIS_PEMBAYARAN = ['Tunai', 'CUZ BSI', 'Transfer'];
@@ -29,6 +31,26 @@ class RumahTanggaController extends Controller
     private const BUKTI_TRANSFER_DIR = 'rumah-tangga';
 
     private const LAMPIRAN_DIR = 'rumah-tangga';
+
+    public function lpjShow(Request $request, $id)
+    {
+        return $this->showModule($request, 'rumah_tangga', $id);
+    }
+
+    public function lpjCopy(Request $request, $id)
+    {
+        return $this->copyModule($request, 'rumah_tangga', $id);
+    }
+
+    public function lpjUpdate(Request $request, $id)
+    {
+        return $this->updateModule($request, 'rumah_tangga', $id);
+    }
+
+    public function lpjDelete(Request $request, $id)
+    {
+        return $this->deleteModule($request, 'rumah_tangga', $id);
+    }
 
     public function index(Request $request)
     {
