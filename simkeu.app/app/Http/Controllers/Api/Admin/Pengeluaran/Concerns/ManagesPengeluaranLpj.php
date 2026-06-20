@@ -537,6 +537,39 @@ trait ManagesPengeluaranLpj
         $query->delete();
     }
 
+    protected function deleteLpjForDeletedRekap(string $rekapTable, $rekapId): int
+    {
+        $source = collect(self::MODULES)
+            ->first(fn (array $module) => $module['rekap_table'] === $rekapTable);
+
+        if (! $source) {
+            return 0;
+        }
+
+        $deleted = 0;
+
+        if (Schema::hasTable($source['lpj_table'])) {
+            $rows = DB::table($source['lpj_table'])
+                ->where('rekap_id', $rekapId)
+                ->get();
+
+            $rows->each(fn ($row) => $this->deleteStoredFilesForRow($source, $row));
+
+            $deleted = DB::table($source['lpj_table'])
+                ->where('rekap_id', $rekapId)
+                ->delete();
+        }
+
+        if (Schema::hasTable('keuangan_pengeluaran_lpj_rekap_status')) {
+            DB::table('keuangan_pengeluaran_lpj_rekap_status')
+                ->where('module_key', $source['module_key'])
+                ->where('rekap_id', $rekapId)
+                ->delete();
+        }
+
+        return $deleted;
+    }
+
     private function existingLpjRows(array $source, $rekapId)
     {
         $query = DB::table($source['lpj_table'])

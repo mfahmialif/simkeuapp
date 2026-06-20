@@ -492,6 +492,8 @@ class TransportasiController extends Controller
                 $deletedFiles['lampiran'][] = $detail->lampiran;
             }
 
+            $deletedLpj = $this->deleteLpjForDeletedRekap($rekap->getTable(), $rekap->id);
+
             $deletedDetails = KeuanganPengeluaranTransportasi::query()
                 ->where('rekap_id', $rekap->id)
                 ->delete();
@@ -502,6 +504,7 @@ class TransportasiController extends Controller
             return [
                 'nama' => $nama,
                 'deleted_details' => $deletedDetails,
+                'deleted_lpj' => $deletedLpj,
             ];
         });
 
@@ -524,6 +527,7 @@ class TransportasiController extends Controller
             'status' => true,
             'data' => [
                 'deleted_details' => $result['deleted_details'],
+                'deleted_lpj' => $result['deleted_lpj'],
             ],
             'message' => "Rekap {$result['nama']} dan {$result['deleted_details']} data pengeluaran berhasil dihapus.",
         ]);

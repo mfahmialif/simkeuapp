@@ -1016,6 +1016,8 @@ trait ManagesPengeluaranRekap
         $nama = $rekap->nama;
 
         DB::transaction(function () use ($rekap) {
+            $this->deleteLpjForDeletedRekap($rekap->getTable(), $rekap->id);
+
             if ($this->requiresRekapForPengeluaran()) {
                 DB::table($this->pengeluaranTable())
                     ->where('rekap_id', $rekap->id)
