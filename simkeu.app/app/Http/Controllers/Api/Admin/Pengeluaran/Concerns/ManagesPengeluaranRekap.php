@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Admin\Pengeluaran\Concerns;
 
 use App\Exports\BarokahBulananRekapExport;
+use App\Exports\GroupedRabDetailExport;
 use App\Models\User;
 use App\Services\Helper;
 use Carbon\Carbon;
@@ -209,6 +210,10 @@ trait ManagesPengeluaranRekap
             $data = $this->genericRekapDetailExportRows($request, (int) $rekap->id, 'rab');
         }
 
+        if ($this->pengeluaranTable() === 'keuangan_pengeluaran_rumah_tangga') {
+            return $this->downloadGroupedRabDetailExport($rekap, $data, $tab);
+        }
+
         $config = $this->genericRekapDetailExportConfig();
         $rows = $data->values()->map($config['row'])->all();
         $totalRow = array_fill(0, count($config['headings']), '');
@@ -229,6 +234,65 @@ trait ManagesPengeluaranRekap
             ),
             $this->genericRekapExportFilename($titlePrefix.' '.($rekap->nama ?: $moduleName))
         );
+    }
+
+    private function downloadGroupedRabDetailExport(Model $rekap, $data, string $tab)
+    {
+        $rows = $data
+            ->sortBy([
+                ['kelompok_anggaran', 'asc'],
+                ['id', 'asc'],
+            ])
+            ->values()
+            ->map(fn ($item) => [
+                'kelompok_anggaran' => $item->kelompok_anggaran ?: '-',
+                'deskripsi' => $item->nama_kegiatan ?: '-',
+                'volume' => $item->volume === null ? '' : (int) $item->volume,
+                'satuan' => $item->satuan ?: '',
+                'harga_satuan' => (int) ($item->nominal ?? 0),
+                'jumlah_harga' => (int) ($item->total ?? 0),
+            ])
+            ->all();
+        $titlePrefix = $tab === 'lpj' ? 'DETAIL LPJ' : 'DETAIL RAB';
+        $title = $tab === 'lpj'
+            ? 'LAPORAN PERTANGGUNGJAWABAN (LPJ)'
+            : 'RENCANA ANGGARAN BIAYA (RAB)';
+        $periodValue = $rekap->tanggal_rekap ?: $rekap->bulan_tahun;
+        $period = $this->formatGroupedRabDetailPeriod($periodValue);
+        $filename = $this->genericRekapExportFilename(
+            $titlePrefix.' '.($rekap->nama ?: 'Rumah Tangga')
+        );
+        $export = new GroupedRabDetailExport(
+            $title,
+            'RUMAH TANGGA UNIVERSITAS ISLAM INTERNASIONAL',
+            $rekap->nama ?: '-',
+            $period,
+            $rows,
+            array_sum(array_column($rows, 'jumlah_harga')),
+            strtoupper($tab)
+        );
+        $spreadsheet = $export->spreadsheet();
+
+        return response()->streamDownload(function () use ($spreadsheet) {
+            $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+            $writer->save('php://output');
+            $spreadsheet->disconnectWorksheets();
+        }, $filename, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ]);
+    }
+
+    private function formatGroupedRabDetailPeriod($value): string
+    {
+        if (! $value) {
+            return '-';
+        }
+
+        try {
+            return Carbon::parse($value)->locale('id')->translatedFormat('j F Y');
+        } catch (\Throwable) {
+            return (string) $value;
+        }
     }
 
     private function fastRekapIndex(Request $request, $filteredRekaps, string $sortColumn, string $sortOrder)
