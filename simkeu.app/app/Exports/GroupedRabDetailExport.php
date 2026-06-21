@@ -169,7 +169,6 @@ class GroupedRabDetailExport
         $sheet->getStyle("I{$firstDataRow}:I{$totalRow}")->getNumberFormat()
             ->setFormatCode('#,##0');
 
-        $sheet->freezePane("A{$firstDataRow}");
         $sheet->setTopLeftCell('A1');
         $sheet->setSelectedCell('A1');
 

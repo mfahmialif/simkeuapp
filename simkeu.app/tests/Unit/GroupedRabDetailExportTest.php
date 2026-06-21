@@ -62,6 +62,7 @@ class GroupedRabDetailExportTest extends TestCase
         $this->assertArrayHasKey('A19:G19', $sheet->getMergeCells());
         $this->assertSame(1895000, $sheet->getCell('I19')->getValue());
         $this->assertSame('#,##0', $sheet->getStyle('I16')->getNumberFormat()->getFormatCode());
+        $this->assertNull($sheet->getFreezePane());
 
         $spreadsheet->disconnectWorksheets();
     }
