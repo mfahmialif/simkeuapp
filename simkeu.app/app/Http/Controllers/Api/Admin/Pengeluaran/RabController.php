@@ -1941,6 +1941,16 @@ class RabController extends Controller
             'users'
         );
 
+        if (
+            $request->boolean('belum_cetak_rab')
+            && $this->rekapTableHasColumn($source['rekap_table'], 'cetak_rab')
+        ) {
+            $query->where(function (Builder $filter) {
+                $filter->whereNull('rekap.cetak_rab')
+                    ->orWhere('rekap.cetak_rab', false);
+            });
+        }
+
         $this->applyPeriodFilter($query, $request, 'rekap.bulan_tahun');
 
         if ($request->filled('petugas_id')) {
