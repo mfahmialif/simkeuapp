@@ -54,6 +54,14 @@ class SaldoController extends Controller
             'pegawai_tipe' => null,
         ],
         [
+            'key' => 'umum',
+            'name' => 'Umum',
+            'detail_table' => 'keuangan_pengeluaran_umum',
+            'rekap_table' => 'keuangan_pengeluaran_umum_rekap',
+            'lpj_table' => 'keuangan_pengeluaran_umum_lpj',
+            'pegawai_tipe' => null,
+        ],
+        [
             'key' => 'dosen_bulanan',
             'name' => 'Bulanan',
             'detail_table' => 'keuangan_pengeluaran_pegawai_bulanan',

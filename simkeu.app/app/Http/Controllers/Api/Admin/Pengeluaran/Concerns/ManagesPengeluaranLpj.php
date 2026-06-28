@@ -59,6 +59,15 @@ trait ManagesPengeluaranLpj
             'pegawai_tipe' => null,
             'type' => 'transportasi',
         ],
+        'umum' => [
+            'module_key' => 'umum',
+            'title' => 'Pengeluaran Umum',
+            'rekap_table' => 'keuangan_pengeluaran_umum_rekap',
+            'detail_table' => 'keuangan_pengeluaran_umum',
+            'lpj_table' => 'keuangan_pengeluaran_umum_lpj',
+            'pegawai_tipe' => null,
+            'type' => 'umum',
+        ],
         'dosen_bulanan' => [
             'module_key' => 'dosen_bulanan',
             'title' => 'Barokah Bulanan',
@@ -90,6 +99,10 @@ trait ManagesPengeluaranLpj
         'transportasi' => [
             'bukti' => 'transportasi',
             'lampiran' => 'transportasi',
+        ],
+        'umum' => [
+            'bukti' => 'umum',
+            'lampiran' => 'umum',
         ],
         'dosen-bulanan' => [
             'bukti' => 'bulanan',
@@ -149,6 +162,7 @@ trait ManagesPengeluaranLpj
                 "{$source['rekap_table']}.petugas_id",
                 'users'
             );
+            $this->applyCurrentUserPetugasScope($rekapQuery, $source['rekap_table']);
             $rekap = $rekapQuery->lockForUpdate()->first();
 
             if (! $rekap) {
@@ -267,6 +281,7 @@ trait ManagesPengeluaranLpj
                 "{$source['rekap_table']}.petugas_id",
                 'users'
             );
+            $this->applyCurrentUserPetugasScope($rekapQuery, $source['rekap_table']);
             $rekap = $rekapQuery->lockForUpdate()->first();
 
             if (! $rekap) {
@@ -445,6 +460,7 @@ trait ManagesPengeluaranLpj
                 "{$source['rekap_table']}.petugas_id",
                 'users'
             );
+            $this->applyCurrentUserPetugasScope($rekapQuery, $source['rekap_table']);
             $rekap = $rekapQuery->lockForUpdate()->first();
 
             if (! $rekap) {
@@ -518,6 +534,7 @@ trait ManagesPengeluaranLpj
             $source['detail_table'],
             $source['detail_table']
         );
+        $this->applyCurrentUserPetugasScope($query, $source['detail_table']);
 
         if ($source['pegawai_tipe']) {
             $query->where("{$source['detail_table']}.pegawai_tipe", $source['pegawai_tipe']);
@@ -579,6 +596,7 @@ trait ManagesPengeluaranLpj
             $source['lpj_table'],
             $source['lpj_table']
         );
+        $this->applyCurrentUserPetugasScope($query, $source['lpj_table']);
 
         if ($source['pegawai_tipe'] && Schema::hasColumn($source['lpj_table'], 'pegawai_tipe')) {
             $query->where('pegawai_tipe', $source['pegawai_tipe']);
@@ -709,6 +727,7 @@ trait ManagesPengeluaranLpj
             "{$source['rekap_table']}.petugas_id",
             'users'
         );
+        $this->applyCurrentUserPetugasScope($rekapQuery, $source['rekap_table']);
         $rekap = $rekapQuery->first();
 
         if (! $rekap) {
@@ -748,6 +767,7 @@ trait ManagesPengeluaranLpj
             $source['lpj_table'],
             $source['lpj_table']
         );
+        $this->applyCurrentUserPetugasScope($query, $source['lpj_table']);
 
         if ($source['pegawai_tipe'] && Schema::hasColumn($source['lpj_table'], 'pegawai_tipe')) {
             $query->where('pegawai_tipe', $source['pegawai_tipe']);
@@ -786,6 +806,7 @@ trait ManagesPengeluaranLpj
             ->leftJoin("{$source['rekap_table']} as rekap", 'rekap.id', '=', 'lpj.rekap_id')
             ->where('lpj.rekap_id', $rekapId);
         $this->applyDetailGenderScope($query, $source['lpj_table'], 'lpj');
+        $this->applyCurrentUserPetugasScope($query, $source['lpj_table'], 'lpj');
 
         if (Schema::hasColumn($source['lpj_table'], 'petugas_id')) {
             $query->leftJoin('users as petugas', function ($join) {
@@ -960,6 +981,7 @@ trait ManagesPengeluaranLpj
             'rumah-tangga' => $this->rumahTanggaRow($item),
             'sarana-prasarana' => $this->saranaPrasaranaRow($item),
             'transportasi' => $this->transportasiRow($item),
+            'umum' => $this->umumRow($item),
             'dosen-bulanan' => $this->dosenBulananRow($item),
             default => throw new \InvalidArgumentException('Unsupported LPJ module type.'),
         };
@@ -1122,6 +1144,22 @@ trait ManagesPengeluaranLpj
             'volume' => $volume,
             'satuan' => $satuan,
             'total' => $nominal * ($volume ?? 1),
+            'jenis_pembayaran' => $item['jenis_pembayaran'] ?? 'Tunai',
+            'bukti_transfer' => $item['bukti_transfer'] ?? null,
+            'keterangan' => $item['keterangan'] ?? null,
+            'lampiran' => $item['lampiran'] ?? [],
+        ];
+    }
+
+    private function umumRow(array $item): array
+    {
+        $nominal = (int) round($this->number($item['nominal'] ?? $item['total'] ?? 0));
+
+        return [
+            'tanggal' => $item['tanggal'] ?? now()->toDateString(),
+            'nama_kegiatan' => $item['nama_kegiatan'] ?? 'LPJ Pengeluaran Umum',
+            'nominal' => $nominal,
+            'total' => $nominal,
             'jenis_pembayaran' => $item['jenis_pembayaran'] ?? 'Tunai',
             'bukti_transfer' => $item['bukti_transfer'] ?? null,
             'keterangan' => $item['keterangan'] ?? null,

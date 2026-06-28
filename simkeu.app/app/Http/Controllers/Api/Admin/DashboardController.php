@@ -1587,6 +1587,7 @@ class DashboardController extends Controller
             'keuangan_pengeluaran_dosen_kegiatan',
             'keuangan_pengeluaran_pegawai_bulanan',
             'keuangan_pengeluaran_transportasi',
+            'keuangan_pengeluaran_umum',
             'keuangan_pengeluaran_rumah_tangga',
             'keuangan_pengeluaran_sarana_prasarana',
         ];
@@ -1633,6 +1634,15 @@ class DashboardController extends Controller
                 'color' => 'secondary',
                 'has_pegawai' => false,
             ],
+            'umum' => [
+                'key' => 'umum',
+                'label' => 'Pengeluaran Umum',
+                'table' => 'keuangan_pengeluaran_umum',
+                'path' => '/admin/pengeluaran/umum',
+                'icon' => 'ri-wallet-3-line',
+                'color' => 'primary',
+                'has_pegawai' => false,
+            ],
             'rumah_tangga' => [
                 'key' => 'rumah_tangga',
                 'label' => 'Rumah Tangga',
@@ -1658,12 +1668,12 @@ class DashboardController extends Controller
         }
 
         return match ($roleName) {
-            'barokahdosen_tatapmuka' => [$allSources['tatapmuka']],
-            'barokahdosen_kegiatan' => [$allSources['kegiatan']],
-            'barokahdosen_bulanan' => [$allSources['dosen_bulanan']],
-            'transportasi' => [$allSources['transportasi']],
-            'rumahtangga' => [$allSources['rumah_tangga']],
-            'sarpras' => [$allSources['sarana_prasarana']],
+            'barokahdosen_tatapmuka' => [$allSources['tatapmuka'], $allSources['umum']],
+            'barokahdosen_kegiatan' => [$allSources['kegiatan'], $allSources['umum']],
+            'barokahdosen_bulanan' => [$allSources['dosen_bulanan'], $allSources['umum']],
+            'transportasi' => [$allSources['transportasi'], $allSources['umum']],
+            'rumahtangga' => [$allSources['rumah_tangga'], $allSources['umum']],
+            'sarpras' => [$allSources['sarana_prasarana'], $allSources['umum']],
             default => [],
         };
     }

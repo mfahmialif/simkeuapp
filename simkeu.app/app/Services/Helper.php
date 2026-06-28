@@ -316,7 +316,7 @@ class Helper
         $moduleKey = str_replace('-', '_', strtolower((string) $module));
 
         $roles = [
-            'umum' => ['rumahtangga'],
+            'umum' => self::pengeluaranUmumPetugasRoles(),
             'rumah_tangga' => ['rumahtangga'],
             'sarana_prasarana' => ['sarpras'],
             'sarpras' => ['sarpras'],
@@ -340,6 +340,19 @@ class Helper
         ];
 
         return $roles[$moduleKey] ?? $roles['rab'];
+    }
+
+    public static function pengeluaranUmumPetugasRoles(): array
+    {
+        return [
+            'kabag_pengeluaran',
+            'barokahdosen_bulanan',
+            'barokahdosen_tatapmuka',
+            'barokahdosen_kegiatan',
+            'sarpras',
+            'rumahtangga',
+            'transportasi',
+        ];
     }
 
     public static function applyGenderScope($query, string $column = 'jenis_kelamin'): void

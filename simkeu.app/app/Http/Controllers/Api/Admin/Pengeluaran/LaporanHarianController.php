@@ -147,6 +147,11 @@ class LaporanHarianController extends Controller
                 'label' => 'Transportasi',
                 'table' => 'keuangan_pengeluaran_transportasi',
             ],
+            [
+                'key' => 'umum',
+                'label' => 'Pengeluaran Umum',
+                'table' => 'keuangan_pengeluaran_umum',
+            ],
         ];
     }
 

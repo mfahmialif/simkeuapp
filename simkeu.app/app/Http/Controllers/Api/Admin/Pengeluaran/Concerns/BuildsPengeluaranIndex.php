@@ -323,6 +323,7 @@ trait BuildsPengeluaranIndex
             $pengeluaranTable === 'keuangan_pengeluaran_rumah_tangga' => 'rumah_tangga',
             $pengeluaranTable === 'keuangan_pengeluaran_sarana_prasarana' => 'sarana_prasarana',
             $pengeluaranTable === 'keuangan_pengeluaran_transportasi' => 'transportasi',
+            $pengeluaranTable === 'keuangan_pengeluaran_umum' => 'umum',
             $rekapTable === 'keuangan_pengeluaran_dosen_bulanan_rekap' => 'dosen_bulanan',
             default => null,
         };

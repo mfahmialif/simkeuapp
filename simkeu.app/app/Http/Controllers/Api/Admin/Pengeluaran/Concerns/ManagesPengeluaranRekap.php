@@ -668,6 +668,30 @@ trait ManagesPengeluaranRekap
                 'amount_columns' => [7, 8],
                 'total_column' => 8,
             ],
+            'keuangan_pengeluaran_umum' => [
+                'headings' => [
+                    'NO',
+                    'TANGGAL',
+                    'NAMA PENGELUARAN',
+                    'NOMINAL',
+                    'TOTAL',
+                    'JENIS PEMBAYARAN',
+                    'PETUGAS',
+                    'KETERANGAN',
+                ],
+                'row' => fn ($item, $index) => [
+                    $index + 1,
+                    $this->formatGenericRekapExportDate($item->tanggal ?? null),
+                    $item->nama_kegiatan ?: '-',
+                    (int) ($item->nominal ?? 0),
+                    (int) ($item->total ?? 0),
+                    $item->jenis_pembayaran ?: '',
+                    $item->petugas_nama ?: '',
+                    $item->keterangan ?: '',
+                ],
+                'amount_columns' => [4, 5],
+                'total_column' => 5,
+            ],
             default => [
                 'headings' => [
                     'NO',
@@ -1131,6 +1155,8 @@ trait ManagesPengeluaranRekap
 
         $this->applyPengeluaranGenderScope($query, $tableName);
 
+        $this->applyCurrentUserPetugasScope($query, $tableName);
+
         if (
             ! $request->filled('petugas_id')
             || ! Schema::hasColumn($tableName, 'petugas_id')
@@ -1189,6 +1215,10 @@ trait ManagesPengeluaranRekap
 
     private function petugasAllowedForRekap(int $petugasId): bool
     {
+        if (! $this->petugasAllowedForCurrentUser($petugasId)) {
+            return false;
+        }
+
         $query = User::query()
             ->where('users.id', $petugasId)
             ->whereHas(
@@ -1209,6 +1239,7 @@ trait ManagesPengeluaranRekap
             'keuangan_pengeluaran_rumah_tangga' => 'rumah_tangga',
             'keuangan_pengeluaran_sarana_prasarana' => 'sarana_prasarana',
             'keuangan_pengeluaran_transportasi' => 'transportasi',
+            'keuangan_pengeluaran_umum' => 'umum',
             default => 'rab',
         };
     }
@@ -1221,6 +1252,7 @@ trait ManagesPengeluaranRekap
                 "{$rekapTable}.petugas_id",
                 'users'
             );
+            $this->applyCurrentUserPetugasScope($query, $rekapTable);
         }
 
         if (
@@ -1245,6 +1277,7 @@ trait ManagesPengeluaranRekap
         $query = $modelClass::query();
 
         $this->applyPengeluaranGenderScope($query, $model->getTable());
+        $this->applyCurrentUserPetugasScope($query, $model->getTable());
 
         return $query->whereKey($id)->first();
     }
@@ -1261,6 +1294,7 @@ trait ManagesPengeluaranRekap
                 "{$table}.petugas_id",
                 'users'
             );
+            $this->applyCurrentUserPetugasScope($query, $table);
         }
 
         return $query->whereKey($id)->first();
@@ -1280,9 +1314,64 @@ trait ManagesPengeluaranRekap
                         "{$table}.petugas_id",
                         'users'
                     );
+                    $this->applyCurrentUserPetugasScope($query, $table);
                 }
             }),
         ];
+    }
+
+    private function applyCurrentUserPetugasScope($query, string $table, ?string $qualifier = null): void
+    {
+        if (! Schema::hasColumn($table, 'petugas_id')) {
+            return;
+        }
+
+        if (! $this->currentUserAllowedForPetugasModule()) {
+            $query->whereRaw('1 = 0');
+
+            return;
+        }
+
+        if ($this->shouldForceOwnPetugasForModule()) {
+            $query->where(($qualifier ?? $table).'.petugas_id', auth()->id());
+        }
+    }
+
+    private function petugasAllowedForCurrentUser(int $petugasId): bool
+    {
+        if (! $this->currentUserAllowedForPetugasModule()) {
+            return false;
+        }
+
+        return ! $this->shouldForceOwnPetugasForModule()
+            || $petugasId === (int) auth()->id();
+    }
+
+    private function currentUserAllowedForPetugasModule(): bool
+    {
+        if ($this->petugasModuleKey() !== 'umum') {
+            return true;
+        }
+
+        $roleName = strtolower((string) (auth()->user()?->role?->name ?? ''));
+
+        return in_array($roleName, [
+            'admin',
+            'pimpinan',
+            'keuangan',
+            ...Helper::pengeluaranPetugasRoles('umum'),
+        ], true);
+    }
+
+    private function shouldForceOwnPetugasForModule(): bool
+    {
+        if ($this->petugasModuleKey() !== 'umum') {
+            return false;
+        }
+
+        $roleName = strtolower((string) (auth()->user()?->role?->name ?? ''));
+
+        return ! in_array($roleName, ['admin', 'pimpinan', 'keuangan', 'kabag_pengeluaran'], true);
     }
 
     protected function savePengeluaranWithRekapValidation(Model $data): void
@@ -1742,6 +1831,7 @@ trait ManagesPengeluaranRekap
             'keuangan_pengeluaran_rumah_tangga' => 'Rumah Tangga',
             'keuangan_pengeluaran_sarana_prasarana' => 'Sarana Prasarana',
             'keuangan_pengeluaran_transportasi' => 'Transportasi',
+            'keuangan_pengeluaran_umum' => 'Pengeluaran Umum',
             default => 'Pengeluaran',
         };
     }
@@ -1811,6 +1901,7 @@ trait ManagesPengeluaranRekap
             'keuangan_pengeluaran_rumah_tangga_rekap' => 'rumah_tangga',
             'keuangan_pengeluaran_sarana_prasarana_rekap' => 'sarana_prasarana',
             'keuangan_pengeluaran_transportasi_rekap' => 'transportasi',
+            'keuangan_pengeluaran_umum_rekap' => 'umum',
             'keuangan_pengeluaran_dosen_bulanan_rekap' => 'dosen_bulanan',
             default => null,
         };

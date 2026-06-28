@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\Admin;
 
 use App\Exports\BarokahPegawaiExport;
 use App\Exports\PegawaiExport;
+use App\Exports\pdf\SlipBarokahPegawaiPdf;
 use App\Http\Controllers\Controller;
 use App\Models\Dosen as DosenModel;
 use App\Models\Pegawai;
@@ -240,6 +241,53 @@ class PegawaiController extends Controller
             ],
             'message' => 'Ringkasan barokah pegawai retrieved successfully',
         ]);
+    }
+
+    public function slipBarokah(Request $request, $id)
+    {
+        $pegawai = $this->scopedPegawaiQuery(['dosen.prodi', 'staff'])->find($id);
+
+        if (! $pegawai) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Pegawai Not Found',
+            ], 404);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'bulan' => ['nullable', 'date_format:Y-m'],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'message' => $validator->errors(),
+            ], 422);
+        }
+
+        $period = $this->resolveSlipBarokahPeriod($request);
+
+        return response()->json([
+            'status' => true,
+            'data' => $this->buildSlipBarokahData($pegawai, $period),
+            'message' => 'Preview slip barokah retrieved successfully',
+        ]);
+    }
+
+    public function downloadSlipBarokah(Request $request, $id)
+    {
+        $pegawai = $this->scopedPegawaiQuery(['dosen.prodi', 'staff'])->find($id);
+        abort_if(! $pegawai, 404, 'Pegawai Not Found');
+
+        $validator = Validator::make($request->all(), [
+            'bulan' => ['nullable', 'date_format:Y-m'],
+        ]);
+
+        abort_if($validator->fails(), 422, collect($validator->errors()->all())->implode('; '));
+
+        $period = $this->resolveSlipBarokahPeriod($request);
+
+        return SlipBarokahPegawaiPdf::pdf($this->buildSlipBarokahData($pegawai, $period));
     }
 
     public function barokahReport(Request $request)
@@ -685,6 +733,224 @@ class PegawaiController extends Controller
                 ? $this->barokahMonthLabel($start)
                 : $this->barokahDateLabel($start).' - '.$this->barokahDateLabel($end),
         ];
+    }
+
+    private function resolveSlipBarokahPeriod(Request $request): array
+    {
+        $bulan = $request->input('bulan') ?: now()->format('Y-m');
+        $start = Carbon::createFromFormat('Y-m-d', "{$bulan}-01")->startOfDay();
+        $end = $start->copy()->endOfMonth();
+
+        return [
+            'bulan' => $bulan,
+            'start' => $start,
+            'end' => $end,
+            'label' => $this->barokahMonthLabel($start),
+        ];
+    }
+
+    private function buildSlipBarokahData(Pegawai $pegawai, array $period): array
+    {
+        $modules = [];
+        $allRows = collect();
+
+        foreach ($this->barokahModulesForPegawai($pegawai) as $module) {
+            if (! $this->barokahTableIsUsable($module['table'])) {
+                continue;
+            }
+
+            $rows = $this->barokahSlipRows(
+                $module,
+                (int) $pegawai->id,
+                $period['start'],
+                $period['end']
+            );
+
+            $moduleTotal = (int) $rows->sum('total');
+
+            $modules[] = [
+                'key' => $module['key'],
+                'label' => $module['label'],
+                'short_label' => $module['short_label'],
+                'icon' => $module['icon'],
+                'color' => $module['color'],
+                'path' => $module['path'],
+                'jumlah' => $rows->count(),
+                'total' => $moduleTotal,
+                'rows' => $rows->values()->all(),
+            ];
+
+            $allRows = $allRows->merge($rows);
+        }
+
+        $allRows = $allRows
+            ->sortBy([
+                ['tanggal', 'asc'],
+                ['module_label', 'asc'],
+                ['id', 'asc'],
+            ])
+            ->values();
+
+        return [
+            'pegawai' => $this->slipBarokahPegawaiPayload($pegawai),
+            'filters' => [
+                'bulan' => $period['bulan'],
+                'tanggal_mulai' => $period['start']->toDateString(),
+                'tanggal_akhir' => $period['end']->toDateString(),
+                'label' => $period['label'],
+            ],
+            'stats' => [
+                'jumlah' => (int) $allRows->count(),
+                'total' => (int) $allRows->sum('total'),
+            ],
+            'modules' => $modules,
+            'rows' => $allRows->all(),
+        ];
+    }
+
+    private function slipBarokahPegawaiPayload(Pegawai $pegawai): array
+    {
+        $tipe = strtolower((string) $pegawai->tipe);
+
+        return [
+            'id' => (int) $pegawai->id,
+            'nama' => $pegawai->nama ?: '-',
+            'kode' => $pegawai->kode ?: '-',
+            'tipe' => $tipe ?: '-',
+            'unit' => $tipe === 'dosen'
+                ? ($pegawai->dosen?->prodi?->alias ?: $pegawai->dosen?->prodi?->nama ?: '-')
+                : ($pegawai->staff?->jabatan ?: '-'),
+        ];
+    }
+
+    private function barokahSlipRows(array $module, int $pegawaiId, Carbon $start, Carbon $end)
+    {
+        $table = $module['table'];
+
+        return $this->barokahBaseQuery($module, $pegawaiId, $start, $end)
+            ->select($this->barokahSlipColumns($module))
+            ->orderBy("{$table}.tanggal")
+            ->orderBy("{$table}.id")
+            ->get()
+            ->map(fn ($row) => $this->barokahSlipRowItem($module, $row));
+    }
+
+    private function barokahSlipColumns(array $module): array
+    {
+        $table = $module['table'];
+        $columns = [
+            'id',
+            'tanggal',
+            'pegawai_id',
+            'jam',
+            'jam_mengajar_double_degree',
+            'hari',
+            'hari_transport_motor',
+            'hari_transport_mobil',
+            'transport',
+            'transport_motor',
+            'transport_mobil',
+            'barokah',
+            'barokah_mengajar_biasa',
+            'barokah_mengajar_double_degree',
+            'barokah_uas',
+            'jumlah_mahasiswa_uas',
+            'barokah_sempro',
+            'jam_sempro',
+            'keterangan_sempro',
+            'nama_kegiatan',
+            'kategori_detail',
+            'nominal',
+            'bulan',
+            'tahun',
+            'barokah_harian',
+            'barokah_bulanan',
+            'barokah_dosen_tetap',
+            'barokah_struktural',
+            'total',
+            'jenis_pembayaran',
+            'keterangan',
+        ];
+
+        return collect($columns)
+            ->unique()
+            ->filter(fn ($column) => Schema::hasColumn($table, $column))
+            ->map(fn ($column) => "{$table}.{$column}")
+            ->values()
+            ->all();
+    }
+
+    private function barokahSlipRowItem(array $module, $row): array
+    {
+        $tanggal = (string) data_get($row, 'tanggal');
+        $details = $this->barokahSlipRowDetails($module['key'], $row);
+
+        return [
+            'id' => (int) data_get($row, 'id'),
+            'row_key' => $module['key'].'-'.data_get($row, 'id'),
+            'module_key' => $module['key'],
+            'module_label' => $module['short_label'],
+            'module_color' => $module['color'],
+            'module_icon' => $module['icon'],
+            'tanggal' => $tanggal,
+            'tanggal_label' => $tanggal ? $this->barokahDateLabel(Carbon::parse($tanggal)) : '-',
+            'deskripsi' => $this->barokahRecentDescription($module['key'], $row),
+            'details' => $details,
+            'detail_text' => $details ? implode(' | ', $details) : '-',
+            'jenis_pembayaran' => data_get($row, 'jenis_pembayaran') ?: '-',
+            'keterangan' => data_get($row, 'keterangan') ?: '-',
+            'total' => (int) data_get($row, 'total', 0),
+            'path' => $module['path'],
+        ];
+    }
+
+    private function barokahSlipRowDetails(string $moduleKey, $row): array
+    {
+        if ($moduleKey === 'tatapmuka') {
+            $barokahMengajar = (int) (data_get($row, 'barokah_mengajar_biasa') ?? data_get($row, 'barokah', 0));
+            $jam = (float) data_get($row, 'jam', 0);
+            $barokahDoubleDegree = (int) data_get($row, 'barokah_mengajar_double_degree', 0);
+            $jamDoubleDegree = (float) data_get($row, 'jam_mengajar_double_degree', 0);
+            $barokahUas = (int) data_get($row, 'barokah_uas', 0);
+            $jumlahMahasiswaUas = (float) data_get($row, 'jumlah_mahasiswa_uas', 0);
+            $barokahSempro = (int) data_get($row, 'barokah_sempro', 0);
+            $jamSempro = (float) data_get($row, 'jam_sempro', 0);
+
+            return array_values(array_filter([
+                $jam > 0 ? 'Mengajar '.$this->formatSlipNumber($jam).' jam x '.$this->formatSlipRupiah($barokahMengajar) : null,
+                $jamDoubleDegree > 0 ? 'DD '.$this->formatSlipNumber($jamDoubleDegree).' jam x '.$this->formatSlipRupiah($barokahDoubleDegree) : null,
+                $jumlahMahasiswaUas > 0 ? 'UAS '.$this->formatSlipNumber($jumlahMahasiswaUas).' mhs x '.$this->formatSlipRupiah($barokahUas) : null,
+                $jamSempro > 0 ? 'Sempro '.$this->formatSlipNumber($jamSempro).' jam x '.$this->formatSlipRupiah($barokahSempro) : null,
+                (int) data_get($row, 'transport', 0) > 0 ? 'Transport '.$this->formatSlipRupiah((int) data_get($row, 'transport', 0)) : null,
+                data_get($row, 'keterangan_sempro') ? 'Penguji sempro: '.data_get($row, 'keterangan_sempro') : null,
+            ]));
+        }
+
+        if ($moduleKey === 'kegiatan') {
+            return array_values(array_filter([
+                (int) data_get($row, 'transport', 0) > 0 ? 'Transport '.$this->formatSlipRupiah((int) data_get($row, 'transport', 0)) : null,
+                (int) data_get($row, 'barokah', 0) > 0 ? 'Barokah '.$this->formatSlipRupiah((int) data_get($row, 'barokah', 0)) : null,
+                (int) data_get($row, 'nominal', 0) > 0 ? 'Nominal '.$this->formatSlipRupiah((int) data_get($row, 'nominal', 0)) : null,
+            ]));
+        }
+
+        return array_values(array_filter([
+            (float) data_get($row, 'hari', 0) > 0 ? 'Hari '.$this->formatSlipNumber((float) data_get($row, 'hari', 0)) : null,
+            (int) data_get($row, 'barokah_harian', 0) > 0 ? 'Harian '.$this->formatSlipRupiah((int) data_get($row, 'barokah_harian', 0)) : null,
+            (int) data_get($row, 'barokah_bulanan', 0) > 0 ? 'Bulanan '.$this->formatSlipRupiah((int) data_get($row, 'barokah_bulanan', 0)) : null,
+            (int) data_get($row, 'barokah_dosen_tetap', 0) > 0 ? 'Tetap '.$this->formatSlipRupiah((int) data_get($row, 'barokah_dosen_tetap', 0)) : null,
+            (int) data_get($row, 'barokah_struktural', 0) > 0 ? 'Struktural '.$this->formatSlipRupiah((int) data_get($row, 'barokah_struktural', 0)) : null,
+        ]));
+    }
+
+    private function formatSlipRupiah(int $value): string
+    {
+        return 'Rp '.number_format($value, 0, ',', '.');
+    }
+
+    private function formatSlipNumber(float $value): string
+    {
+        return rtrim(rtrim(number_format($value, 2, ',', '.'), '0'), ',');
     }
 
     private function barokahModulesForPegawai(Pegawai $pegawai): array

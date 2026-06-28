@@ -1118,12 +1118,25 @@ class HelperController extends Controller
     public function petugasPengeluaran(Request $request)
     {
         try {
+            $moduleKey = str_replace(
+                '-',
+                '_',
+                strtolower((string) $request->input('module', $request->input('module_key')))
+            );
             $roleNames = $this->pengeluaranPetugasRoles(
                 $request->input('module', $request->input('module_key'))
             );
 
             $query = \App\Models\User::with('role:id,name')
                 ->whereHas('role', fn ($role) => $role->whereIn('name', $roleNames));
+
+            $currentRole = strtolower((string) (auth()->user()?->role?->name ?? ''));
+            if (
+                $moduleKey === 'umum'
+                && ! in_array($currentRole, ['admin', 'pimpinan', 'keuangan', 'kabag_pengeluaran'], true)
+            ) {
+                $query->where('users.id', auth()->id());
+            }
 
             $gender = $request->input('jenis_kelamin');
 

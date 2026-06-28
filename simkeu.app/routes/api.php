@@ -49,6 +49,7 @@ use App\Http\Controllers\Api\Admin\Pengeluaran\LaporanHarianController as Pengel
 use App\Http\Controllers\Api\Admin\Pengeluaran\RumahTanggaController as PengeluaranRumahTanggaController;
 use App\Http\Controllers\Api\Admin\Pengeluaran\SaranaPrasaranaController as PengeluaranSaranaPrasaranaController;
 use App\Http\Controllers\Api\Admin\Pengeluaran\TransportasiController as PengeluaranTransportasiController;
+use App\Http\Controllers\Api\Admin\Pengeluaran\UmumController as PengeluaranUmumController;
 
 Route::prefix('bsi')->group(function () {
     Route::get('tagihan', [PublicBsiPaymentController::class, 'tagihan'])
@@ -80,6 +81,8 @@ Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
     Route::get('pegawai/barokah-report', [PegawaiController::class, 'barokahReport']);
     Route::get('pegawai/barokah-report/export-excel', [PegawaiController::class, 'exportBarokahReportExcel']);
     Route::get('pegawai/{pegawai}/barokah', [PegawaiController::class, 'barokah']);
+    Route::get('pegawai/{pegawai}/slip-barokah', [PegawaiController::class, 'slipBarokah']);
+    Route::get('pegawai/{pegawai}/slip-barokah/download', [PegawaiController::class, 'downloadSlipBarokah']);
     Route::get('pegawai/{pegawai}', [PegawaiController::class, 'show']);
     Route::get('saldo', [SaldoController::class, 'index']);
     Route::get('saldo/{petugas}', [SaldoController::class, 'show'])->whereNumber('petugas');
@@ -295,6 +298,30 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
         Route::apiResource('sarana-prasarana', PengeluaranSaranaPrasaranaController::class)->except(['index', 'show'])->middleware($roleSarprasWrite);
         Route::apiResource('sarana-prasarana', PengeluaranSaranaPrasaranaController::class)->only(['index', 'show']);
 
+        // Umum
+        $roleUmumWrite = 'role:admin,pimpinan,keuangan,kabag_pengeluaran,barokahdosen_bulanan,barokahdosen_tatapmuka,barokahdosen_kegiatan,sarpras,rumahtangga,transportasi';
+        Route::get('/umum/export-excel', [PengeluaranUmumController::class, 'exportExcel']);
+        Route::get('/umum/export-bsi', [PengeluaranUmumController::class, 'exportBsi']);
+        Route::get('/umum/export-bsi-txt', [PengeluaranUmumController::class, 'exportBsiTxt']);
+        Route::get('/umum/copy-bsi', [PengeluaranUmumController::class, 'copyBsi']);
+        Route::post('/umum/batch-store', [PengeluaranUmumController::class, 'batchStore'])->middleware($roleUmumWrite);
+        Route::post('/umum/batch-update', [PengeluaranUmumController::class, 'batchUpdate'])->middleware($roleUmumWrite);
+        Route::get('/umum/rekap', [PengeluaranUmumController::class, 'rekapIndex']);
+        Route::get('/umum/rekap/export-excel', [PengeluaranUmumController::class, 'rekapExportExcel']);
+        Route::post('/umum/rekap', [PengeluaranUmumController::class, 'rekapStore'])->middleware($roleUmumWrite);
+        Route::post('/umum/rekap/bulk-update', [PengeluaranUmumController::class, 'rekapBulkUpdate'])->middleware($roleUmumWrite);
+        Route::post('/umum/rekap/{id}/release', [PengeluaranUmumController::class, 'rekapRelease'])->middleware($roleUmumWrite);
+        Route::put('/umum/rekap/{id}', [PengeluaranUmumController::class, 'rekapUpdate'])->middleware($roleUmumWrite);
+        Route::delete('/umum/rekap/{id}', [PengeluaranUmumController::class, 'rekapDestroy'])->middleware($roleUmumWrite);
+        Route::get('/umum/rekap/{id}/export-excel', [PengeluaranUmumController::class, 'rekapDetailExportExcel']);
+        Route::get('/umum/rekap/{id}/lpj', [PengeluaranUmumController::class, 'lpjShow']);
+        Route::post('/umum/rekap/{id}/lpj/copy', [PengeluaranUmumController::class, 'lpjCopy'])->middleware($roleUmumWrite);
+        Route::put('/umum/rekap/{id}/lpj', [PengeluaranUmumController::class, 'lpjUpdate'])->middleware($roleUmumWrite);
+        Route::delete('/umum/rekap/{id}/lpj', [PengeluaranUmumController::class, 'lpjDelete'])->middleware($roleUmumWrite);
+        Route::get('/umum/rekap/{id}', [PengeluaranUmumController::class, 'rekapShow']);
+        Route::apiResource('umum', PengeluaranUmumController::class)->except(['index', 'show'])->middleware($roleUmumWrite);
+        Route::apiResource('umum', PengeluaranUmumController::class)->only(['index', 'show']);
+
         // Transportasi
         $roleTransportasiWrite = 'role:admin,pimpinan,keuangan,kabag_pengeluaran,transportasi';
         Route::get('/transportasi/export-excel', [PengeluaranTransportasiController::class, 'exportExcel']);
@@ -352,6 +379,14 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
         ->middleware('role:admin,keuangan,kabag,kabag_pengeluaran,barokahdosen_tatapmuka,barokahdosen_kegiatan,barokahdosen_bulanan');
     Route::delete('laporan/rab/kas/manual/{id}', [RabController::class, 'destroyKasManual'])
         ->middleware('role:admin,keuangan,kabag,kabag_pengeluaran,barokahdosen_tatapmuka,barokahdosen_kegiatan,barokahdosen_bulanan');
+    Route::get('laporan/rab/proses', [RabController::class, 'prosesIndex'])
+        ->middleware('role:admin,pimpinan,keuangan,kabag,kabag_pengeluaran,barokahdosen_tatapmuka,barokahdosen_kegiatan,barokahdosen_bulanan');
+    Route::post('laporan/rab/proses', [RabController::class, 'storeProsesRab'])
+        ->middleware('role:admin,keuangan,kabag,kabag_pengeluaran,barokahdosen_tatapmuka,barokahdosen_kegiatan,barokahdosen_bulanan');
+    Route::delete('laporan/rab/proses/{id}', [RabController::class, 'destroyProsesRab'])
+        ->middleware('role:admin,keuangan,kabag,kabag_pengeluaran,barokahdosen_tatapmuka,barokahdosen_kegiatan,barokahdosen_bulanan');
+    Route::get('laporan/rab/proses/{id}/export-excel', [RabController::class, 'exportProsesRab'])
+        ->middleware('role:admin,pimpinan,keuangan,kabag,kabag_pengeluaran,barokahdosen_tatapmuka,barokahdosen_kegiatan,barokahdosen_bulanan');
     Route::get('laporan/rab/export-excel', [RabController::class, 'exportExcel'])
         ->middleware('role:admin,pimpinan,keuangan,kabag,kabag_pengeluaran,barokahdosen_tatapmuka,barokahdosen_kegiatan,barokahdosen_bulanan');
     Route::get('laporan/rab/export-rekapan', [RabController::class, 'exportRekapan'])
