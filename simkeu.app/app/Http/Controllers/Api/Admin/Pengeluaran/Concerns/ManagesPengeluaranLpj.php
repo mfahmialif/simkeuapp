@@ -402,7 +402,7 @@ trait ManagesPengeluaranLpj
             }
 
             $rekapSummary = $this->lpjRekapSummary($source, $rekapId);
-            $lpjSummary = $this->lpjSummary($source, $rekapId, $rekapSummary['jumlah']);
+            $lpjSummary = $this->lpjSummary($source, $rekapId, $rekapSummary['jumlah'], false);
             $this->upsertStatus($source, $rekapId, [
                 'sama_dengan_rab' => false,
                 'total_rab' => $rekapSummary['jumlah'],
@@ -487,7 +487,7 @@ trait ManagesPengeluaranLpj
             $deleted = $deleteQuery->delete();
 
             $rekapSummary = $this->lpjRekapSummary($source, $rekapId);
-            $lpjSummary = $this->lpjSummary($source, $rekapId, $rekapSummary['jumlah']);
+            $lpjSummary = $this->lpjSummary($source, $rekapId, $rekapSummary['jumlah'], false);
 
             $this->upsertStatus($source, $rekapId, [
                 'sama_dengan_rab' => false,
@@ -758,7 +758,7 @@ trait ManagesPengeluaranLpj
         ];
     }
 
-    private function lpjSummary(array $source, $rekapId, int $totalRab): array
+    private function lpjSummary(array $source, $rekapId, int $totalRab, bool $useSameAsRabFallback = true): array
     {
         $query = DB::table($source['lpj_table'])
             ->where('rekap_id', $rekapId);
@@ -784,7 +784,7 @@ trait ManagesPengeluaranLpj
         $jumlahData = (int) ($summary->jumlah_data ?? 0);
         $totalLpj = (int) ($summary->total_lpj ?? 0);
 
-        if ($jumlahData === 0 && $status?->sama_dengan_rab) {
+        if ($useSameAsRabFallback && $jumlahData === 0 && $status?->sama_dengan_rab) {
             $totalLpj = (int) ($status->total_lpj ?: $totalRab);
         }
 

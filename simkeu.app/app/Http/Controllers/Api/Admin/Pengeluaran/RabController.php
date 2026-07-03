@@ -295,8 +295,9 @@ class RabController extends Controller
             ]);
         }
 
+        $rekapFilterRequest = $this->prosesRabRekapFilterRequest($request);
         $summary = DB::table('keuangan_cetak_rab_detail as detail')
-            ->joinSub($this->filteredRekapQuery($request), 'rab', function ($join) {
+            ->joinSub($this->filteredRekapQuery($rekapFilterRequest), 'rab', function ($join) {
                 $join->on('rab.module_key', '=', 'detail.module_key')
                     ->on('rab.id', '=', 'detail.rekap_id');
             })
@@ -307,16 +308,26 @@ class RabController extends Controller
             )
             ->groupBy('detail.cetak_rab_id');
 
+        $selectColumns = [
+            'cetak.id',
+            'cetak.tanggal_cetak',
+            'cetak.keterangan',
+            'cetak.created_at',
+            DB::raw('COALESCE(summary.jumlah_rekap, 0) as jumlah_rekap'),
+            DB::raw('COALESCE(summary.total_rab, 0) as total_rab'),
+        ];
+
+        $selectColumns[] = $this->hasCetakRabKategoriColumn()
+            ? 'cetak.kategori'
+            : DB::raw('NULL as kategori');
+
         $rows = DB::table('keuangan_cetak_rab as cetak')
-            ->joinSub($summary, 'summary', 'summary.cetak_rab_id', '=', 'cetak.id')
-            ->select([
-                'cetak.id',
-                'cetak.tanggal_cetak',
-                'cetak.keterangan',
-                'cetak.created_at',
-                DB::raw('summary.jumlah_rekap as jumlah_rekap'),
-                DB::raw('summary.total_rab as total_rab'),
-            ]);
+            ->leftJoinSub($summary, 'summary', 'summary.cetak_rab_id', '=', 'cetak.id')
+            ->select($selectColumns);
+
+        if ($this->hasProsesRabRekapFilters($rekapFilterRequest)) {
+            $rows->whereNotNull('summary.cetak_rab_id');
+        }
 
         $this->applyProsesRabFilters($rows, $request);
 
@@ -329,6 +340,7 @@ class RabController extends Controller
                 $item->id = (int) $item->id;
                 $item->jumlah_rekap = (int) $item->jumlah_rekap;
                 $item->total_rab = (int) $item->total_rab;
+                $item->kategori = trim((string) ($item->kategori ?? '')) ?: null;
 
                 return $item;
             });
@@ -336,6 +348,10 @@ class RabController extends Controller
         return response()->json([
             'status' => true,
             'data' => $rows,
+            'filters' => [
+                'kategori_options' => $this->prosesRabKategoriOptions(),
+                'kategori_history' => $this->prosesRabKategoriHistory(),
+            ],
             'message' => 'List proses RAB retrieved successfully',
         ]);
     }
@@ -349,8 +365,16 @@ class RabController extends Controller
             ], 422);
         }
 
+        if (! $this->hasCetakRabKategoriColumn()) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Migration kategori Proses RAB belum dijalankan.',
+            ], 422);
+        }
+
         $validator = Validator::make($request->all(), [
             'tanggal_cetak' => ['required', 'date_format:Y-m-d'],
+            'kategori' => ['required', 'string', 'max:255'],
             'keterangan' => ['nullable', 'string', 'max:1000'],
             'items' => ['required', 'array', 'min:1', 'max:500'],
             'items.*.module_key' => ['required', Rule::in(array_keys(self::SOURCES))],
@@ -365,6 +389,17 @@ class RabController extends Controller
         }
 
         $validated = $validator->validated();
+        $kategori = trim((string) $validated['kategori']);
+
+        if ($kategori === '') {
+            return response()->json([
+                'status' => false,
+                'message' => [
+                    'kategori' => ['Kategori wajib diisi.'],
+                ],
+            ], 422);
+        }
+
         $items = collect($validated['items'])
             ->unique(fn (array $item) => "{$item['module_key']}:{$item['id']}")
             ->values();
@@ -383,10 +418,11 @@ class RabController extends Controller
         $keterangan = trim((string) ($validated['keterangan'] ?? ''));
         $cetakRabId = null;
 
-        DB::transaction(function () use ($items, $validated, $keterangan, &$cetakRabId) {
+        DB::transaction(function () use ($items, $validated, $kategori, $keterangan, &$cetakRabId) {
             $now = now();
             $cetakRabId = DB::table('keuangan_cetak_rab')->insertGetId([
                 'tanggal_cetak' => $validated['tanggal_cetak'],
+                'kategori' => $kategori,
                 'keterangan' => $keterangan !== '' ? $keterangan : null,
                 'created_at' => $now,
                 'updated_at' => $now,
@@ -417,6 +453,7 @@ class RabController extends Controller
             'status' => true,
             'data' => [
                 'id' => $cetakRabId,
+                'kategori' => $kategori,
                 'row_keys' => $items
                     ->map(fn (array $item) => "{$item['module_key']}:{$item['id']}")
                     ->all(),
@@ -2022,18 +2059,87 @@ class RabController extends Controller
 
         $matchingRekaps = $this->filteredRekapQuery($searchRequest);
 
-        $query->where(function (Builder $filter) use ($search, $matchingRekaps) {
-            $filter->where('cetak.keterangan', 'LIKE', "%{$search}%")
-                ->orWhereExists(function ($exists) use ($matchingRekaps) {
-                    $exists->selectRaw('1')
-                        ->from('keuangan_cetak_rab_detail as search_detail')
-                        ->joinSub($matchingRekaps, 'search_rab', function ($join) {
-                            $join->on('search_rab.module_key', '=', 'search_detail.module_key')
-                                ->on('search_rab.id', '=', 'search_detail.rekap_id');
-                        })
-                        ->whereColumn('search_detail.cetak_rab_id', 'cetak.id');
-                });
+        $hasKategori = $this->hasCetakRabKategoriColumn();
+
+        $query->where(function (Builder $filter) use ($search, $matchingRekaps, $hasKategori) {
+            $filter->where('cetak.keterangan', 'LIKE', "%{$search}%");
+
+            if ($hasKategori) {
+                $filter->orWhere('cetak.kategori', 'LIKE', "%{$search}%");
+            }
+
+            $filter->orWhereExists(function ($exists) use ($matchingRekaps) {
+                $exists->selectRaw('1')
+                    ->from('keuangan_cetak_rab_detail as search_detail')
+                    ->joinSub($matchingRekaps, 'search_rab', function ($join) {
+                        $join->on('search_rab.module_key', '=', 'search_detail.module_key')
+                            ->on('search_rab.id', '=', 'search_detail.rekap_id');
+                    })
+                    ->whereColumn('search_detail.cetak_rab_id', 'cetak.id');
+            });
         });
+    }
+
+    private function prosesRabRekapFilterRequest(Request $request): Request
+    {
+        $filters = collect(['module_key', 'petugas_id', 'search'])
+            ->mapWithKeys(fn (string $key) => $request->filled($key)
+                ? [$key => $request->input($key)]
+                : [])
+            ->all();
+
+        return Request::create('/', 'GET', $filters);
+    }
+
+    private function hasProsesRabRekapFilters(Request $request): bool
+    {
+        return collect(['module_key', 'petugas_id', 'search'])
+            ->contains(fn (string $key) => $request->filled($key));
+    }
+
+    private function prosesRabKategoriOptions(): array
+    {
+        if (! $this->hasCetakRabKategoriColumn()) {
+            return [];
+        }
+
+        return DB::table('keuangan_cetak_rab')
+            ->whereNotNull('kategori')
+            ->whereRaw("TRIM(kategori) <> ''")
+            ->distinct()
+            ->orderBy('kategori')
+            ->pluck('kategori')
+            ->map(fn ($kategori) => trim((string) $kategori))
+            ->filter()
+            ->values()
+            ->all();
+    }
+
+    private function prosesRabKategoriHistory(): array
+    {
+        if (! $this->hasCetakRabKategoriColumn()) {
+            return [];
+        }
+
+        return DB::table('keuangan_cetak_rab')
+            ->whereNotNull('kategori')
+            ->whereRaw("TRIM(kategori) <> ''")
+            ->orderBy('tanggal_cetak')
+            ->orderBy('id')
+            ->get(['kategori', 'tanggal_cetak'])
+            ->map(fn ($item) => [
+                'kategori' => trim((string) $item->kategori),
+                'tanggal_cetak' => (string) $item->tanggal_cetak,
+            ])
+            ->filter(fn (array $item) => $item['kategori'] !== '')
+            ->values()
+            ->all();
+    }
+
+    private function hasCetakRabKategoriColumn(): bool
+    {
+        return Schema::hasTable('keuangan_cetak_rab')
+            && Schema::hasColumn('keuangan_cetak_rab', 'kategori');
     }
 
     private function applyPeriodFilter(Builder $query, Request $request, string $column): void

@@ -22,6 +22,7 @@ use App\Http\Controllers\Api\Admin\ThAkademikController;
 use App\Http\Controllers\Api\Admin\AktifkanMahasiswaController;
 use App\Http\Controllers\Api\Admin\FormSchaduleController;
 use App\Http\Controllers\Api\Admin\HutangController;
+use App\Http\Controllers\Api\Admin\PiutangController;
 use App\Http\Controllers\Api\Admin\SaldoController;
 
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\LaporanController;
@@ -88,6 +89,9 @@ Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
     Route::get('saldo/{petugas}', [SaldoController::class, 'show'])->whereNumber('petugas');
     Route::post('saldo/{petugas}/tambahan', [SaldoController::class, 'storeAdjustment'])->whereNumber('petugas')->middleware('role:admin,keuangan,kabag,kabag_pengeluaran');
     Route::apiResource('hutang', HutangController::class);
+    Route::get('piutang/pegawai/{pegawai}', [PiutangController::class, 'pegawaiDetail'])->whereNumber('pegawai');
+    Route::post('piutang/{piutang}/pembayaran', [PiutangController::class, 'storePembayaran'])->whereNumber('piutang');
+    Route::apiResource('piutang', PiutangController::class);
 });
 
 Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuangan,kabag,kabag_pemasukan,kabag_pengeluaran,staff,rumahtangga,sarpras,transportasi,barokahdosen_tatapmuka,barokahdosen_kegiatan,barokahdosen_bulanan'])->group(function () {

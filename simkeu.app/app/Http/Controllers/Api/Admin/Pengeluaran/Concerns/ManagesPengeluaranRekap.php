@@ -899,6 +899,7 @@ trait ManagesPengeluaranRekap
         }
 
         $data->update($validated);
+        $this->syncLpjRekapStatusRabTotals([$data->id]);
         $this->applyRekapSummary($data, $summary);
 
         return response()->json([
@@ -1504,6 +1505,56 @@ trait ManagesPengeluaranRekap
                 $rekap->jumlah_sementara = null;
                 $rekap->save();
             }
+        }
+
+        $this->syncLpjRekapStatusRabTotals($ids->all());
+    }
+
+    protected function syncLpjRekapStatusRabTotals(array $rekapIds): void
+    {
+        $ids = $this->normalizeRekapIds($rekapIds);
+
+        if ($ids->isEmpty() || ! Schema::hasTable('keuangan_pengeluaran_lpj_rekap_status')) {
+            return;
+        }
+
+        $modelClass = $this->rekapModelClass();
+        $rekapTable = (new $modelClass)->getTable();
+        $lpjModuleKey = $this->lpjModuleKey($rekapTable);
+
+        if (! $lpjModuleKey) {
+            return;
+        }
+
+        $rekaps = $modelClass::query()
+            ->whereIn('id', $ids)
+            ->get()
+            ->keyBy('id');
+        $now = now();
+
+        foreach ($ids as $id) {
+            $rekap = $rekaps->get($id);
+
+            if (! $rekap) {
+                continue;
+            }
+
+            $summary = $this->rekapSummary($id);
+            $amounts = $this->resolveRekapAmounts(
+                $rekap->jumlah_sementara === null ? null : (int) $rekap->jumlah_sementara,
+                (int) $summary['jumlah_data'],
+                (int) $summary['total_pengeluaran']
+            );
+            $totalRab = (int) $amounts['jumlah'];
+
+            DB::table('keuangan_pengeluaran_lpj_rekap_status')
+                ->where('module_key', $lpjModuleKey)
+                ->where('rekap_id', $id)
+                ->update([
+                    'total_rab' => $totalRab,
+                    'total_lpj' => DB::raw("CASE WHEN sama_dengan_rab = 1 THEN {$totalRab} ELSE total_lpj END"),
+                    'updated_at' => $now,
+                ]);
         }
     }
 

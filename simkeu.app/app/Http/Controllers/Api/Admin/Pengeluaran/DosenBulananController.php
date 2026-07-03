@@ -14,6 +14,7 @@ use App\Http\Controllers\Controller;
 use App\Models\KeuanganPengeluaranDosenBulananRekap;
 use App\Models\KeuanganPengeluaranPegawaiBulanan;
 use App\Models\Pegawai;
+use App\Services\KeuanganPiutangService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -21,6 +22,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Maatwebsite\Excel\Facades\Excel;
 
 class DosenBulananController extends Controller
@@ -85,10 +87,12 @@ class DosenBulananController extends Controller
             'staff.jabatan as jabatan_staff',
             'pengeluaran_rekap.nama as nama_rekap',
             'petugas.name as petugas_nama',
+            DB::raw('COALESCE(piutang_potongan.total_potongan, 0) as piutang_potongan'),
         ]);
 
         $this->joinPegawaiDetail($query);
         $this->joinRekap($query);
+        $this->joinPiutangPotongan($query);
         $this->applyPegawaiTipeScope($query);
         $this->applySearchFilter($query, $request);
         $this->applyPegawaiFilter($query, $request);
@@ -207,12 +211,22 @@ class DosenBulananController extends Controller
         }
 
         $data = new KeuanganPengeluaranPegawaiBulanan;
-        $this->fillData($data, $request);
-        $this->savePengeluaranWithRekapValidation($data);
+        try {
+            DB::transaction(function () use ($data, $request) {
+                $this->fillData($data, $request);
+                $this->savePengeluaranWithRekapValidation($data);
+                $this->syncPiutangPotongan($data, $request);
+            });
+        } catch (ValidationException $exception) {
+            return response()->json([
+                'status' => false,
+                'message' => $exception->errors(),
+            ], 422);
+        }
 
         return response()->json([
             'status' => true,
-            'data' => $this->appendPengeluaranFiles($this->findWithPegawai($data->id) ?? $data),
+            'data' => $this->appendPiutangInfo($this->appendPengeluaranFiles($this->findWithPegawai($data->id) ?? $data)),
             'message' => static::MODULE_NAME.' created successfully',
         ], 201);
     }
@@ -262,14 +276,26 @@ class DosenBulananController extends Controller
                 ->keyBy('pegawai_id');
         }
 
-        $pegawaiBulanan = Pegawai::query()
+        $pegawaiList = Pegawai::query()
             ->with(['dosen.prodi', 'staff'])
             ->whereIn('tipe', static::PEGAWAI_TIPE)
             ->where('status', 'aktif')
             ->orderBy('tipe')
             ->orderBy('nama')
-            ->get()
-            ->map(function ($pegawai) use ($existing, $copiedAmounts, $useCopiedAmounts) {
+            ->get();
+
+        $existingPengeluaranIds = $existing->pluck('id')->filter()->values()->all();
+        $cicilanMode = $this->cicilanModeFromRequest($request);
+        $piutangSummaries = $this->piutangService()->activeSummaryForPegawaiIds(
+            $pegawaiList->pluck('id')->all(),
+            $existingPengeluaranIds,
+            $cicilanMode
+        );
+        $piutangPotonganByPengeluaran = $this->piutangService()
+            ->potongGajiTotalsForPengeluaranIds($existingPengeluaranIds);
+
+        $pegawaiBulanan = $pegawaiList
+            ->map(function ($pegawai) use ($existing, $copiedAmounts, $useCopiedAmounts, $piutangSummaries, $piutangPotonganByPengeluaran) {
                 $pengeluaran = $existing->get($pegawai->id);
                 $amountSource = $useCopiedAmounts
                     ? $copiedAmounts->get($pegawai->id)
@@ -296,6 +322,12 @@ class DosenBulananController extends Controller
                     'lampiran' => $pengeluaran
                         ? $this->appendLampiranUrls((object) ['lampiran' => $pengeluaran->lampiran])->lampiran
                         : [],
+                    'piutang' => $this->piutangPayloadForRow(
+                        (int) $pegawai->id,
+                        $pengeluaran?->id ? (int) $pengeluaran->id : null,
+                        $piutangSummaries,
+                        $piutangPotonganByPengeluaran
+                    ),
                 ];
             })
             ->values();
@@ -303,6 +335,7 @@ class DosenBulananController extends Controller
         return response()->json([
             'status' => true,
             'data' => $pegawaiBulanan,
+            'cicilan_mode' => $cicilanMode,
             'message' => 'Data form '.static::MODULE_NAME.' berhasil dimuat.',
         ]);
     }
@@ -342,6 +375,8 @@ class DosenBulananController extends Controller
             'items.*.barokah_bulanan' => ['nullable', 'numeric', 'min:0'],
             'items.*.barokah_dosen_tetap' => ['nullable', 'numeric', 'min:0'],
             'items.*.barokah_struktural' => ['nullable', 'numeric', 'min:0'],
+            'items.*.potong_piutang' => ['nullable', 'boolean'],
+            'items.*.piutang_nominal' => ['nullable', 'numeric', 'min:0'],
             'items.*.jenis_pembayaran' => ['nullable', Rule::in(static::JENIS_PEMBAYARAN)],
             'items.*.bukti_transfer' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:4096'],
             'items.*.lampiran' => ['nullable', 'array', 'max:10'],
@@ -358,10 +393,12 @@ class DosenBulananController extends Controller
         }
 
         $payload = $validator->validated();
-        $result = DB::transaction(function () use ($payload, $request) {
+        try {
+            $result = DB::transaction(function () use ($payload, $request) {
             $created = 0;
             $updated = 0;
             $deleted = 0;
+            $piutangService = $this->piutangService();
             $this->lockRekapRows([$payload['rekap_id']]);
             $emptyFallbackAmounts = $this->snapshotRekapTotals([$payload['rekap_id']]);
             $pegawaiIds = collect($payload['items'])->pluck('pegawai_id')->unique()->values();
@@ -381,13 +418,16 @@ class DosenBulananController extends Controller
                 $barokahBulanan = $this->number($item['barokah_bulanan'] ?? 0);
                 $dosenTetap = (int) round($this->number($item['barokah_dosen_tetap'] ?? 0));
                 $struktural = (int) round($this->number($item['barokah_struktural'] ?? 0));
-                $total = $dosenTetap + $struktural;
+                $grossTotal = $dosenTetap + $struktural;
+                $piutangNominal = $this->piutangNominalFromItem($item, $grossTotal, "items.{$index}.piutang_nominal");
+                $total = max(0, $grossTotal - $piutangNominal);
                 $records = $recordsByPegawai->get($item['pegawai_id'], collect());
                 $paymentType = $item['jenis_pembayaran'] ?? $payload['jenis_pembayaran'] ?? 'CUZ BSI';
 
-                if ($total === 0) {
+                if ($grossTotal === 0) {
                     if ($records->isNotEmpty()) {
                         foreach ($records as $record) {
+                            $piutangService->deletePotongGajiForPengeluaran((int) $record->id);
                             $this->deleteBuktiTransfer($record->bukti_transfer);
                             $this->deleteLampiran($record->lampiran);
                         }
@@ -437,6 +477,15 @@ class DosenBulananController extends Controller
                 }
                 $data->save();
 
+                $piutangService->replacePotongGajiForPengeluaran(
+                    (int) $data->id,
+                    (int) $item['pegawai_id'],
+                    $data->tanggal,
+                    $piutangNominal,
+                    auth()->id(),
+                    'Potongan piutang dari pengeluaran bulanan.'
+                );
+
                 if ($isNew) {
                     $created++;
                 } else {
@@ -446,6 +495,7 @@ class DosenBulananController extends Controller
                 if ($records->count() > 1) {
                     $duplicates = $records->skip(1);
                     foreach ($duplicates as $duplicate) {
+                        $piutangService->deletePotongGajiForPengeluaran((int) $duplicate->id);
                         $this->deleteBuktiTransfer($duplicate->bukti_transfer);
                         $this->deleteLampiran($duplicate->lampiran);
                     }
@@ -463,7 +513,13 @@ class DosenBulananController extends Controller
             );
 
             return compact('created', 'updated', 'deleted');
-        });
+            });
+        } catch (ValidationException $exception) {
+            return response()->json([
+                'status' => false,
+                'message' => $exception->errors(),
+            ], 422);
+        }
 
         return response()->json([
             'status' => true,
@@ -485,7 +541,7 @@ class DosenBulananController extends Controller
 
         return response()->json([
             'status' => true,
-            'data' => $this->appendPengeluaranFiles($data),
+            'data' => $this->appendPiutangInfo($this->appendPengeluaranFiles($data)),
             'message' => static::MODULE_NAME.' retrieved successfully',
         ]);
     }
@@ -514,12 +570,22 @@ class DosenBulananController extends Controller
             return $this->buktiTransferRequiredResponse();
         }
 
-        $this->fillData($data, $request);
-        $this->savePengeluaranWithRekapValidation($data);
+        try {
+            DB::transaction(function () use ($data, $request) {
+                $this->fillData($data, $request);
+                $this->savePengeluaranWithRekapValidation($data);
+                $this->syncPiutangPotongan($data, $request);
+            });
+        } catch (ValidationException $exception) {
+            return response()->json([
+                'status' => false,
+                'message' => $exception->errors(),
+            ], 422);
+        }
 
         return response()->json([
             'status' => true,
-            'data' => $this->appendPengeluaranFiles($this->findWithPegawai($data->id) ?? $data),
+            'data' => $this->appendPiutangInfo($this->appendPengeluaranFiles($this->findWithPegawai($data->id) ?? $data)),
             'message' => static::MODULE_NAME.' updated successfully',
         ]);
     }
@@ -539,8 +605,11 @@ class DosenBulananController extends Controller
             $this->deleteBuktiTransfer($data->bukti_transfer);
         }
 
-        $this->deleteLampiran($data->lampiran);
-        $this->deletePengeluaranWithRekapValidation($data);
+        DB::transaction(function () use ($data) {
+            $this->piutangService()->deletePotongGajiForPengeluaran((int) $data->id);
+            $this->deleteLampiran($data->lampiran);
+            $this->deletePengeluaranWithRekapValidation($data);
+        });
 
         return response()->json([
             'status' => true,
@@ -1181,6 +1250,26 @@ class DosenBulananController extends Controller
             ->leftJoin('prodi', 'prodi.id', '=', 'dosen.prodi_id');
     }
 
+    protected function joinPiutangPotongan($query): void
+    {
+        $potongan = DB::table('keuangan_piutang_pembayaran')
+            ->where('jenis', 'potong_gaji')
+            ->whereNotNull('pengeluaran_id')
+            ->select([
+                'pengeluaran_id',
+                DB::raw('COALESCE(SUM(nominal), 0) as total_potongan'),
+            ])
+            ->groupBy('pengeluaran_id');
+
+        $query->leftJoinSub(
+            $potongan,
+            'piutang_potongan',
+            'piutang_potongan.pengeluaran_id',
+            '=',
+            'keuangan_pengeluaran_pegawai_bulanan.id'
+        );
+    }
+
     protected function applyPegawaiTipeScope($query): void
     {
         $query->whereIn('keuangan_pengeluaran_pegawai_bulanan.pegawai_tipe', static::PEGAWAI_TIPE);
@@ -1251,10 +1340,12 @@ class DosenBulananController extends Controller
             'staff.jabatan as jabatan_staff',
             'pengeluaran_rekap.nama as nama_rekap',
             'petugas.name as petugas_nama',
+            DB::raw('COALESCE(piutang_potongan.total_potongan, 0) as piutang_potongan'),
         ]);
 
         $this->joinPegawaiDetail($query);
         $this->joinRekap($query);
+        $this->joinPiutangPotongan($query);
         $this->applyPegawaiTipeScope($query);
         $this->applyPetugasFilter($query, new Request);
 
@@ -1444,10 +1535,12 @@ class DosenBulananController extends Controller
             'staff.jabatan as jabatan_staff',
             'pengeluaran_rekap.nama as nama_rekap',
             'petugas.name as petugas_nama',
+            DB::raw('COALESCE(piutang_potongan.total_potongan, 0) as piutang_potongan'),
         ]);
 
         $this->joinPegawaiDetail($query);
         $this->joinRekap($query);
+        $this->joinPiutangPotongan($query);
 
         $orderedIds = $ids->implode(',');
         $items = $query
@@ -1515,6 +1608,8 @@ class DosenBulananController extends Controller
             'barokah_bulanan' => 'nullable|numeric|min:0',
             'barokah_dosen_tetap' => 'nullable|numeric|min:0',
             'barokah_struktural' => 'nullable|numeric|min:0',
+            'potong_piutang' => 'nullable|boolean',
+            'piutang_nominal' => 'nullable|numeric|min:0',
             'total' => 'nullable|numeric|min:0',
             'jenis_pembayaran' => 'required|in:'.implode(',', static::JENIS_PEMBAYARAN),
             'rekap_id' => $this->rekapIdRules(),
@@ -1533,6 +1628,8 @@ class DosenBulananController extends Controller
     {
         $barokahDosenTetap = $this->number($request->barokah_dosen_tetap);
         $barokahStruktural = $this->number($request->barokah_struktural);
+        $grossTotal = (int) round($barokahDosenTetap + $barokahStruktural);
+        $piutangNominal = $this->piutangNominalFromRequest($request, $grossTotal);
 
         $data->tanggal = $request->tanggal;
         $data->bulan = $request->filled('bulan') ? (int) $request->bulan : null;
@@ -1548,7 +1645,7 @@ class DosenBulananController extends Controller
         $data->barokah_bulanan = 0;
         $data->barokah_dosen_tetap = $barokahDosenTetap;
         $data->barokah_struktural = $barokahStruktural;
-        $data->total = (int) round($barokahDosenTetap + $barokahStruktural);
+        $data->total = max(0, $grossTotal - $piutangNominal);
         $data->jenis_pembayaran = $request->jenis_pembayaran;
         if ($request->has('rekap_id')) {
             $data->rekap_id = $request->filled('rekap_id') ? $request->rekap_id : null;
@@ -1595,6 +1692,30 @@ class DosenBulananController extends Controller
         return $this->appendLampiranUrls($this->appendBuktiTransferUrl($data));
     }
 
+    protected function appendPiutangInfo($data)
+    {
+        if (! $data || ! $data->pegawai_id) {
+            return $data;
+        }
+
+        $summaries = $this->piutangService()->activeSummaryForPegawaiIds(
+            [(int) $data->pegawai_id],
+            $data->id ? [(int) $data->id] : []
+        );
+        $potongan = $this->piutangService()->potongGajiTotalsForPengeluaranIds(
+            $data->id ? [(int) $data->id] : []
+        );
+
+        $data->piutang = $this->piutangPayloadForRow(
+            (int) $data->pegawai_id,
+            $data->id ? (int) $data->id : null,
+            $summaries,
+            $potongan
+        );
+
+        return $data;
+    }
+
     protected function needsBuktiTransfer(Request $request, ?KeuanganPengeluaranPegawaiBulanan $data): bool
     {
         return static::SUPPORTS_BUKTI_TRANSFER
@@ -1616,5 +1737,93 @@ class DosenBulananController extends Controller
     protected function number($value): float
     {
         return is_numeric($value) ? (float) $value : 0;
+    }
+
+    private function piutangService(): KeuanganPiutangService
+    {
+        return app(KeuanganPiutangService::class);
+    }
+
+    private function cicilanModeFromRequest(Request $request): string
+    {
+        return $request->input('cicilan_mode') === 'gabung' ? 'gabung' : 'pisah';
+    }
+
+    private function piutangPayloadForRow(
+        int $pegawaiId,
+        ?int $pengeluaranId,
+        $summaries,
+        $potonganByPengeluaran
+    ): ?array {
+        $summary = $summaries->get($pegawaiId);
+        $existingPotongan = $pengeluaranId
+            ? (int) ($potonganByPengeluaran[$pengeluaranId] ?? 0)
+            : 0;
+
+        if (! $summary && $existingPotongan <= 0) {
+            return null;
+        }
+
+        $sisa = max(0, (int) ($summary['sisa'] ?? $existingPotongan));
+        $defaultCicilan = max(0, (int) ($summary['default_cicilan'] ?? $existingPotongan));
+        $defaultPotongan = min($defaultCicilan, $sisa);
+        $nominalPotongan = $existingPotongan > 0 ? $existingPotongan : $defaultPotongan;
+
+        return [
+            'jumlah_piutang' => (int) ($summary['jumlah_piutang'] ?? 1),
+            'total_piutang' => (int) ($summary['total_piutang'] ?? $existingPotongan),
+            'total_terbayar' => (int) ($summary['total_terbayar'] ?? 0),
+            'sisa' => $sisa,
+            'default_cicilan' => $defaultCicilan,
+            'dipotong' => $existingPotongan > 0 || (! $pengeluaranId && $nominalPotongan > 0),
+            'nominal_potongan' => $nominalPotongan,
+        ];
+    }
+
+    private function piutangNominalFromRequest(Request $request, int $grossTotal): int
+    {
+        return $this->piutangNominalFromItem(
+            $request->all(),
+            $grossTotal,
+            'piutang_nominal'
+        );
+    }
+
+    private function piutangNominalFromItem(array $item, int $grossTotal, string $errorKey): int
+    {
+        $potongPiutang = filter_var($item['potong_piutang'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        $nominal = $potongPiutang
+            ? (int) round($this->number($item['piutang_nominal'] ?? 0))
+            : 0;
+
+        if ($nominal > $grossTotal) {
+            throw ValidationException::withMessages([
+                $errorKey => ['Nominal potongan piutang tidak boleh melebihi total barokah.'],
+            ]);
+        }
+
+        return $nominal;
+    }
+
+    private function syncPiutangPotongan(KeuanganPengeluaranPegawaiBulanan $data, Request $request): void
+    {
+        if (! $data->id || ! $data->pegawai_id) {
+            return;
+        }
+
+        $grossTotal = (int) round(
+            $this->number($request->barokah_dosen_tetap)
+            + $this->number($request->barokah_struktural)
+        );
+        $piutangNominal = $this->piutangNominalFromRequest($request, $grossTotal);
+
+        $this->piutangService()->replacePotongGajiForPengeluaran(
+            (int) $data->id,
+            (int) $data->pegawai_id,
+            $data->tanggal,
+            $piutangNominal,
+            auth()->id(),
+            'Potongan piutang dari pengeluaran bulanan.'
+        );
     }
 }
