@@ -295,55 +295,7 @@ class RabController extends Controller
             ]);
         }
 
-        $rekapFilterRequest = $this->prosesRabRekapFilterRequest($request);
-        $summary = DB::table('keuangan_cetak_rab_detail as detail')
-            ->joinSub($this->filteredRekapQuery($rekapFilterRequest), 'rab', function ($join) {
-                $join->on('rab.module_key', '=', 'detail.module_key')
-                    ->on('rab.id', '=', 'detail.rekap_id');
-            })
-            ->selectRaw(
-                'detail.cetak_rab_id,
-                COUNT(*) as jumlah_rekap,
-                COALESCE(SUM(rab.jumlah), 0) as total_rab'
-            )
-            ->groupBy('detail.cetak_rab_id');
-
-        $selectColumns = [
-            'cetak.id',
-            'cetak.tanggal_cetak',
-            'cetak.keterangan',
-            'cetak.created_at',
-            DB::raw('COALESCE(summary.jumlah_rekap, 0) as jumlah_rekap'),
-            DB::raw('COALESCE(summary.total_rab, 0) as total_rab'),
-        ];
-
-        $selectColumns[] = $this->hasCetakRabKategoriColumn()
-            ? 'cetak.kategori'
-            : DB::raw('NULL as kategori');
-
-        $rows = DB::table('keuangan_cetak_rab as cetak')
-            ->leftJoinSub($summary, 'summary', 'summary.cetak_rab_id', '=', 'cetak.id')
-            ->select($selectColumns);
-
-        if ($this->hasProsesRabRekapFilters($rekapFilterRequest)) {
-            $rows->whereNotNull('summary.cetak_rab_id');
-        }
-
-        $this->applyProsesRabFilters($rows, $request);
-
-        $rows = $rows
-            ->orderByDesc('cetak.tanggal_cetak')
-            ->orderByDesc('cetak.id')
-            ->limit(100)
-            ->get()
-            ->map(function ($item) {
-                $item->id = (int) $item->id;
-                $item->jumlah_rekap = (int) $item->jumlah_rekap;
-                $item->total_rab = (int) $item->total_rab;
-                $item->kategori = trim((string) ($item->kategori ?? '')) ?: null;
-
-                return $item;
-            });
+        $rows = $this->prosesRabRows($request);
 
         return response()->json([
             'status' => true,
@@ -460,6 +412,334 @@ class RabController extends Controller
             ],
             'message' => $items->count().' rekap berhasil diproses untuk RAB.',
         ], 201);
+    }
+
+    public function showProsesRab(Request $request, $id)
+    {
+        if (! Schema::hasTable('keuangan_cetak_rab') || ! Schema::hasTable('keuangan_cetak_rab_detail')) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Migration Proses RAB belum dijalankan.',
+            ], 422);
+        }
+
+        $selectColumns = [
+            'id',
+            'tanggal_cetak',
+            'keterangan',
+            'created_at',
+        ];
+
+        $selectColumns[] = $this->hasCetakRabKategoriColumn()
+            ? 'kategori'
+            : DB::raw('NULL as kategori');
+
+        $cetak = DB::table('keuangan_cetak_rab')
+            ->where('id', $id)
+            ->first($selectColumns);
+
+        if (! $cetak) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Proses RAB tidak ditemukan.',
+            ], 404);
+        }
+
+        $data = $this->prosesRabExportRows((int) $id, $this->prosesRabRekapFilterRequest($request));
+        $totalRab = $data->sum(fn ($item) => (int) ($item->jumlah ?? 0));
+
+        return response()->json([
+            'status' => true,
+            'data' => [
+                'proses' => [
+                    'id' => (int) $cetak->id,
+                    'tanggal_cetak' => $cetak->tanggal_cetak,
+                    'kategori' => trim((string) ($cetak->kategori ?? '')) ?: null,
+                    'keterangan' => $cetak->keterangan,
+                    'jumlah_rekap' => $data->count(),
+                    'total_rab' => $totalRab,
+                ],
+                'items' => $data->values(),
+            ],
+            'message' => 'Detail proses RAB retrieved successfully',
+        ]);
+    }
+
+    public function updateProsesRab(Request $request, $id)
+    {
+        if (! Schema::hasTable('keuangan_cetak_rab') || ! Schema::hasTable('keuangan_cetak_rab_detail')) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Migration Proses RAB belum dijalankan.',
+            ], 422);
+        }
+
+        if (! $this->hasCetakRabKategoriColumn()) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Migration kategori Proses RAB belum dijalankan.',
+            ], 422);
+        }
+
+        $cetak = DB::table('keuangan_cetak_rab')->where('id', $id)->first();
+
+        if (! $cetak) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Proses RAB tidak ditemukan.',
+            ], 404);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'tanggal_cetak' => ['required', 'date_format:Y-m-d'],
+            'kategori' => ['required', 'string', 'max:255'],
+            'keterangan' => ['nullable', 'string', 'max:1000'],
+            'items' => ['sometimes', 'array', 'max:500'],
+            'items.*.module_key' => ['required_with:items', Rule::in(array_keys(self::SOURCES))],
+            'items.*.id' => ['required_with:items', 'integer', 'min:1'],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'message' => $validator->errors(),
+            ], 422);
+        }
+
+        $validated = $validator->validated();
+        $kategori = trim((string) $validated['kategori']);
+
+        if ($kategori === '') {
+            return response()->json([
+                'status' => false,
+                'message' => [
+                    'kategori' => ['Kategori wajib diisi.'],
+                ],
+            ], 422);
+        }
+
+        $itemKey = fn (array $item) => "{$item['module_key']}:{$item['id']}";
+
+        $existingItems = DB::table('keuangan_cetak_rab_detail')
+            ->where('cetak_rab_id', $id)
+            ->get(['module_key', 'rekap_id'])
+            ->map(fn ($item) => [
+                'module_key' => $item->module_key,
+                'id' => (int) $item->rekap_id,
+            ])
+            ->unique(fn (array $item) => $itemKey($item))
+            ->values();
+
+        foreach ($existingItems as $item) {
+            $table = self::SOURCES[$item['module_key']]['rekap_table'] ?? null;
+
+            if (! $table || ! DB::table($table)->where('id', $item['id'])->exists()) {
+                continue;
+            }
+
+            if (! $this->scopedRekapQuery($item['module_key'], $item['id'])->exists()) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Proses RAB tidak ditemukan atau tidak dapat diakses.',
+                ], 404);
+            }
+        }
+
+        $itemsWereSubmitted = array_key_exists('items', $validated);
+        $remainingItems = $existingItems;
+
+        if ($itemsWereSubmitted) {
+            $remainingItems = collect($validated['items'])
+                ->map(fn (array $item) => [
+                    'module_key' => $item['module_key'],
+                    'id' => (int) $item['id'],
+                ])
+                ->unique(fn (array $item) => $itemKey($item))
+                ->values();
+
+            $existingItemsByKey = $existingItems->keyBy(fn (array $item) => $itemKey($item));
+            $unknownItem = $remainingItems->first(fn (array $item) => ! $existingItemsByKey->has($itemKey($item)));
+
+            if ($unknownItem) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Item RAB tidak termasuk dalam proses ini.',
+                ], 422);
+            }
+        }
+
+        foreach ($remainingItems as $item) {
+            if (! $this->scopedRekapQuery($item['module_key'], $item['id'])->exists()) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'Proses RAB tidak ditemukan atau tidak dapat diakses.',
+                ], 404);
+            }
+        }
+
+        $remainingKeys = $remainingItems
+            ->mapWithKeys(fn (array $item) => [$itemKey($item) => true]);
+        $removedItems = $itemsWereSubmitted
+            ? $existingItems->reject(fn (array $item) => $remainingKeys->has($itemKey($item)))->values()
+            : collect();
+        $keterangan = trim((string) ($validated['keterangan'] ?? ''));
+        $resetRowKeys = [];
+
+        if ($itemsWereSubmitted && $remainingItems->isEmpty()) {
+            DB::transaction(function () use ($id, $existingItems, &$resetRowKeys) {
+                $now = now();
+
+                DB::table('keuangan_cetak_rab_detail')
+                    ->where('cetak_rab_id', $id)
+                    ->delete();
+
+                DB::table('keuangan_cetak_rab')
+                    ->where('id', $id)
+                    ->delete();
+
+                foreach ($existingItems as $item) {
+                    $hasOtherProcess = DB::table('keuangan_cetak_rab_detail')
+                        ->where('module_key', $item['module_key'])
+                        ->where('rekap_id', $item['id'])
+                        ->exists();
+
+                    if ($hasOtherProcess || ! $this->rekapHasCetakRabColumn($item['module_key'])) {
+                        continue;
+                    }
+
+                    $this->scopedRekapQuery($item['module_key'], $item['id'])
+                        ->update([
+                            'cetak_rab' => false,
+                            'updated_at' => $now,
+                        ]);
+
+                    $resetRowKeys[] = "{$item['module_key']}:{$item['id']}";
+                }
+            });
+
+            return response()->json([
+                'status' => true,
+                'data' => [
+                    'id' => (int) $id,
+                    'deleted' => true,
+                    'row_keys' => $existingItems
+                        ->map(fn (array $item) => $itemKey($item))
+                        ->all(),
+                    'reset_row_keys' => $resetRowKeys,
+                ],
+                'message' => 'Semua rekap dilepas, proses RAB dihapus.',
+            ]);
+        }
+
+        DB::transaction(function () use ($id, $validated, $kategori, $keterangan, $removedItems, &$resetRowKeys) {
+            $now = now();
+
+            DB::table('keuangan_cetak_rab')
+                ->where('id', $id)
+                ->update([
+                    'tanggal_cetak' => $validated['tanggal_cetak'],
+                    'kategori' => $kategori,
+                    'keterangan' => $keterangan !== '' ? $keterangan : null,
+                    'updated_at' => $now,
+                ]);
+
+            foreach ($removedItems as $item) {
+                DB::table('keuangan_cetak_rab_detail')
+                    ->where('cetak_rab_id', $id)
+                    ->where('module_key', $item['module_key'])
+                    ->where('rekap_id', $item['id'])
+                    ->delete();
+
+                $hasOtherProcess = DB::table('keuangan_cetak_rab_detail')
+                    ->where('module_key', $item['module_key'])
+                    ->where('rekap_id', $item['id'])
+                    ->exists();
+
+                if ($hasOtherProcess || ! $this->rekapHasCetakRabColumn($item['module_key'])) {
+                    continue;
+                }
+
+                $this->scopedRekapQuery($item['module_key'], $item['id'])
+                    ->update([
+                        'cetak_rab' => false,
+                        'updated_at' => $now,
+                    ]);
+
+                $resetRowKeys[] = "{$item['module_key']}:{$item['id']}";
+            }
+        });
+
+        return response()->json([
+            'status' => true,
+            'data' => [
+                'id' => (int) $id,
+                'tanggal_cetak' => $validated['tanggal_cetak'],
+                'kategori' => $kategori,
+                'keterangan' => $keterangan !== '' ? $keterangan : null,
+                'jumlah_rekap' => $remainingItems->count(),
+                'row_keys' => $remainingItems
+                    ->map(fn (array $item) => $itemKey($item))
+                    ->all(),
+                'removed_row_keys' => $removedItems
+                    ->map(fn (array $item) => $itemKey($item))
+                    ->all(),
+                'reset_row_keys' => $resetRowKeys,
+            ],
+            'message' => 'Proses RAB berhasil diperbarui.',
+        ]);
+    }
+
+    private function prosesRabRows(Request $request)
+    {
+        $rekapFilterRequest = $this->prosesRabRekapFilterRequest($request);
+        $summary = DB::table('keuangan_cetak_rab_detail as detail')
+            ->joinSub($this->filteredRekapQuery($rekapFilterRequest), 'rab', function ($join) {
+                $join->on('rab.module_key', '=', 'detail.module_key')
+                    ->on('rab.id', '=', 'detail.rekap_id');
+            })
+            ->selectRaw(
+                'detail.cetak_rab_id,
+                COUNT(*) as jumlah_rekap,
+                COALESCE(SUM(rab.jumlah), 0) as total_rab'
+            )
+            ->groupBy('detail.cetak_rab_id');
+
+        $selectColumns = [
+            'cetak.id',
+            'cetak.tanggal_cetak',
+            'cetak.keterangan',
+            'cetak.created_at',
+            DB::raw('COALESCE(summary.jumlah_rekap, 0) as jumlah_rekap'),
+            DB::raw('COALESCE(summary.total_rab, 0) as total_rab'),
+        ];
+
+        $selectColumns[] = $this->hasCetakRabKategoriColumn()
+            ? 'cetak.kategori'
+            : DB::raw('NULL as kategori');
+
+        $rows = DB::table('keuangan_cetak_rab as cetak')
+            ->leftJoinSub($summary, 'summary', 'summary.cetak_rab_id', '=', 'cetak.id')
+            ->select($selectColumns);
+
+        if ($this->hasProsesRabRekapFilters($rekapFilterRequest)) {
+            $rows->whereNotNull('summary.cetak_rab_id');
+        }
+
+        $this->applyProsesRabFilters($rows, $request);
+
+        return $rows
+            ->orderByDesc('cetak.tanggal_cetak')
+            ->orderByDesc('cetak.id')
+            ->limit(100)
+            ->get()
+            ->map(function ($item) {
+                $item->id = (int) $item->id;
+                $item->jumlah_rekap = (int) $item->jumlah_rekap;
+                $item->total_rab = (int) $item->total_rab;
+                $item->kategori = trim((string) ($item->kategori ?? '')) ?: null;
+
+                return $item;
+            });
     }
 
     public function destroyProsesRab($id)
@@ -602,6 +882,53 @@ class RabController extends Controller
         );
     }
 
+    public function exportProsesRabRekapan(Request $request)
+    {
+        if (! Schema::hasTable('keuangan_cetak_rab') || ! Schema::hasTable('keuangan_cetak_rab_detail')) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Migration Proses RAB belum dijalankan.',
+            ], 422);
+        }
+
+        $processRows = $this->prosesRabRows($request);
+        $data = $this->prosesRabRekapanExportRows($processRows->pluck('id')->all(), $request);
+        $rows = $data->values()->map(function ($item, $index) {
+            $totalRab = (int) ($item->jumlah ?? 0);
+            $totalLpj = (int) ($item->total_lpj ?? 0);
+            $keterangan = trim((string) ($item->keterangan ?: ''));
+            $moduleName = trim((string) ($item->module_name ?: ''));
+
+            return [
+                $index + 1,
+                trim((string) ($item->proses_kategori ?? '')),
+                $item->nama ?: '-',
+                $item->tanggal_rekap,
+                $item->tanggal_pencairan,
+                $totalRab,
+                $totalLpj,
+                $totalRab - $totalLpj,
+                '',
+                $keterangan !== '' ? $keterangan : $moduleName,
+            ];
+        })->all();
+
+        $label = $this->requestProsesExportPeriodLabel($request);
+        $title = trim('REKAPAN RAB LIST PROSES '.$label);
+        $safeName = trim(preg_replace('/[\\\\\/:*?"<>|]+/', '-', $title ?: 'Rekapan RAB'));
+        $safeName = trim(preg_replace('/\s+/', ' ', $safeName));
+
+        return $this->downloadRekapanSpreadsheet(
+            $title ?: 'REKAPAN RAB LIST PROSES',
+            $rows,
+            [
+                'rab' => $data->sum(fn ($item) => (int) ($item->jumlah ?? 0)),
+                'laporan' => $data->sum(fn ($item) => (int) ($item->total_lpj ?? 0)),
+            ],
+            ($safeName ?: 'Rekapan RAB').'.xlsx'
+        );
+    }
+
     public function exportExcel(Request $request)
     {
         $data = $this->rabExportRows($request);
@@ -641,6 +968,7 @@ class RabController extends Controller
 
             return [
                 $index + 1,
+                '',
                 $item->nama ?: '-',
                 $item->tanggal_rekap,
                 $item->tanggal_pencairan,
@@ -876,6 +1204,58 @@ class RabController extends Controller
         return $data;
     }
 
+    private function prosesRabRekapanExportRows(array $cetakRabIds, Request $request)
+    {
+        if ($cetakRabIds === []) {
+            return collect();
+        }
+
+        $rekapFilterRequest = $this->prosesRabRekapFilterRequest($request);
+        $selectColumns = [
+            'rab.*',
+            'petugas.name as petugas_nama',
+            'detail.id as detail_id',
+            'detail.cetak_rab_id',
+            'cetak.tanggal_cetak as proses_tanggal_cetak',
+            'cetak.keterangan as proses_keterangan',
+        ];
+
+        $selectColumns[] = $this->hasCetakRabKategoriColumn()
+            ? 'cetak.kategori as proses_kategori'
+            : DB::raw('NULL as proses_kategori');
+
+        $data = DB::table('keuangan_cetak_rab_detail as detail')
+            ->join('keuangan_cetak_rab as cetak', 'cetak.id', '=', 'detail.cetak_rab_id')
+            ->joinSub($this->filteredRekapQuery($rekapFilterRequest), 'rab', function ($join) {
+                $join->on('rab.module_key', '=', 'detail.module_key')
+                    ->on('rab.id', '=', 'detail.rekap_id');
+            })
+            ->leftJoin('users as petugas', 'petugas.id', '=', 'rab.petugas_id')
+            ->whereIn('detail.cetak_rab_id', $cetakRabIds)
+            ->select($selectColumns)
+            ->orderByDesc('cetak.tanggal_cetak')
+            ->orderByDesc('cetak.id')
+            ->orderBy('detail.id')
+            ->get();
+
+        $data->each(function ($item) {
+            $item->jumlah = (int) $item->jumlah;
+            $item->jumlah_sementara = $item->jumlah_sementara === null
+                ? null
+                : (int) $item->jumlah_sementara;
+            $item->jumlah_data = (int) $item->jumlah_data;
+            $item->total_pengeluaran = (int) $item->total_pengeluaran;
+            $item->total_lpj = (int) $item->total_lpj;
+            $item->is_jumlah_sementara = (bool) $item->is_jumlah_sementara;
+            $item->selisih_sementara = (int) $item->selisih_sementara;
+            $item->cetak_rab = (bool) $item->cetak_rab;
+            $item->petugas_nama = $item->petugas_nama ?? null;
+            $item->proses_kategori = trim((string) ($item->proses_kategori ?? ''));
+        });
+
+        return $data;
+    }
+
     private function rabExportRows(Request $request)
     {
         $sortKey = $request->input('sort_key', 'tanggal_rekap');
@@ -1103,50 +1483,56 @@ class RabController extends Controller
         $totalRow = $lastDataRow + 1;
 
         $sheet->mergeCells('A1:A2');
-        $sheet->mergeCells('B1:I1');
+        $sheet->mergeCells('C1:J1');
         $sheet->setCellValue('A1', 'NO');
-        $sheet->setCellValue('B1', $title);
-        $sheet->setCellValue('B2', 'NAMA ACARA');
-        $sheet->setCellValue('C2', 'TANGGAL EVENT / PERMOHONAN');
-        $sheet->setCellValue('D2', 'TANGGAL PENCAIRAN');
-        $sheet->setCellValue('E2', 'RAB');
-        $sheet->setCellValue('F2', 'LAPORAN');
-        $sheet->setCellValue('G2', 'SELISIH');
-        $sheet->setCellValue('H2', 'LAMPIRAN');
-        $sheet->setCellValue('I2', 'KETERANGAN');
+        $sheet->setCellValue('C1', $title);
+        $sheet->setCellValue('B2', 'KATEGORI');
+        $sheet->setCellValue('C2', 'NAMA ACARA');
+        $sheet->setCellValue('D2', 'TANGGAL EVENT / PERMOHONAN');
+        $sheet->setCellValue('E2', 'TANGGAL PENCAIRAN');
+        $sheet->setCellValue('F2', 'RAB');
+        $sheet->setCellValue('G2', 'LAPORAN');
+        $sheet->setCellValue('H2', 'SELISIH');
+        $sheet->setCellValue('I2', 'LAMPIRAN');
+        $sheet->setCellValue('J2', 'KETERANGAN');
 
         if ($rows === []) {
-            $sheet->mergeCells('B3:I3');
+            $sheet->mergeCells('C3:J3');
             $sheet->setCellValue('A3', 1);
-            $sheet->setCellValue('B3', 'Tidak ada data');
+            $sheet->setCellValue('C3', 'Tidak ada data');
         } else {
             foreach ($rows as $index => $rowData) {
                 $rowNumber = $firstDataRow + $index;
                 $sheet->setCellValue("A{$rowNumber}", $index + 1);
-                $sheet->setCellValue("B{$rowNumber}", $rowData[1]);
-                $sheet->setCellValue("C{$rowNumber}", $this->excelDateValue($rowData[2]));
+                $sheet->setCellValue("B{$rowNumber}", $rowData[1] ?: '-');
+                $sheet->setCellValue("C{$rowNumber}", $rowData[2]);
                 $sheet->setCellValue("D{$rowNumber}", $this->excelDateValue($rowData[3]));
-                $sheet->setCellValue("E{$rowNumber}", $rowData[4]);
+                $sheet->setCellValue("E{$rowNumber}", $this->excelDateValue($rowData[4]));
                 $sheet->setCellValue("F{$rowNumber}", $rowData[5]);
                 $sheet->setCellValue("G{$rowNumber}", $rowData[6]);
-                $sheet->setCellValue("H{$rowNumber}", '');
-                $sheet->setCellValue("I{$rowNumber}", $rowData[8]);
+                $sheet->setCellValue("H{$rowNumber}", $rowData[7]);
+                $sheet->setCellValue("I{$rowNumber}", '');
+                $sheet->setCellValue("J{$rowNumber}", $rowData[9]);
+                $sheet->getRowDimension($rowNumber)->setRowHeight(22.95);
             }
+
+            $this->mergeRekapanColumnGroups($sheet, $rows, 1, $firstDataRow, 'B');
+            $this->mergeRekapanColumnGroups($sheet, $rows, 4, $firstDataRow, 'E');
         }
 
         $totalRab = (int) ($totals['rab'] ?? 0);
         $totalLaporan = (int) ($totals['laporan'] ?? 0);
-        $sheet->mergeCells("A{$totalRow}:D{$totalRow}");
+        $sheet->mergeCells("A{$totalRow}:E{$totalRow}");
         $sheet->setCellValue("A{$totalRow}", 'TOTAL');
-        $sheet->setCellValue("E{$totalRow}", $totalRab);
-        $sheet->setCellValue("F{$totalRow}", $totalLaporan);
-        $sheet->setCellValue("G{$totalRow}", $totalRab - $totalLaporan);
+        $sheet->setCellValue("F{$totalRow}", $totalRab);
+        $sheet->setCellValue("G{$totalRow}", $totalLaporan);
+        $sheet->setCellValue("H{$totalRow}", $totalRab - $totalLaporan);
 
-        $tableRange = "A1:I{$totalRow}";
-        $headerRange = 'A1:I2';
-        $bodyRange = "A{$firstDataRow}:I{$totalRow}";
-        $dateRange = "C{$firstDataRow}:D{$lastDataRow}";
-        $amountRange = "E{$firstDataRow}:G{$totalRow}";
+        $tableRange = "A1:J{$totalRow}";
+        $headerRange = 'A1:J2';
+        $bodyRange = "A{$firstDataRow}:J{$totalRow}";
+        $dateRange = "D{$firstDataRow}:E{$lastDataRow}";
+        $amountRange = "F{$firstDataRow}:H{$totalRow}";
 
         $sheet->getStyle($tableRange)->getFont()->setSize(14);
         $sheet->getStyle($headerRange)->getFont()->setBold(true);
@@ -1157,12 +1543,12 @@ class RabController extends Controller
         $sheet->getStyle($bodyRange)->getAlignment()
             ->setVertical(\PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_CENTER)
             ->setWrapText(true);
-        $sheet->getStyle("A{$firstDataRow}:A{$totalRow}")->getAlignment()
+        $sheet->getStyle("A{$firstDataRow}:B{$totalRow}")->getAlignment()
             ->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
-        $sheet->getStyle("C{$firstDataRow}:H{$totalRow}")->getAlignment()
+        $sheet->getStyle("D{$firstDataRow}:I{$totalRow}")->getAlignment()
             ->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
-        $sheet->getStyle("A{$totalRow}:I{$totalRow}")->getFont()->setBold(true);
-        $sheet->getStyle("A{$totalRow}:D{$totalRow}")->getAlignment()
+        $sheet->getStyle("A{$totalRow}:J{$totalRow}")->getFont()->setBold(true);
+        $sheet->getStyle("A{$totalRow}:E{$totalRow}")->getAlignment()
             ->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
         $sheet->getStyle($tableRange)->getBorders()->getAllBorders()
             ->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN)
@@ -1174,14 +1560,15 @@ class RabController extends Controller
 
         $widths = [
             'A' => 5.89,
-            'B' => 89.78,
-            'C' => 46.33,
-            'D' => 31.66,
-            'E' => 31.22,
+            'B' => 16.22,
+            'C' => 89.78,
+            'D' => 46.33,
+            'E' => 31.66,
             'F' => 31.22,
             'G' => 31.22,
             'H' => 31.22,
-            'I' => 54.22,
+            'I' => 31.22,
+            'J' => 54.22,
         ];
 
         foreach ($widths as $column => $width) {
@@ -1193,6 +1580,53 @@ class RabController extends Controller
         $sheet->setSelectedCell('A1');
 
         return $spreadsheet;
+    }
+
+    private function mergeRekapanColumnGroups(
+        \PhpOffice\PhpSpreadsheet\Worksheet\Worksheet $sheet,
+        array $rows,
+        int $valueIndex,
+        int $firstDataRow,
+        string $column,
+        bool $skipEmpty = true
+    ): void {
+        $currentValue = null;
+        $currentStart = null;
+        $currentEnd = null;
+
+        $flush = function () use ($sheet, $column, &$currentValue, &$currentStart, &$currentEnd): void {
+            if ($currentStart !== null && $currentEnd !== null && $currentStart < $currentEnd) {
+                $sheet->mergeCells("{$column}{$currentStart}:{$column}{$currentEnd}");
+            }
+
+            $currentValue = null;
+            $currentStart = null;
+            $currentEnd = null;
+        };
+
+        foreach ($rows as $index => $rowData) {
+            $value = trim((string) ($rowData[$valueIndex] ?? ''));
+            $rowNumber = $firstDataRow + $index;
+
+            if ($skipEmpty && $value === '') {
+                $flush();
+
+                continue;
+            }
+
+            if ($currentStart === null || $currentValue !== $value) {
+                $flush();
+                $currentValue = $value;
+                $currentStart = $rowNumber;
+                $currentEnd = $rowNumber;
+
+                continue;
+            }
+
+            $currentEnd = $rowNumber;
+        }
+
+        $flush();
     }
 
     private function rabSpreadsheet(string $title, array $rows, int $totalAmount): \PhpOffice\PhpSpreadsheet\Spreadsheet
@@ -1352,6 +1786,24 @@ class RabController extends Controller
 
         if ($request->filled('tahun')) {
             return (string) $request->tahun;
+        }
+
+        return '';
+    }
+
+    private function requestProsesExportPeriodLabel(Request $request): string
+    {
+        if ($request->filled('proses_bulan') && $request->filled('proses_tahun')) {
+            $bulan = (int) $request->proses_bulan;
+            $tahun = (int) $request->proses_tahun;
+
+            if ($bulan >= 1 && $bulan <= 12 && $tahun > 0) {
+                return strtoupper(\Carbon\Carbon::create($tahun, $bulan, 1)->locale('id')->translatedFormat('F Y'));
+            }
+        }
+
+        if ($request->filled('proses_tahun')) {
+            return (string) $request->proses_tahun;
         }
 
         return '';
