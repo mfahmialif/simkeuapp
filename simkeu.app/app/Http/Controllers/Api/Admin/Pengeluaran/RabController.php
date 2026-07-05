@@ -1233,8 +1233,7 @@ class RabController extends Controller
             ->leftJoin('users as petugas', 'petugas.id', '=', 'rab.petugas_id')
             ->whereIn('detail.cetak_rab_id', $cetakRabIds)
             ->select($selectColumns)
-            ->orderByDesc('cetak.tanggal_cetak')
-            ->orderByDesc('cetak.id')
+            ->orderBy('cetak.id')
             ->orderBy('detail.id')
             ->get();
 
@@ -2001,13 +2000,6 @@ class RabController extends Controller
             $query->where('detail.pegawai_tipe', $source['pegawai_tipe']);
         }
 
-        if (
-            $request->filled('petugas_id')
-            && Schema::hasColumn($source['detail_table'], 'petugas_id')
-        ) {
-            $query->where('detail.petugas_id', $request->petugas_id);
-        }
-
         return $query
             ->get()
             ->keyBy(fn ($item) => (int) $item->rekap_id);
@@ -2172,18 +2164,11 @@ class RabController extends Controller
 
             return DB::query()
                 ->fromSub($rekapIds, 'filtered_rekap')
-                ->leftJoin("{$source['detail_table']} as detail", function ($join) use ($source, $request) {
+                ->leftJoin("{$source['detail_table']} as detail", function ($join) use ($source) {
                     $join->on('detail.rekap_id', '=', 'filtered_rekap.id');
 
                     if ($source['pegawai_tipe']) {
                         $join->where('detail.pegawai_tipe', '=', $source['pegawai_tipe']);
-                    }
-
-                    if (
-                        $request?->filled('petugas_id')
-                        && Schema::hasColumn($source['detail_table'], 'petugas_id')
-                    ) {
-                        $join->where('detail.petugas_id', '=', $request->petugas_id);
                     }
                 })
                 ->select([
@@ -2202,17 +2187,8 @@ class RabController extends Controller
             ])
             ->whereNotNull('detail.rekap_id')
             ->groupBy('detail.rekap_id');
-        $this->applyDetailGenderScope($query, $source['detail_table'], 'detail');
-
         if ($source['pegawai_tipe']) {
             $query->where('detail.pegawai_tipe', $source['pegawai_tipe']);
-        }
-
-        if (
-            $request?->filled('petugas_id')
-            && Schema::hasColumn($source['detail_table'], 'petugas_id')
-        ) {
-            $query->where('detail.petugas_id', $request->petugas_id);
         }
 
         return $query;
@@ -2228,17 +2204,8 @@ class RabController extends Controller
             ])
             ->whereNotNull('detail.rekap_id')
             ->groupBy('detail.rekap_id');
-        $this->applyDetailGenderScope($query, $source['lpj_table'], 'detail');
-
         if ($source['pegawai_tipe']) {
             $query->where('detail.pegawai_tipe', $source['pegawai_tipe']);
-        }
-
-        if (
-            $request?->filled('petugas_id')
-            && Schema::hasColumn($source['lpj_table'], 'petugas_id')
-        ) {
-            $query->where('detail.petugas_id', $request->petugas_id);
         }
 
         return $query;
@@ -2246,9 +2213,7 @@ class RabController extends Controller
 
     private function lpjStatsForRabQuery(Builder $rabQuery, array $source, string $moduleKey, Request $request): array
     {
-        $sameAsRabAmount = $request->filled('petugas_id')
-            ? 'rab_filtered.jumlah'
-            : 'COALESCE(NULLIF(lpj_status.total_lpj, 0), rab_filtered.jumlah)';
+        $sameAsRabAmount = 'COALESCE(NULLIF(lpj_status.total_lpj, 0), rab_filtered.jumlah)';
 
         $stats = DB::query()
             ->fromSub(clone $rabQuery, 'rab_filtered')
@@ -2367,13 +2332,6 @@ class RabController extends Controller
                         $join->where('detail.pegawai_tipe', '=', $source['pegawai_tipe']);
                     }
                 });
-
-            if (
-                $request->filled('petugas_id')
-                && Schema::hasColumn($source['detail_table'], 'petugas_id')
-            ) {
-                $query->where('detail.petugas_id', $request->petugas_id);
-            }
 
             $queries[] = $query->selectRaw(
                 'COUNT(detail.id) as total_data,

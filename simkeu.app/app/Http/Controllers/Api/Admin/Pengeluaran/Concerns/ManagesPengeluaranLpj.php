@@ -319,11 +319,6 @@ trait ManagesPengeluaranLpj
                     $deleteQuery = DB::table($source['lpj_table'])
                         ->where('rekap_id', $rekapId)
                         ->whereIn('id', $deletedIds->all());
-                    $this->applyDetailGenderScope(
-                        $deleteQuery,
-                        $source['lpj_table'],
-                        $source['lpj_table']
-                    );
 
                     if ($source['pegawai_tipe'] && Schema::hasColumn($source['lpj_table'], 'pegawai_tipe')) {
                         $deleteQuery->where('pegawai_tipe', $source['pegawai_tipe']);
@@ -372,11 +367,6 @@ trait ManagesPengeluaranLpj
                         $updateQuery = DB::table($source['lpj_table'])
                             ->where('rekap_id', $rekapId)
                             ->where('id', $id);
-                        $this->applyDetailGenderScope(
-                            $updateQuery,
-                            $source['lpj_table'],
-                            $source['lpj_table']
-                        );
 
                         if ($source['pegawai_tipe'] && Schema::hasColumn($source['lpj_table'], 'pegawai_tipe')) {
                             $updateQuery->where('pegawai_tipe', $source['pegawai_tipe']);
@@ -474,11 +464,6 @@ trait ManagesPengeluaranLpj
             $deleteQuery = DB::table($source['lpj_table'])
                 ->where('rekap_id', $rekapId)
                 ->whereIn('id', $ids->all());
-            $this->applyDetailGenderScope(
-                $deleteQuery,
-                $source['lpj_table'],
-                $source['lpj_table']
-            );
 
             if ($source['pegawai_tipe'] && Schema::hasColumn($source['lpj_table'], 'pegawai_tipe')) {
                 $deleteQuery->where('pegawai_tipe', $source['pegawai_tipe']);
@@ -529,12 +514,6 @@ trait ManagesPengeluaranLpj
     {
         $query = DB::table($source['detail_table'])
             ->where("{$source['detail_table']}.rekap_id", $rekapId);
-        $this->applyDetailGenderScope(
-            $query,
-            $source['detail_table'],
-            $source['detail_table']
-        );
-        $this->applyCurrentUserPetugasScope($query, $source['detail_table']);
 
         if ($source['pegawai_tipe']) {
             $query->where("{$source['detail_table']}.pegawai_tipe", $source['pegawai_tipe']);
@@ -591,12 +570,6 @@ trait ManagesPengeluaranLpj
     {
         $query = DB::table($source['lpj_table'])
             ->where('rekap_id', $rekapId);
-        $this->applyDetailGenderScope(
-            $query,
-            $source['lpj_table'],
-            $source['lpj_table']
-        );
-        $this->applyCurrentUserPetugasScope($query, $source['lpj_table']);
 
         if ($source['pegawai_tipe'] && Schema::hasColumn($source['lpj_table'], 'pegawai_tipe')) {
             $query->where('pegawai_tipe', $source['pegawai_tipe']);
@@ -762,12 +735,6 @@ trait ManagesPengeluaranLpj
     {
         $query = DB::table($source['lpj_table'])
             ->where('rekap_id', $rekapId);
-        $this->applyDetailGenderScope(
-            $query,
-            $source['lpj_table'],
-            $source['lpj_table']
-        );
-        $this->applyCurrentUserPetugasScope($query, $source['lpj_table']);
 
         if ($source['pegawai_tipe'] && Schema::hasColumn($source['lpj_table'], 'pegawai_tipe')) {
             $query->where('pegawai_tipe', $source['pegawai_tipe']);
@@ -805,8 +772,6 @@ trait ManagesPengeluaranLpj
         $query = DB::table("{$source['lpj_table']} as lpj")
             ->leftJoin("{$source['rekap_table']} as rekap", 'rekap.id', '=', 'lpj.rekap_id')
             ->where('lpj.rekap_id', $rekapId);
-        $this->applyDetailGenderScope($query, $source['lpj_table'], 'lpj');
-        $this->applyCurrentUserPetugasScope($query, $source['lpj_table'], 'lpj');
 
         if (Schema::hasColumn($source['lpj_table'], 'petugas_id')) {
             $query->leftJoin('users as petugas', function ($join) {

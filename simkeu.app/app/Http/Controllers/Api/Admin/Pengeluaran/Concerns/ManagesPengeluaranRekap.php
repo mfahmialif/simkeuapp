@@ -72,7 +72,7 @@ trait ManagesPengeluaranRekap
 
         if ($lpjSummary && $lpjModuleKey && Schema::hasTable('keuangan_pengeluaran_lpj_rekap_status')) {
             $select[] = DB::raw('COALESCE(lpj_summary.jumlah_lpj, 0) as jumlah_lpj');
-            $select[] = DB::raw($this->effectiveLpjAmountSql($rekapTable, $request->filled('petugas_id')).' as total_lpj');
+            $select[] = DB::raw($this->effectiveLpjAmountSql($rekapTable).' as total_lpj');
             $select[] = DB::raw('COALESCE(lpj_status.sama_dengan_rab, 0) as lpj_sama_dengan_rab');
         } else {
             $select[] = DB::raw('0 as jumlah_lpj');
@@ -410,7 +410,6 @@ trait ManagesPengeluaranRekap
             ->where('detail.rekap_id', $rekapId);
 
         $this->joinGenericRekapDetailExportRelations($query);
-        $this->applyPengeluaranGenderScope($query, $table, 'detail');
         $this->applyGenericRekapDetailExportSearch($query, $request, $table);
 
         $select = [
@@ -1147,12 +1146,17 @@ trait ManagesPengeluaranRekap
     {
         if ($request->filled('rekap_id')) {
             $query->where($this->pengeluaranTable().'.rekap_id', $request->rekap_id);
+            $this->applyScopedRekapFilter($query);
         }
     }
 
     protected function applyPetugasFilter($query, Request $request, ?string $table = null): void
     {
         $tableName = $table ?? $this->pengeluaranTable();
+
+        if ($request->filled('rekap_id')) {
+            return;
+        }
 
         $this->applyPengeluaranGenderScope($query, $tableName);
 
@@ -1166,6 +1170,31 @@ trait ManagesPengeluaranRekap
         }
 
         $query->where("{$tableName}.petugas_id", $request->petugas_id);
+    }
+
+    private function applyScopedRekapFilter($query): void
+    {
+        $modelClass = $this->rekapModelClass();
+        $rekapTable = (new $modelClass)->getTable();
+        $pengeluaranTable = $this->pengeluaranTable();
+
+        $query->whereExists(function ($rekapQuery) use ($rekapTable, $pengeluaranTable) {
+            $rekapQuery
+                ->selectRaw('1')
+                ->from($rekapTable)
+                ->whereColumn("{$rekapTable}.id", "{$pengeluaranTable}.rekap_id");
+
+            if (! Schema::hasColumn($rekapTable, 'petugas_id')) {
+                return;
+            }
+
+            Helper::applyRelatedGenderScope(
+                $rekapQuery,
+                "{$rekapTable}.petugas_id",
+                'users'
+            );
+            $this->applyCurrentUserPetugasScope($rekapQuery, $rekapTable);
+        });
     }
 
     protected function petugasIdForPengeluaran(Request $request): int
@@ -1648,8 +1677,6 @@ trait ManagesPengeluaranRekap
                 ->join($this->pengeluaranTable(), $this->pengeluaranTable().'.rekap_id', '=', 'filtered_rekap.id')
             : $this->newRekapPengeluaranQuery();
 
-        $this->applyPetugasFilter($query, $request);
-
         return $query
             ->whereNotNull($this->pengeluaranTable().'.rekap_id')
             ->select([
@@ -1694,15 +1721,6 @@ trait ManagesPengeluaranRekap
             }
         }
 
-        if (
-            $request->filled('petugas_id')
-            && Schema::hasColumn($lpjTable, 'petugas_id')
-        ) {
-            $query->where('lpj_detail.petugas_id', $request->petugas_id);
-        }
-
-        $this->applyPengeluaranGenderScope($query, $lpjTable, 'lpj_detail');
-
         return $query->groupBy('lpj_detail.rekap_id');
     }
 
@@ -1713,7 +1731,6 @@ trait ManagesPengeluaranRekap
         }
 
         $query = $this->newRekapPengeluaranQuery();
-        $this->applyPetugasFilter($query, $request);
 
         return $query
             ->whereIn($this->pengeluaranTable().'.rekap_id', $ids)
@@ -1752,15 +1769,6 @@ trait ManagesPengeluaranRekap
             }
         }
 
-        if (
-            $request->filled('petugas_id')
-            && Schema::hasColumn($lpjTable, 'petugas_id')
-        ) {
-            $query->where('lpj_detail.petugas_id', $request->petugas_id);
-        }
-
-        $this->applyPengeluaranGenderScope($query, $lpjTable, 'lpj_detail');
-
         return $query
             ->groupBy('lpj_detail.rekap_id')
             ->get()
@@ -1790,7 +1798,6 @@ trait ManagesPengeluaranRekap
     private function rekapSummary($rekapId): array
     {
         $query = $this->newRekapPengeluaranQuery();
-        $this->applyPengeluaranGenderScope($query, $this->pengeluaranTable());
 
         $summary = $query
             ->where($this->pengeluaranTable().'.rekap_id', $rekapId)
