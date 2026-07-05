@@ -91,6 +91,7 @@ Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
     Route::apiResource('hutang', HutangController::class);
     Route::middleware('role:admin,pimpinan,kabag_pengeluaran,barokahdosen_bulanan')->group(function () {
         Route::get('piutang/pegawai/{pegawai}', [PiutangController::class, 'pegawaiDetail'])->whereNumber('pegawai');
+        Route::delete('piutang/pegawai/{pegawai}', [PiutangController::class, 'destroyPegawai'])->whereNumber('pegawai');
         Route::post('piutang/{piutang}/pembayaran', [PiutangController::class, 'storePembayaran'])->whereNumber('piutang');
         Route::apiResource('piutang', PiutangController::class);
     });

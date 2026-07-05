@@ -14,6 +14,9 @@ use Illuminate\Validation\Rule;
 
 class RabController extends Controller
 {
+    private const PIUTANG_MODULE_KEY = 'piutang';
+    private const PIUTANG_MODULE_NAME = 'Cashbon';
+
     private const SOURCES = [
         'tatap_muka' => [
             'rekap_table' => 'keuangan_pengeluaran_dosen_rekap',
@@ -233,7 +236,7 @@ class RabController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'items' => ['required', 'array', 'min:1', 'max:100'],
-            'items.*.module_key' => ['required', Rule::in(array_keys(self::SOURCES))],
+            'items.*.module_key' => ['required', Rule::in($this->rabProcessModuleKeys())],
             'items.*.id' => ['required', 'integer', 'min:1'],
             'tanggal_pencairan' => ['present', 'nullable', 'date_format:Y-m-d'],
         ]);
@@ -249,6 +252,16 @@ class RabController extends Controller
         $items = collect($validated['items'])
             ->unique(fn (array $item) => "{$item['module_key']}:{$item['id']}")
             ->values();
+
+        if (
+            $items->contains(fn (array $item) => $this->isPiutangModule($item['module_key']))
+            && ! $this->piutangTableHasColumn('tanggal_pencairan')
+        ) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Migration tanggal pencairan Cashbon belum dijalankan.',
+            ], 422);
+        }
 
         foreach ($items as $item) {
             $query = $this->scopedRekapQuery($item['module_key'], (int) $item['id']);
@@ -329,7 +342,7 @@ class RabController extends Controller
             'kategori' => ['required', 'string', 'max:255'],
             'keterangan' => ['nullable', 'string', 'max:1000'],
             'items' => ['required', 'array', 'min:1', 'max:500'],
-            'items.*.module_key' => ['required', Rule::in(array_keys(self::SOURCES))],
+            'items.*.module_key' => ['required', Rule::in($this->rabProcessModuleKeys())],
             'items.*.id' => ['required', 'integer', 'min:1'],
         ]);
 
@@ -495,7 +508,7 @@ class RabController extends Controller
             'kategori' => ['required', 'string', 'max:255'],
             'keterangan' => ['nullable', 'string', 'max:1000'],
             'items' => ['sometimes', 'array', 'max:500'],
-            'items.*.module_key' => ['required_with:items', Rule::in(array_keys(self::SOURCES))],
+            'items.*.module_key' => ['required_with:items', Rule::in($this->rabProcessModuleKeys())],
             'items.*.id' => ['required_with:items', 'integer', 'min:1'],
         ]);
 
@@ -531,9 +544,7 @@ class RabController extends Controller
             ->values();
 
         foreach ($existingItems as $item) {
-            $table = self::SOURCES[$item['module_key']]['rekap_table'] ?? null;
-
-            if (! $table || ! DB::table($table)->where('id', $item['id'])->exists()) {
+            if (! $this->rabItemExistsIgnoringScope($item['module_key'], $item['id'])) {
                 continue;
             }
 
@@ -569,6 +580,10 @@ class RabController extends Controller
         }
 
         foreach ($remainingItems as $item) {
+            if (! $this->rabItemExistsIgnoringScope($item['module_key'], $item['id'])) {
+                continue;
+            }
+
             if (! $this->scopedRekapQuery($item['module_key'], $item['id'])->exists()) {
                 return response()->json([
                     'status' => false,
@@ -771,9 +786,7 @@ class RabController extends Controller
             ->values();
 
         foreach ($items as $item) {
-            $table = self::SOURCES[$item['module_key']]['rekap_table'] ?? null;
-
-            if (! $table || ! DB::table($table)->where('id', $item['id'])->exists()) {
+            if (! $this->rabItemExistsIgnoringScope($item['module_key'], $item['id'])) {
                 continue;
             }
 
@@ -1020,6 +1033,10 @@ class RabController extends Controller
             })
             ->filter()
             ->values();
+
+        if ($piutangSummary = $this->piutangKasSummary($request)) {
+            $rows->push($piutangSummary);
+        }
 
         $totals = [
             'total_rab' => (int) $rows->sum('total_rab'),
@@ -1774,35 +1791,34 @@ class RabController extends Controller
 
     private function requestExportPeriodLabel(Request $request): string
     {
-        if ($request->filled('bulan') && $request->filled('tahun')) {
-            $bulan = (int) $request->bulan;
-            $tahun = (int) $request->tahun;
-
-            if ($bulan >= 1 && $bulan <= 12 && $tahun > 0) {
-                return strtoupper(\Carbon\Carbon::create($tahun, $bulan, 1)->locale('id')->translatedFormat('F Y'));
-            }
-        }
-
-        if ($request->filled('tahun')) {
-            return (string) $request->tahun;
-        }
-
-        return '';
+        return $this->requestPeriodLabel($request, 'bulan', 'tahun');
     }
 
     private function requestProsesExportPeriodLabel(Request $request): string
     {
-        if ($request->filled('proses_bulan') && $request->filled('proses_tahun')) {
-            $bulan = (int) $request->proses_bulan;
-            $tahun = (int) $request->proses_tahun;
+        return $this->requestPeriodLabel($request, 'proses_bulan', 'proses_tahun');
+    }
 
-            if ($bulan >= 1 && $bulan <= 12 && $tahun > 0) {
-                return strtoupper(\Carbon\Carbon::create($tahun, $bulan, 1)->locale('id')->translatedFormat('F Y'));
-            }
+    private function requestPeriodLabel(Request $request, string $monthKey, string $yearKey): string
+    {
+        $months = $this->monthFilterValues($request, $monthKey);
+        $tahun = $request->filled($yearKey) ? (int) $request->input($yearKey) : null;
+
+        if ($months !== []) {
+            $yearForMonthName = $tahun && $tahun > 0 ? $tahun : 2000;
+            $monthLabel = collect($months)
+                ->map(fn (int $month) => strtoupper(
+                    \Carbon\Carbon::create($yearForMonthName, $month, 1)
+                        ->locale('id')
+                        ->translatedFormat('F')
+                ))
+                ->implode(', ');
+
+            return trim($monthLabel.' '.($tahun && $tahun > 0 ? $tahun : ''));
         }
 
-        if ($request->filled('proses_tahun')) {
-            return (string) $request->proses_tahun;
+        if ($tahun) {
+            return (string) $tahun;
         }
 
         return '';
@@ -1896,6 +1912,10 @@ class RabController extends Controller
             }
 
             $queries[] = $this->basicRekapSourceQuery($moduleKey, $source, $baseRekap);
+        }
+
+        if ($piutangQuery = $this->piutangRabQuery($request)) {
+            $queries[] = $piutangQuery;
         }
 
         return DB::query()->fromSub($this->unionAll($queries), 'rab');
@@ -2067,6 +2087,10 @@ class RabController extends Controller
             $queries[] = $this->rekapSourceQuery($moduleKey, $source, $request, $baseRekap);
         }
 
+        if ($piutangQuery = $this->piutangRabQuery($request)) {
+            $queries[] = $piutangQuery;
+        }
+
         return DB::query()->fromSub($this->unionAll($queries), 'rab');
     }
 
@@ -2076,6 +2100,10 @@ class RabController extends Controller
 
         foreach (self::SOURCES as $moduleKey => $source) {
             $queries[] = $this->rekapSourceQuery($moduleKey, $source, $request);
+        }
+
+        if ($request && ($piutangQuery = $this->piutangRabQuery($request))) {
+            $queries[] = $piutangQuery;
         }
 
         return $this->unionAll($queries);
@@ -2150,6 +2178,84 @@ class RabController extends Controller
                 DB::raw('CASE WHEN COALESCE(summary.jumlah_data, 0) = 0 THEN 1 ELSE 0 END as is_jumlah_sementara'),
                 DB::raw("{$temporaryDifference} as selisih_sementara"),
             ]);
+    }
+
+    private function piutangRabQuery(Request $request): ?Builder
+    {
+        if (! $this->shouldIncludePiutang($request)) {
+            return null;
+        }
+
+        $query = DB::table('keuangan_piutang as piutang')
+            ->join('pegawai', 'pegawai.id', '=', 'piutang.pegawai_id');
+        Helper::applyGenderScope($query, 'pegawai.jenis_kelamin');
+
+        if (
+            $request->boolean('belum_cetak_rab')
+            && $this->piutangTableHasColumn('cetak_rab')
+        ) {
+            $query->where(function (Builder $filter) {
+                $filter->whereNull('piutang.cetak_rab')
+                    ->orWhere('piutang.cetak_rab', false);
+            });
+        }
+
+        $this->applyPeriodFilter($query, $request, 'piutang.tanggal');
+
+        if ($request->filled('search')) {
+            $search = trim((string) $request->search);
+
+            if (stripos(self::PIUTANG_MODULE_NAME, $search) === false) {
+                $query->where(function (Builder $filter) use ($search) {
+                    $filter->where('pegawai.nama', 'LIKE', "%{$search}%")
+                        ->orWhere('pegawai.kode', 'LIKE', "%{$search}%")
+                        ->orWhere('piutang.keterangan', 'LIKE', "%{$search}%");
+                });
+            }
+        }
+
+        $tanggalPencairanSelect = $this->piutangTableHasColumn('tanggal_pencairan')
+            ? 'piutang.tanggal_pencairan'
+            : DB::raw('NULL as tanggal_pencairan');
+        $cetakRabSelect = $this->piutangTableHasColumn('cetak_rab')
+            ? 'piutang.cetak_rab'
+            : DB::raw('0 as cetak_rab');
+
+        return $query->select([
+            'piutang.id',
+            DB::raw("TRIM(CONCAT('CASHBON ', pegawai.nama, CASE WHEN piutang.keterangan IS NOT NULL AND TRIM(piutang.keterangan) <> '' THEN CONCAT(' ( ', TRIM(piutang.keterangan), ' )') ELSE '' END)) as nama"),
+            DB::raw('piutang.tanggal as bulan_tahun'),
+            DB::raw('piutang.tanggal as tanggal_rekap'),
+            $tanggalPencairanSelect,
+            $cetakRabSelect,
+            DB::raw('NULL as jumlah_sementara'),
+            DB::raw('NULL as petugas_id'),
+            DB::raw('piutang.nominal as jumlah'),
+            DB::raw('0 as total_lpj'),
+            'piutang.keterangan',
+            'piutang.created_at',
+            DB::raw("CONCAT('".self::PIUTANG_MODULE_KEY.":', piutang.id) as row_key"),
+            DB::raw("'".self::PIUTANG_MODULE_KEY."' as module_key"),
+            DB::raw("'".self::PIUTANG_MODULE_NAME."' as module_name"),
+            DB::raw("'/admin/piutang/edit/' as detail_path"),
+            DB::raw('1 as jumlah_data'),
+            DB::raw('piutang.nominal as total_pengeluaran'),
+            DB::raw('0 as is_jumlah_sementara'),
+            DB::raw('0 as selisih_sementara'),
+        ]);
+    }
+
+    private function shouldIncludePiutang(Request $request): bool
+    {
+        if (! Schema::hasTable('keuangan_piutang') || ! Schema::hasTable('pegawai')) {
+            return false;
+        }
+
+        if ($request->filled('module_key') && $request->module_key !== self::PIUTANG_MODULE_KEY) {
+            return false;
+        }
+
+        return ! $request->filled('petugas_id');
     }
 
     private function detailSummaryQuery(
@@ -2274,6 +2380,32 @@ class RabController extends Controller
         ];
     }
 
+    private function piutangKasSummary(Request $request): ?array
+    {
+        $query = $this->piutangRabQuery($request);
+
+        if (! $query) {
+            return null;
+        }
+
+        $summary = DB::query()
+            ->fromSub($query, 'piutang_rab')
+            ->selectRaw('COALESCE(SUM(jumlah), 0) as total_rab')
+            ->first();
+        $totalRab = (int) ($summary->total_rab ?? 0);
+
+        return [
+            'module_key' => self::PIUTANG_MODULE_KEY,
+            'module_name' => self::PIUTANG_MODULE_NAME,
+            'total_rab' => $totalRab,
+            'total_lpj' => 0,
+            'jumlah_lpj' => 0,
+            'manual_masuk' => 0,
+            'manual_keluar' => 0,
+            'saldo_kas' => $totalRab,
+        ];
+    }
+
     private function manualKasRows(Request $request)
     {
         $query = DB::table('keuangan_pengeluaran_saldo as kas')
@@ -2337,6 +2469,15 @@ class RabController extends Controller
                 'COUNT(detail.id) as total_data,
                 COALESCE(SUM(detail.total), 0) as total_anggaran'
             );
+        }
+
+        if ($piutangQuery = $this->piutangRabQuery($request)) {
+            $queries[] = DB::query()
+                ->fromSub($piutangQuery, 'piutang_rab')
+                ->selectRaw(
+                    'COUNT(*) as total_data,
+                    COALESCE(SUM(jumlah), 0) as total_anggaran'
+                );
         }
 
         if ($queries === []) {
@@ -2442,20 +2583,10 @@ class RabController extends Controller
 
     private function applyProsesRabFilters(Builder $query, Request $request): void
     {
-        $bulan = $request->filled('proses_bulan') ? (int) $request->proses_bulan : null;
+        $bulan = $this->monthFilterValues($request, 'proses_bulan');
         $tahun = $request->filled('proses_tahun') ? (int) $request->proses_tahun : null;
 
-        if ($tahun && $bulan >= 1 && $bulan <= 12) {
-            $start = sprintf('%04d-%02d-01', $tahun, $bulan);
-            $end = date('Y-m-d', strtotime("{$start} +1 month"));
-            $query->where('cetak.tanggal_cetak', '>=', $start)
-                ->where('cetak.tanggal_cetak', '<', $end);
-        } elseif ($tahun) {
-            $query->where('cetak.tanggal_cetak', '>=', "{$tahun}-01-01")
-                ->where('cetak.tanggal_cetak', '<', ($tahun + 1).'-01-01');
-        } elseif ($bulan >= 1 && $bulan <= 12) {
-            $query->whereMonth('cetak.tanggal_cetak', $bulan);
-        }
+        $this->applyDateMonthFilter($query, 'cetak.tanggal_cetak', $bulan, $tahun);
 
         $search = trim((string) $request->input('proses_search', ''));
 
@@ -2552,22 +2683,75 @@ class RabController extends Controller
             && Schema::hasColumn('keuangan_cetak_rab', 'kategori');
     }
 
+    private function monthFilterValues(Request $request, string $key): array
+    {
+        if (! $request->filled($key)) {
+            return [];
+        }
+
+        $values = $request->input($key);
+        $values = is_array($values) ? $values : [$values];
+
+        return collect($values)
+            ->flatMap(fn ($value) => is_array($value)
+                ? $value
+                : preg_split('/\s*,\s*/', (string) $value, -1, PREG_SPLIT_NO_EMPTY))
+            ->map(fn ($value) => (int) $value)
+            ->filter(fn (int $month) => $month >= 1 && $month <= 12)
+            ->unique()
+            ->sort()
+            ->values()
+            ->all();
+    }
+
+    private function applyDateMonthFilter(
+        Builder $query,
+        string $column,
+        array $months,
+        ?int $year
+    ): void {
+        if ($year && $months !== []) {
+            $query->where(function (Builder $filter) use ($column, $months, $year) {
+                foreach ($months as $month) {
+                    $start = sprintf('%04d-%02d-01', $year, $month);
+                    $end = date('Y-m-d', strtotime("{$start} +1 month"));
+
+                    $filter->orWhere(function (Builder $monthFilter) use ($column, $start, $end) {
+                        $monthFilter->where($column, '>=', $start)
+                            ->where($column, '<', $end);
+                    });
+                }
+            });
+
+            return;
+        }
+
+        if ($year) {
+            $query->where($column, '>=', "{$year}-01-01")
+                ->where($column, '<', ($year + 1).'-01-01');
+
+            return;
+        }
+
+        if ($months !== []) {
+            $query->where(function (Builder $filter) use ($column, $months) {
+                foreach ($months as $index => $month) {
+                    if ($index === 0) {
+                        $filter->whereMonth($column, $month);
+                    } else {
+                        $filter->orWhereMonth($column, $month);
+                    }
+                }
+            });
+        }
+    }
+
     private function applyPeriodFilter(Builder $query, Request $request, string $column): void
     {
-        $bulan = $request->filled('bulan') ? (int) $request->bulan : null;
+        $bulan = $this->monthFilterValues($request, 'bulan');
         $tahun = $request->filled('tahun') ? (int) $request->tahun : null;
 
-        if ($tahun && $bulan >= 1 && $bulan <= 12) {
-            $start = sprintf('%04d-%02d-01', $tahun, $bulan);
-            $end = date('Y-m-d', strtotime("{$start} +1 month"));
-            $query->where($column, '>=', $start)
-                ->where($column, '<', $end);
-        } elseif ($tahun) {
-            $query->where($column, '>=', "{$tahun}-01-01")
-                ->where($column, '<', ($tahun + 1).'-01-01');
-        } elseif ($bulan >= 1 && $bulan <= 12) {
-            $query->whereMonth($column, $bulan);
-        }
+        $this->applyDateMonthFilter($query, $column, $bulan, $tahun);
     }
 
     private function paginate(
@@ -2605,6 +2789,15 @@ class RabController extends Controller
                 'users'
             );
             $queries[] = $query;
+        }
+
+        if (Schema::hasTable('keuangan_piutang') && Schema::hasTable('pegawai')) {
+            $piutangYears = DB::table('keuangan_piutang as piutang')
+                ->join('pegawai', 'pegawai.id', '=', 'piutang.pegawai_id')
+                ->whereNotNull('piutang.tanggal')
+                ->selectRaw('YEAR(piutang.tanggal) as tahun');
+            Helper::applyGenderScope($piutangYears, 'pegawai.jenis_kelamin');
+            $queries[] = $piutangYears;
         }
 
         return DB::query()
@@ -2707,6 +2900,10 @@ class RabController extends Controller
 
     private function rekapHasCetakRabColumn(string $moduleKey): bool
     {
+        if ($this->isPiutangModule($moduleKey)) {
+            return $this->piutangTableHasColumn('cetak_rab');
+        }
+
         $table = self::SOURCES[$moduleKey]['rekap_table'] ?? null;
 
         return $table ? $this->rekapTableHasColumn($table, 'cetak_rab') : false;
@@ -2724,8 +2921,60 @@ class RabController extends Controller
         return $cache[$key];
     }
 
+    private function piutangTableHasColumn(string $column): bool
+    {
+        static $cache = [];
+
+        if (! array_key_exists($column, $cache)) {
+            $cache[$column] = Schema::hasTable('keuangan_piutang')
+                && Schema::hasColumn('keuangan_piutang', $column);
+        }
+
+        return $cache[$column];
+    }
+
+    private function isPiutangModule(string $moduleKey): bool
+    {
+        return $moduleKey === self::PIUTANG_MODULE_KEY;
+    }
+
+    private function rabProcessModuleKeys(): array
+    {
+        $keys = array_keys(self::SOURCES);
+
+        if (Schema::hasTable('keuangan_piutang') && Schema::hasTable('pegawai')) {
+            $keys[] = self::PIUTANG_MODULE_KEY;
+        }
+
+        return $keys;
+    }
+
+    private function rabItemExistsIgnoringScope(string $moduleKey, int $id): bool
+    {
+        if ($this->isPiutangModule($moduleKey)) {
+            return Schema::hasTable('keuangan_piutang')
+                && DB::table('keuangan_piutang')->where('id', $id)->exists();
+        }
+
+        $table = self::SOURCES[$moduleKey]['rekap_table'] ?? null;
+
+        return $table && Schema::hasTable($table) && DB::table($table)->where('id', $id)->exists();
+    }
+
     private function scopedRekapQuery(string $moduleKey, int $rekapId): Builder
     {
+        if ($this->isPiutangModule($moduleKey)) {
+            $query = DB::table('keuangan_piutang')
+                ->where('keuangan_piutang.id', $rekapId);
+            Helper::applyRelatedGenderScope(
+                $query,
+                'keuangan_piutang.pegawai_id',
+                'pegawai'
+            );
+
+            return $query;
+        }
+
         $table = self::SOURCES[$moduleKey]['rekap_table'];
         $query = DB::table($table)->where("{$table}.id", $rekapId);
 
@@ -2769,7 +3018,7 @@ class RabController extends Controller
 
     private function moduleOptions(): array
     {
-        return [
+        $options = [
             ['title' => 'Dosen Tatap Muka', 'value' => 'tatap_muka'],
             ['title' => 'Pegawai Kegiatan', 'value' => 'kegiatan'],
             ['title' => 'Rumah Tangga', 'value' => 'rumah_tangga'],
@@ -2778,5 +3027,11 @@ class RabController extends Controller
             ['title' => 'Pengeluaran Umum', 'value' => 'umum'],
             ['title' => 'Bulanan', 'value' => 'dosen_bulanan'],
         ];
+
+        if (Schema::hasTable('keuangan_piutang') && Schema::hasTable('pegawai')) {
+            $options[] = ['title' => self::PIUTANG_MODULE_NAME, 'value' => self::PIUTANG_MODULE_KEY];
+        }
+
+        return $options;
     }
 }

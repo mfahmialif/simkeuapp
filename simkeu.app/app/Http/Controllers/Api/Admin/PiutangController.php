@@ -6,12 +6,15 @@ use App\Http\Controllers\Controller;
 use App\Services\Helper;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 class PiutangController extends Controller
 {
+    private const PIUTANG_MODULE_KEY = 'piutang';
+
     public function index(Request $request)
     {
         if ($request->input('group_by') === 'pegawai') {
@@ -104,6 +107,7 @@ class PiutangController extends Controller
         $payload['created_by'] = $request->user()?->id;
         $payload['created_at'] = now();
         $payload['updated_at'] = now();
+        $this->stripUnavailableRabFields($payload);
 
         $id = DB::table('keuangan_piutang')->insertGetId($payload);
 
@@ -188,6 +192,7 @@ class PiutangController extends Controller
 
                 $payload['default_cicilan'] = (int) ($payload['default_cicilan'] ?? 0);
                 $payload['updated_at'] = now();
+                $this->stripUnavailableRabFields($payload);
 
                 DB::table('keuangan_piutang')
                     ->where('id', $piutang->id)
@@ -217,15 +222,20 @@ class PiutangController extends Controller
             ], 404);
         }
 
-        $hasPayments = DB::table('keuangan_piutang_pembayaran')
-            ->where('piutang_id', $id)
-            ->exists();
-
-        if ($hasPayments) {
+        if ($this->piutangHasPayments([(int) $id])) {
             return response()->json([
                 'status' => false,
                 'message' => [
                     'id' => ['Piutang yang sudah memiliki pembayaran tidak dapat dihapus.'],
+                ],
+            ], 422);
+        }
+
+        if ($this->piutangUsedInRab([(int) $id])) {
+            return response()->json([
+                'status' => false,
+                'message' => [
+                    'id' => ['Piutang yang sudah masuk proses RAB tidak dapat dihapus.'],
                 ],
             ], 422);
         }
@@ -235,6 +245,47 @@ class PiutangController extends Controller
         return response()->json([
             'status' => true,
             'message' => 'Piutang berhasil dihapus.',
+        ]);
+    }
+
+    public function destroyPegawai($pegawai)
+    {
+        $ids = $this->scopedPiutangIdsForPegawai((int) $pegawai);
+
+        if ($ids === []) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Data piutang pegawai tidak ditemukan.',
+            ], 404);
+        }
+
+        if ($this->piutangHasPayments($ids)) {
+            return response()->json([
+                'status' => false,
+                'message' => [
+                    'pegawai_id' => ['Piutang yang sudah memiliki pembayaran tidak dapat dihapus.'],
+                ],
+            ], 422);
+        }
+
+        if ($this->piutangUsedInRab($ids)) {
+            return response()->json([
+                'status' => false,
+                'message' => [
+                    'pegawai_id' => ['Piutang yang sudah masuk proses RAB tidak dapat dihapus.'],
+                ],
+            ], 422);
+        }
+
+        DB::table('keuangan_piutang')
+            ->whereIn('id', $ids)
+            ->delete();
+
+        return response()->json([
+            'status' => true,
+            'message' => count($ids) > 1
+                ? count($ids).' data piutang berhasil dihapus.'
+                : 'Piutang berhasil dihapus.',
         ]);
     }
 
@@ -338,10 +389,66 @@ class PiutangController extends Controller
         return Validator::make($request->all(), [
             'pegawai_id' => ['required', 'integer', Rule::exists('pegawai', 'id')],
             'tanggal' => ['required', 'date_format:Y-m-d'],
+            'tanggal_pencairan' => ['nullable', 'date_format:Y-m-d'],
             'nominal' => ['required', 'integer', 'min:1'],
             'default_cicilan' => ['nullable', 'integer', 'min:0'],
             'keterangan' => ['nullable', 'string', 'max:1000'],
         ]);
+    }
+
+    private function stripUnavailableRabFields(array &$payload): void
+    {
+        if (! Schema::hasColumn('keuangan_piutang', 'tanggal_pencairan')) {
+            unset($payload['tanggal_pencairan']);
+        }
+    }
+
+    private function scopedPiutangIdsForPegawai(int $pegawaiId): array
+    {
+        $query = DB::table('keuangan_piutang as piutang')
+            ->join('pegawai', 'pegawai.id', '=', 'piutang.pegawai_id')
+            ->where('piutang.pegawai_id', $pegawaiId);
+        Helper::applyGenderScope($query, 'pegawai.jenis_kelamin');
+
+        return $query
+            ->pluck('piutang.id')
+            ->map(fn ($id) => (int) $id)
+            ->values()
+            ->all();
+    }
+
+    private function piutangHasPayments(array $ids): bool
+    {
+        if ($ids === []) {
+            return false;
+        }
+
+        return DB::table('keuangan_piutang_pembayaran')
+            ->whereIn('piutang_id', $ids)
+            ->exists();
+    }
+
+    private function piutangUsedInRab(array $ids): bool
+    {
+        if ($ids === []) {
+            return false;
+        }
+
+        if (
+            Schema::hasTable('keuangan_cetak_rab_detail')
+            && DB::table('keuangan_cetak_rab_detail')
+                ->where('module_key', self::PIUTANG_MODULE_KEY)
+                ->whereIn('rekap_id', $ids)
+                ->exists()
+        ) {
+            return true;
+        }
+
+        return Schema::hasColumn('keuangan_piutang', 'cetak_rab')
+            && DB::table('keuangan_piutang')
+                ->whereIn('id', $ids)
+                ->where('cetak_rab', true)
+                ->exists();
     }
 
     private function baseQuery()
