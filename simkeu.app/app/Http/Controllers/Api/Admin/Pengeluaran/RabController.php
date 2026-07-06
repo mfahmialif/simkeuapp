@@ -478,6 +478,123 @@ class RabController extends Controller
         ]);
     }
 
+    public function appendProsesRabItems(Request $request, $id)
+    {
+        if (! Schema::hasTable('keuangan_cetak_rab') || ! Schema::hasTable('keuangan_cetak_rab_detail')) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Migration Proses RAB belum dijalankan.',
+            ], 422);
+        }
+
+        $cetak = DB::table('keuangan_cetak_rab')->where('id', $id)->first();
+
+        if (! $cetak) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Proses RAB tidak ditemukan.',
+            ], 404);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'items' => ['required', 'array', 'min:1', 'max:500'],
+            'items.*.module_key' => ['required', Rule::in($this->rabProcessModuleKeys())],
+            'items.*.id' => ['required', 'integer', 'min:1'],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'message' => $validator->errors(),
+            ], 422);
+        }
+
+        $itemKey = fn (array $item) => "{$item['module_key']}:{$item['id']}";
+        $items = collect($validator->validated()['items'])
+            ->map(fn (array $item) => [
+                'module_key' => $item['module_key'],
+                'id' => (int) $item['id'],
+            ])
+            ->unique(fn (array $item) => $itemKey($item))
+            ->values();
+
+        foreach ($items as $item) {
+            $query = $this->scopedRekapQuery($item['module_key'], $item['id']);
+
+            if (! $query->exists()) {
+                return response()->json([
+                    'status' => false,
+                    'message' => "Rekap {$item['module_key']}:{$item['id']} tidak ditemukan atau tidak dapat diakses.",
+                ], 404);
+            }
+        }
+
+        $existingKeys = DB::table('keuangan_cetak_rab_detail')
+            ->where('cetak_rab_id', $id)
+            ->get(['module_key', 'rekap_id'])
+            ->mapWithKeys(fn ($item) => ["{$item->module_key}:{$item->rekap_id}" => true]);
+
+        $newItems = $items
+            ->reject(fn (array $item) => $existingKeys->has($itemKey($item)))
+            ->values();
+
+        $duplicateRowKeys = $items
+            ->filter(fn (array $item) => $existingKeys->has($itemKey($item)))
+            ->map(fn (array $item) => $itemKey($item))
+            ->values()
+            ->all();
+
+        if ($newItems->isNotEmpty()) {
+            DB::transaction(function () use ($id, $newItems) {
+                $now = now();
+
+                DB::table('keuangan_cetak_rab_detail')->insert(
+                    $newItems->map(fn (array $item) => [
+                        'cetak_rab_id' => $id,
+                        'module_key' => $item['module_key'],
+                        'rekap_id' => $item['id'],
+                        'created_at' => $now,
+                        'updated_at' => $now,
+                    ])->all()
+                );
+
+                DB::table('keuangan_cetak_rab')
+                    ->where('id', $id)
+                    ->update(['updated_at' => $now]);
+
+                foreach ($newItems as $item) {
+                    if ($this->rekapHasCetakRabColumn($item['module_key'])) {
+                        $this->scopedRekapQuery($item['module_key'], $item['id'])
+                            ->update([
+                                'cetak_rab' => true,
+                                'updated_at' => $now,
+                            ]);
+                    }
+                }
+            });
+        }
+
+        $addedRowKeys = $newItems
+            ->map(fn (array $item) => $itemKey($item))
+            ->values()
+            ->all();
+
+        return response()->json([
+            'status' => true,
+            'data' => [
+                'id' => (int) $id,
+                'row_keys' => $items
+                    ->map(fn (array $item) => $itemKey($item))
+                    ->all(),
+                'added_row_keys' => $addedRowKeys,
+                'duplicate_row_keys' => $duplicateRowKeys,
+            ],
+            'message' => $newItems->count() > 0
+                ? $newItems->count().' rekap berhasil dimasukkan ke proses RAB.'
+                : 'Rekap yang dipilih sudah ada di proses RAB ini.',
+        ]);
+    }
+
     public function updateProsesRab(Request $request, $id)
     {
         if (! Schema::hasTable('keuangan_cetak_rab') || ! Schema::hasTable('keuangan_cetak_rab_detail')) {

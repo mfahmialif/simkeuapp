@@ -392,6 +392,8 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
         ->middleware('role:admin,keuangan,kabag,kabag_pengeluaran,barokahdosen_tatapmuka,barokahdosen_kegiatan,barokahdosen_bulanan');
     Route::get('laporan/rab/proses/export-rekapan', [RabController::class, 'exportProsesRabRekapan'])
         ->middleware('role:admin,pimpinan,keuangan,kabag,kabag_pengeluaran,barokahdosen_tatapmuka,barokahdosen_kegiatan,barokahdosen_bulanan');
+    Route::post('laporan/rab/proses/{id}/items', [RabController::class, 'appendProsesRabItems'])
+        ->middleware('role:admin,keuangan,kabag,kabag_pengeluaran,barokahdosen_tatapmuka,barokahdosen_kegiatan,barokahdosen_bulanan');
     Route::get('laporan/rab/proses/{id}', [RabController::class, 'showProsesRab'])
         ->middleware('role:admin,pimpinan,keuangan,kabag,kabag_pengeluaran,barokahdosen_tatapmuka,barokahdosen_kegiatan,barokahdosen_bulanan');
     Route::put('laporan/rab/proses/{id}', [RabController::class, 'updateProsesRab'])
