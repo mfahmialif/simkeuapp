@@ -232,6 +232,192 @@ class RabController extends Controller
         ], 201);
     }
 
+    public function merger(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'items' => ['required', 'array', 'min:2', 'max:100'],
+            'items.*.module_key' => ['required', 'string'],
+            'items.*.id' => ['required', 'integer', 'min:1'],
+            'petugas_id' => ['required', 'integer', 'exists:users,id'],
+            'nama' => ['required', 'string', 'max:255'],
+            'bulan_tahun' => ['required', 'date_format:Y-m'],
+            'tanggal_rekap' => ['required', 'date_format:Y-m-d'],
+            'tanggal_pencairan' => ['nullable', 'date_format:Y-m-d'],
+            'keterangan' => ['nullable', 'string'],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'message' => $validator->errors(),
+            ], 422);
+        }
+
+        $validated = $validator->validated();
+
+        $moduleKeys = collect($validated['items'])->pluck('module_key')->unique()->values();
+
+        if ($moduleKeys->count() > 1) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Hanya bisa merger rekap dengan jenis/kategori yang sejenis.',
+            ], 422);
+        }
+
+        $moduleKey = $moduleKeys->first();
+
+        if ($moduleKey === self::PIUTANG_MODULE_KEY || ! array_key_exists($moduleKey, self::SOURCES)) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Rekap Cashbon atau jenis rekap tidak valid untuk dimerger.',
+            ], 422);
+        }
+
+        if (! $this->petugasAllowedForModule((int) $validated['petugas_id'], $moduleKey)) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Petugas tidak sesuai dengan jenis rekap yang dipilih.',
+            ], 422);
+        }
+
+        $oldIds = collect($validated['items'])->pluck('id')->map(fn ($id) => (int) $id)->unique()->values();
+
+        if ($oldIds->count() < 2) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Minimal 2 rekap yang berbeda yang dipilih untuk merger.',
+            ], 422);
+        }
+
+        foreach ($oldIds as $oldId) {
+            $query = $this->scopedRekapQuery($moduleKey, $oldId);
+            if (! $query->exists()) {
+                return response()->json([
+                    'status' => false,
+                    'message' => "Rekap dengan ID {$oldId} tidak ditemukan atau tidak dapat diakses.",
+                ], 404);
+            }
+        }
+
+        $source = self::SOURCES[$moduleKey];
+        $rekapTable = $source['rekap_table'];
+        $detailTable = $source['detail_table'];
+        $lpjTable = $source['lpj_table'];
+
+        $nameExists = DB::table($rekapTable)
+            ->where('nama', $validated['nama'])
+            ->whereNotIn('id', $oldIds->all())
+            ->exists();
+
+        if ($nameExists) {
+            return response()->json([
+                'status' => false,
+                'message' => [
+                    'nama' => ['Nama rekap sudah digunakan pada jenis rekap ini.'],
+                ],
+            ], 422);
+        }
+
+        $newId = null;
+
+        DB::transaction(function () use ($oldIds, $validated, $moduleKey, $rekapTable, $detailTable, $lpjTable, &$newId) {
+            $now = now();
+
+            $hasCetakRabDetail = Schema::hasTable('keuangan_cetak_rab_detail');
+            $affectedCetakRabIds = collect();
+            if ($hasCetakRabDetail) {
+                $affectedCetakRabIds = DB::table('keuangan_cetak_rab_detail')
+                    ->where('module_key', $moduleKey)
+                    ->whereIn('rekap_id', $oldIds->all())
+                    ->pluck('cetak_rab_id')
+                    ->unique();
+            }
+
+            $detailCount = DB::table($detailTable)->whereIn('rekap_id', $oldIds->all())->count();
+            $initialJumlahSementara = $detailCount > 0
+                ? null
+                : (int) DB::table($rekapTable)->whereIn('id', $oldIds->all())->sum('jumlah_sementara');
+
+            $insertPayload = [
+                'nama' => $validated['nama'],
+                'bulan_tahun' => $validated['bulan_tahun'].'-01',
+                'tanggal_rekap' => $validated['tanggal_rekap'],
+                'tanggal_pencairan' => $validated['tanggal_pencairan'] ?? null,
+                'jumlah_sementara' => $initialJumlahSementara,
+                'petugas_id' => (int) $validated['petugas_id'],
+                'keterangan' => $validated['keterangan'] ?? null,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+
+            if ($this->rekapHasCetakRabColumn($moduleKey)) {
+                $insertPayload['cetak_rab'] = $affectedCetakRabIds->isNotEmpty();
+            }
+
+            $newId = DB::table($rekapTable)->insertGetId($insertPayload);
+
+            DB::table($detailTable)
+                ->whereIn('rekap_id', $oldIds->all())
+                ->update([
+                    'rekap_id' => $newId,
+                    'updated_at' => $now,
+                ]);
+
+            if (Schema::hasTable($lpjTable)) {
+                DB::table($lpjTable)
+                    ->whereIn('rekap_id', $oldIds->all())
+                    ->update([
+                        'rekap_id' => $newId,
+                        'updated_at' => $now,
+                    ]);
+            }
+
+            if ($hasCetakRabDetail && $affectedCetakRabIds->isNotEmpty()) {
+                foreach ($affectedCetakRabIds as $cetakRabId) {
+                    $existsNew = DB::table('keuangan_cetak_rab_detail')
+                        ->where('cetak_rab_id', $cetakRabId)
+                        ->where('module_key', $moduleKey)
+                        ->where('rekap_id', $newId)
+                        ->exists();
+
+                    if (! $existsNew) {
+                        DB::table('keuangan_cetak_rab_detail')->insert([
+                            'cetak_rab_id' => $cetakRabId,
+                            'module_key' => $moduleKey,
+                            'rekap_id' => $newId,
+                            'created_at' => $now,
+                            'updated_at' => $now,
+                        ]);
+                    }
+
+                    DB::table('keuangan_cetak_rab_detail')
+                        ->where('cetak_rab_id', $cetakRabId)
+                        ->where('module_key', $moduleKey)
+                        ->whereIn('rekap_id', $oldIds->all())
+                        ->delete();
+                }
+            }
+
+            DB::table($rekapTable)
+                ->whereIn('id', $oldIds->all())
+                ->delete();
+        });
+
+        $data = DB::table("{$rekapTable} as rekap")
+            ->leftJoin('users as petugas', 'petugas.id', '=', 'rekap.petugas_id')
+            ->where('rekap.id', $newId)
+            ->first([
+                'rekap.*',
+                'petugas.name as petugas_nama',
+            ]);
+
+        return response()->json([
+            'status' => true,
+            'data' => $data,
+            'message' => 'Rekap anggaran berhasil dimerger.',
+        ], 201);
+    }
+
     public function updateTanggalPencairan(Request $request)
     {
         $validator = Validator::make($request->all(), [
