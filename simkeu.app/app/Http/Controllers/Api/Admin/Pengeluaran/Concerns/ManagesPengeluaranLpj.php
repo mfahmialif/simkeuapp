@@ -77,6 +77,15 @@ trait ManagesPengeluaranLpj
             'pegawai_tipe' => null,
             'type' => 'dosen-bulanan',
         ],
+        'absensi' => [
+            'module_key' => 'absensi',
+            'title' => 'Barokah Absensi',
+            'rekap_table' => 'keuangan_pengeluaran_absensi_rekap',
+            'detail_table' => 'keuangan_pengeluaran_pegawai_absensi',
+            'lpj_table' => 'keuangan_pengeluaran_pegawai_absensi_lpj',
+            'pegawai_tipe' => null,
+            'type' => 'absensi',
+        ],
     ];
 
     private const FILE_DIRECTORIES = [
@@ -107,6 +116,10 @@ trait ManagesPengeluaranLpj
         'dosen-bulanan' => [
             'bukti' => 'bulanan',
             'lampiran' => 'bulanan',
+        ],
+        'absensi' => [
+            'bukti' => 'absensi',
+            'lampiran' => 'absensi',
         ],
     ];
 
@@ -948,6 +961,7 @@ trait ManagesPengeluaranLpj
             'transportasi' => $this->transportasiRow($item),
             'umum' => $this->umumRow($item),
             'dosen-bulanan' => $this->dosenBulananRow($item),
+            'absensi' => $this->absensiRow($item),
             default => throw new \InvalidArgumentException('Unsupported LPJ module type.'),
         };
 
@@ -1162,6 +1176,22 @@ trait ManagesPengeluaranLpj
             'barokah_dosen_tetap' => (int) round($dosenTetap),
             'barokah_struktural' => (int) round($struktural),
             'total' => (int) round($dosenTetap + $struktural),
+        ];
+    }
+
+    private function absensiRow(array $item): array
+    {
+        $tanggal = $item['tanggal'] ?? now()->toDateString();
+        $totalHari = (int) $this->number($item['total_hari'] ?? 0);
+        $totalJam = round($this->number($item['total_jam'] ?? 0), 2);
+        $totalBarokah = (int) round($this->number($item['total_barokah'] ?? $item['total'] ?? 0));
+
+        return [
+            ...$this->baseBulananRow($item, $tanggal),
+            'total_hari' => $totalHari,
+            'total_jam' => $totalJam,
+            'total_barokah' => $totalBarokah,
+            'total' => $totalBarokah,
         ];
     }
 

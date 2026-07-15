@@ -44,6 +44,7 @@ use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\SemesterPendekController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\BsiPaymentController;
 use App\Http\Controllers\Api\Admin\Pengeluaran\DosenTatapMukaController;
 use App\Http\Controllers\Api\Admin\Pengeluaran\DosenBulananController;
+use App\Http\Controllers\Api\Admin\Pengeluaran\AbsensiController as PengeluaranAbsensiController;
 use App\Http\Controllers\Api\Admin\Pengeluaran\RabController;
 use App\Http\Controllers\Api\Admin\Pengeluaran\DosenKegiatanController as PengeluaranDosenKegiatanController;
 use App\Http\Controllers\Api\Admin\Pengeluaran\LaporanHarianController as PengeluaranLaporanHarianController;
@@ -377,6 +378,38 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
             Route::apiResource($bulananPath, DosenBulananController::class)->except(['index', 'show'])->middleware($roleBulananWrite);
             Route::apiResource($bulananPath, DosenBulananController::class)->only(['index', 'show']);
         }
+
+        // Absensi
+        $roleAbsensiWrite = 'role:admin,pimpinan,keuangan,kabag_pengeluaran,barokahdosen_bulanan';
+        Route::get("absensi/web-absensi/rekap", [PengeluaranAbsensiController::class, 'fetchWebAbsensiRekap']);
+        Route::get("absensi/web-absensi/rekap/export-excel", [PengeluaranAbsensiController::class, 'exportWebAbsensiRekapExcel']);
+        Route::get("absensi/web-absensi/rekap/export-pdf", [PengeluaranAbsensiController::class, 'exportWebAbsensiRekapPdf']);
+        Route::get("absensi/web-absensi/data", [PengeluaranAbsensiController::class, 'fetchWebAbsensiData']);
+        Route::get("absensi/web-absensi/data/export-excel", [PengeluaranAbsensiController::class, 'exportWebAbsensiExcel']);
+        Route::get("absensi/web-absensi/data/export-pdf", [PengeluaranAbsensiController::class, 'exportWebAbsensiPdf']);
+        Route::get("absensi/web-absensi/slip/data", [PengeluaranAbsensiController::class, 'fetchWebAbsensiSlipData']);
+        Route::get("absensi/web-absensi/slip/export-excel", [PengeluaranAbsensiController::class, 'exportWebAbsensiSlipExcel']);
+        Route::get("absensi/web-absensi/slip/export-pdf", [PengeluaranAbsensiController::class, 'exportWebAbsensiSlipPdf']);
+        Route::get("absensi/export-bsi", [PengeluaranAbsensiController::class, 'exportBsi']);
+        Route::get("absensi/export-bsi-txt", [PengeluaranAbsensiController::class, 'exportBsiTxt']);
+        Route::get("absensi/copy-bsi", [PengeluaranAbsensiController::class, 'copyBsi']);
+        Route::get("absensi/form-data", [PengeluaranAbsensiController::class, 'formData']);
+        Route::post("absensi/batch-store", [PengeluaranAbsensiController::class, 'batchStore'])->middleware($roleAbsensiWrite);
+        Route::get("absensi/rekap", [PengeluaranAbsensiController::class, 'rekapIndex']);
+        Route::get("absensi/rekap/export-excel", [PengeluaranAbsensiController::class, 'rekapExportExcel']);
+        Route::post("absensi/rekap", [PengeluaranAbsensiController::class, 'rekapStore'])->middleware($roleAbsensiWrite);
+        Route::post("absensi/rekap/bulk-update", [PengeluaranAbsensiController::class, 'rekapBulkUpdate'])->middleware($roleAbsensiWrite);
+        Route::post("absensi/rekap/{id}/release", [PengeluaranAbsensiController::class, 'rekapRelease'])->middleware($roleAbsensiWrite);
+        Route::put("absensi/rekap/{id}", [PengeluaranAbsensiController::class, 'rekapUpdate'])->middleware($roleAbsensiWrite);
+        Route::delete("absensi/rekap/{id}", [PengeluaranAbsensiController::class, 'rekapDestroy'])->middleware($roleAbsensiWrite);
+        Route::get("absensi/rekap/{id}/export-excel", [PengeluaranAbsensiController::class, 'rekapDetailExportExcel']);
+        Route::get("absensi/rekap/{id}/lpj", [PengeluaranAbsensiController::class, 'lpjShow']);
+        Route::post("absensi/rekap/{id}/lpj/copy", [PengeluaranAbsensiController::class, 'lpjCopy'])->middleware($roleAbsensiWrite);
+        Route::put("absensi/rekap/{id}/lpj", [PengeluaranAbsensiController::class, 'lpjUpdate'])->middleware($roleAbsensiWrite);
+        Route::delete("absensi/rekap/{id}/lpj", [PengeluaranAbsensiController::class, 'lpjDelete'])->middleware($roleAbsensiWrite);
+        Route::get("absensi/rekap/{id}", [PengeluaranAbsensiController::class, 'rekapShow']);
+        Route::apiResource('absensi', PengeluaranAbsensiController::class)->except(['index', 'show'])->middleware($roleAbsensiWrite);
+        Route::apiResource('absensi', PengeluaranAbsensiController::class)->only(['index', 'show']);
     });
     Route::get('laporan/rab/kas', [RabController::class, 'kas'])
         ->middleware('role:admin,pimpinan,keuangan,kabag,kabag_pengeluaran,barokahdosen_tatapmuka,barokahdosen_kegiatan,barokahdosen_bulanan');

@@ -24,6 +24,8 @@ return [
 
     'absensi' => [
         'base_url' => env('ABSENSI_BASE_URL', 'https://absensi.uiidalwa.web.id'),
+        'api_key' => env('ABSENSI_API_KEY'),
+        'secret_key' => env('ABSENSI_SECRET_KEY'),
         'token' => env('ABSENSI_API_TOKEN'),
     ],
 
