@@ -133,6 +133,11 @@ class LaporanHarianController extends Controller
                 'table' => 'keuangan_pengeluaran_pegawai_bulanan',
             ],
             [
+                'key' => 'absensi',
+                'label' => 'Barokah Absensi',
+                'table' => 'keuangan_pengeluaran_pegawai_absensi',
+            ],
+            [
                 'key' => 'rumah_tangga',
                 'label' => 'Rumah Tangga',
                 'table' => 'keuangan_pengeluaran_rumah_tangga',

@@ -1047,7 +1047,7 @@ trait ManagesPengeluaranRekap
         if ($this->requiresRekapForPengeluaran()) {
             return response()->json([
                 'status' => false,
-                'message' => 'Data Pengeluaran Kegiatan wajib berada dalam rekap.',
+                'message' => 'Data Pengeluaran wajib berada dalam rekap.',
             ], 422);
         }
 
@@ -1107,6 +1107,19 @@ trait ManagesPengeluaranRekap
             $this->deleteLpjForDeletedRekap($rekap->getTable(), $rekap->id);
 
             if ($this->requiresRekapForPengeluaran()) {
+                $pengeluaranRows = DB::table($this->pengeluaranTable())
+                    ->where('rekap_id', $rekap->id)
+                    ->get();
+
+                foreach ($pengeluaranRows as $row) {
+                    if (method_exists($this, 'deleteLampiran') && (property_exists($row, 'lampiran') || isset($row->lampiran))) {
+                        $this->deleteLampiran($row->lampiran);
+                    }
+                    if (method_exists($this, 'deleteBuktiTransfer') && (property_exists($row, 'bukti_transfer') || isset($row->bukti_transfer))) {
+                        $this->deleteBuktiTransfer($row->bukti_transfer);
+                    }
+                }
+
                 DB::table($this->pengeluaranTable())
                     ->where('rekap_id', $rekap->id)
                     ->delete();
@@ -1266,6 +1279,7 @@ trait ManagesPengeluaranRekap
             'keuangan_pengeluaran_dosen' => 'dosen_tatapmuka',
             'keuangan_pengeluaran_dosen_kegiatan' => 'dosen_kegiatan',
             'keuangan_pengeluaran_pegawai_bulanan' => 'bulanan',
+            'keuangan_pengeluaran_pegawai_absensi' => 'absensi',
             'keuangan_pengeluaran_rumah_tangga' => 'rumah_tangga',
             'keuangan_pengeluaran_sarana_prasarana' => 'sarana_prasarana',
             'keuangan_pengeluaran_transportasi' => 'transportasi',

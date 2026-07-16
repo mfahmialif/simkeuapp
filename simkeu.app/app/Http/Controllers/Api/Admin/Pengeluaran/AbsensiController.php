@@ -262,6 +262,7 @@ class AbsensiController extends Controller
                 ->whereIn('pegawai_id', Pegawai::query()
                     ->whereIn('tipe', static::PEGAWAI_TIPE)
                     ->where('status', 'aktif')
+                    ->where('status_absensi', 'aktif')
                     ->select('id'))
                 ->orderByDesc('id')
                 ->get()
@@ -275,6 +276,7 @@ class AbsensiController extends Controller
                 ->whereIn('pegawai_id', Pegawai::query()
                     ->whereIn('tipe', static::PEGAWAI_TIPE)
                     ->where('status', 'aktif')
+                    ->where('status_absensi', 'aktif')
                     ->select('id'))
                 ->orderByDesc('id')
                 ->get()
@@ -286,6 +288,7 @@ class AbsensiController extends Controller
             ->with(['dosen.prodi', 'staff'])
             ->whereIn('tipe', static::PEGAWAI_TIPE)
             ->where('status', 'aktif')
+            ->where('status_absensi', 'aktif')
             ->orderBy('tipe')
             ->orderBy('nama')
             ->get();
@@ -1252,6 +1255,11 @@ class AbsensiController extends Controller
     protected function pengeluaranTable(): string
     {
         return 'keuangan_pengeluaran_pegawai_absensi';
+    }
+
+    protected function requiresRekapForPengeluaran(): bool
+    {
+        return true;
     }
 
     protected function newRekapPengeluaranQuery()

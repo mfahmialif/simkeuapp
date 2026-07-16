@@ -32,7 +32,7 @@ class PegawaiController extends Controller
 
         $this->applyFilters($query, $request);
 
-        $sortable = ['id', 'nama', 'kode', 'tipe', 'jenis_kelamin', 'status', 'created_at', 'updated_at'];
+        $sortable = ['id', 'nama', 'kode', 'tipe', 'jenis_kelamin', 'status', 'status_absensi', 'created_at', 'updated_at'];
         $sortKey = in_array($request->input('sort_key'), $sortable) ? $request->input('sort_key') : 'id';
         $sortOrder = $request->input('sort_order') === 'asc' ? 'asc' : 'desc';
 
@@ -701,6 +701,44 @@ class PegawaiController extends Controller
         ]);
     }
 
+    public function updateStatusAbsensi(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'all_pages' => ['nullable', 'boolean'],
+            'ids' => ['required_unless:all_pages,true', 'array'],
+            'ids.*' => ['nullable', 'integer'],
+            'status_absensi' => ['nullable', Rule::in(['aktif', 'tidak aktif'])],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'message' => $validator->errors(),
+            ], 422);
+        }
+
+        $status = $request->input('status_absensi') === 'aktif' ? 'aktif' : null;
+
+        if ($request->boolean('all_pages')) {
+            $query = Pegawai::query();
+            $this->applyFilters($query, new Request($request->input('filters', [])));
+            $query->update(['status_absensi' => $status]);
+        } else {
+            $ids = collect($request->input('ids', []))->filter()->map(function ($id) {
+                return is_array($id) ? ($id['id'] ?? null) : $id;
+            })->filter()->unique()->values()->all();
+
+            Pegawai::query()
+                ->whereIn('id', $ids)
+                ->update(['status_absensi' => $status]);
+        }
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Status absensi pegawai berhasil diperbarui',
+        ]);
+    }
+
     private function resolveBarokahPeriod(Request $request): array
     {
         $mode = $request->input('mode');
@@ -934,6 +972,14 @@ class PegawaiController extends Controller
             ]));
         }
 
+        if ($moduleKey === 'absensi') {
+            return array_values(array_filter([
+                (int) data_get($row, 'total_hari', 0) > 0 ? 'Hari '.$this->formatSlipNumber((int) data_get($row, 'total_hari', 0)) : null,
+                (float) data_get($row, 'total_jam', 0) > 0 ? 'Jam '.$this->formatSlipNumber((float) data_get($row, 'total_jam', 0)) : null,
+                (int) data_get($row, 'total_barokah', 0) > 0 ? 'Barokah '.$this->formatSlipRupiah((int) data_get($row, 'total_barokah', 0)) : null,
+            ]));
+        }
+
         return array_values(array_filter([
             (float) data_get($row, 'hari', 0) > 0 ? 'Hari '.$this->formatSlipNumber((float) data_get($row, 'hari', 0)) : null,
             (int) data_get($row, 'barokah_harian', 0) > 0 ? 'Harian '.$this->formatSlipRupiah((int) data_get($row, 'barokah_harian', 0)) : null,
@@ -990,6 +1036,16 @@ class PegawaiController extends Controller
                 'color' => 'info',
                 'path' => '/admin/pengeluaran/bulanan',
             ];
+
+            $modules[] = [
+                'key' => 'absensi',
+                'label' => 'Barokah Absensi',
+                'short_label' => 'Absensi',
+                'table' => 'keuangan_pengeluaran_pegawai_absensi',
+                'icon' => 'ri-time-line',
+                'color' => 'purple',
+                'path' => '/admin/pengeluaran/absensi',
+            ];
         }
 
         return $modules;
@@ -1031,6 +1087,16 @@ class PegawaiController extends Controller
                 'icon' => 'ri-wallet-3-line',
                 'color' => 'info',
                 'path' => '/admin/pengeluaran/bulanan',
+            ];
+
+            $modules[] = [
+                'key' => 'absensi',
+                'label' => 'Barokah Absensi',
+                'short_label' => 'Absensi',
+                'table' => 'keuangan_pengeluaran_pegawai_absensi',
+                'icon' => 'ri-time-line',
+                'color' => 'purple',
+                'path' => '/admin/pengeluaran/absensi',
             ];
         }
 
@@ -1195,6 +1261,18 @@ class PegawaiController extends Controller
                 'jenis_pembayaran',
                 'keterangan',
             ],
+            'absensi' => [
+                'id',
+                'tanggal',
+                'bulan',
+                'tahun',
+                'total_hari',
+                'total_jam',
+                'total_barokah',
+                'total',
+                'jenis_pembayaran',
+                'keterangan',
+            ],
         ][$module['key']] ?? ['id', 'tanggal', 'total'];
 
         return collect($columns)
@@ -1237,6 +1315,17 @@ class PegawaiController extends Controller
             return (string) (data_get($row, 'nama_kegiatan') ?: 'Kegiatan pegawai');
         }
 
+        if ($moduleKey === 'absensi') {
+            $bulan = data_get($row, 'bulan');
+            $tahun = data_get($row, 'tahun');
+
+            if ($bulan && $tahun) {
+                return 'Barokah absensi '.$this->barokahMonthName((int) $bulan).' '.$tahun;
+            }
+
+            return 'Barokah absensi';
+        }
+
         $bulan = data_get($row, 'bulan');
         $tahun = data_get($row, 'tahun');
 
@@ -1268,6 +1357,20 @@ class PegawaiController extends Controller
             return array_values(array_filter([
                 'Transport '.number_format((int) data_get($row, 'transport', 0), 0, ',', '.'),
                 'Barokah '.number_format((int) data_get($row, 'barokah', 0), 0, ',', '.'),
+            ]));
+        }
+
+        if ($moduleKey === 'absensi') {
+            return array_values(array_filter([
+                (int) data_get($row, 'total_hari', 0) > 0
+                    ? 'Hari '.(int) data_get($row, 'total_hari', 0)
+                    : null,
+                (float) data_get($row, 'total_jam', 0) > 0
+                    ? 'Jam '.(float) data_get($row, 'total_jam', 0)
+                    : null,
+                (int) data_get($row, 'total_barokah', 0) > 0
+                    ? 'Barokah '.number_format((int) data_get($row, 'total_barokah', 0), 0, ',', '.')
+                    : null,
             ]));
         }
 
@@ -1372,6 +1475,20 @@ class PegawaiController extends Controller
                 'Jenis Pembayaran',
                 'Keterangan',
             ],
+            'absensi' => [
+                'No',
+                'Tanggal',
+                'Periode',
+                'Nama Pegawai',
+                'Kode',
+                'Tipe',
+                'Total Hari',
+                'Total Jam',
+                'Total Barokah',
+                'Total',
+                'Jenis Pembayaran',
+                'Keterangan',
+            ],
         ][$moduleKey] ?? ['No', 'Tanggal', 'Nama Pegawai', 'Kode', 'Tipe', 'Total'];
     }
 
@@ -1424,6 +1541,18 @@ class PegawaiController extends Controller
                 'barokah_bulanan',
                 'barokah_dosen_tetap',
                 'barokah_struktural',
+                'total',
+                'jenis_pembayaran',
+                'keterangan',
+            ],
+            'absensi' => [
+                'pegawai_id',
+                'tanggal',
+                'bulan',
+                'tahun',
+                'total_hari',
+                'total_jam',
+                'total_barokah',
                 'total',
                 'jenis_pembayaran',
                 'keterangan',
@@ -1488,6 +1617,25 @@ class PegawaiController extends Controller
             ];
         }
 
+        if ($moduleKey === 'absensi') {
+            $bulan = (int) data_get($row, 'bulan', 0);
+            $tahun = (int) data_get($row, 'tahun', 0);
+            $periode = $bulan && $tahun ? $this->barokahMonthName($bulan).' '.$tahun : '-';
+
+            return [
+                $number,
+                (string) data_get($row, 'tanggal', ''),
+                $periode,
+                ...$identity,
+                (int) data_get($row, 'total_hari', 0),
+                (float) data_get($row, 'total_jam', 0),
+                (int) data_get($row, 'total_barokah', 0),
+                (int) data_get($row, 'total', 0),
+                data_get($row, 'jenis_pembayaran', '-'),
+                data_get($row, 'keterangan', '-'),
+            ];
+        }
+
         $bulan = (int) data_get($row, 'bulan', 0);
         $tahun = (int) data_get($row, 'tahun', 0);
         $periode = $bulan && $tahun ? $this->barokahMonthName($bulan).' '.$tahun : '-';
@@ -1535,7 +1683,7 @@ class PegawaiController extends Controller
         $query = Pegawai::with(['dosen.prodi', 'staff']);
         $this->applyFilters($query, $request);
 
-        $sortable = ['id', 'nama', 'kode', 'tipe', 'jenis_kelamin', 'status', 'created_at', 'updated_at'];
+        $sortable = ['id', 'nama', 'kode', 'tipe', 'jenis_kelamin', 'status', 'status_absensi', 'created_at', 'updated_at'];
         $sortKey = in_array($request->input('sort_key'), $sortable, true) ? $request->input('sort_key') : 'id';
         $sortOrder = $request->input('sort_order') === 'asc' ? 'asc' : 'desc';
         $data = $query->orderBy($sortKey, $sortOrder)->get();
@@ -2481,6 +2629,16 @@ class PegawaiController extends Controller
             $query->where('status', $request->input('status'));
         }
 
+        if ($request->filled('status_absensi')) {
+            if ($request->input('status_absensi') === 'aktif') {
+                $query->where('status_absensi', 'aktif');
+            } elseif ($request->input('status_absensi') === 'tidak aktif') {
+                $query->where(function ($q) {
+                    $q->whereNull('status_absensi')->orWhere('status_absensi', '!=', 'aktif');
+                });
+            }
+        }
+
         if ($request->filled('prodi_id')) {
             $query->whereHas('dosen', function ($dosen) use ($request) {
                 $dosen->where('prodi_id', $request->input('prodi_id'));
@@ -2510,6 +2668,10 @@ class PegawaiController extends Controller
             'staff' => (clone $query)->where('tipe', 'staff')->count(),
             'aktif' => (clone $query)->where('status', 'aktif')->count(),
             'tidak_aktif' => (clone $query)->where('status', 'tidak aktif')->count(),
+            'absensi_aktif' => (clone $query)->where('status_absensi', 'aktif')->count(),
+            'absensi_tidak_aktif' => (clone $query)->where(function ($q) {
+                $q->whereNull('status_absensi')->orWhere('status_absensi', '!=', 'aktif');
+            })->count(),
         ];
     }
 
@@ -2538,6 +2700,7 @@ class PegawaiController extends Controller
             'nama_pemilik_rekening' => ['nullable', 'string', 'max:255'],
             'bank' => ['nullable', 'string', 'max:255'],
             'status' => ['required', Rule::in(['aktif', 'tidak aktif'])],
+            'status_absensi' => ['nullable', Rule::in(['aktif', 'tidak aktif'])],
             'dosen_kode' => [
                 'nullable',
                 'string',
@@ -2579,13 +2742,19 @@ class PegawaiController extends Controller
             'nomer_rekening',
             'bank',
             'status',
+            'status_absensi',
         ];
 
         if ($this->hasNamaPemilikRekeningColumn()) {
             $columns[] = 'nama_pemilik_rekening';
         }
 
-        return Arr::only($payload, $columns);
+        $data = Arr::only($payload, $columns);
+        if (array_key_exists('status_absensi', $data)) {
+            $data['status_absensi'] = $data['status_absensi'] === 'aktif' ? 'aktif' : null;
+        }
+
+        return $data;
     }
 
     private function pegawaiUpsertUpdateColumns(): array
@@ -2602,6 +2771,7 @@ class PegawaiController extends Controller
             'nomer_rekening',
             'bank',
             'status',
+            'status_absensi',
             'updated_at',
         ];
 

@@ -74,6 +74,14 @@ class RabController extends Controller
             'detail_path' => '/admin/pengeluaran/bulanan/rekap/',
             'pegawai_tipe' => null,
         ],
+        'absensi' => [
+            'rekap_table' => 'keuangan_pengeluaran_absensi_rekap',
+            'detail_table' => 'keuangan_pengeluaran_pegawai_absensi',
+            'lpj_table' => 'keuangan_pengeluaran_pegawai_absensi_lpj',
+            'module_name' => 'Barokah Absensi',
+            'detail_path' => '/admin/pengeluaran/absensi/rekap/',
+            'pegawai_tipe' => null,
+        ],
     ];
 
     public function index(Request $request)
@@ -3315,6 +3323,7 @@ class RabController extends Controller
             'tatap_muka' => ['barokahdosen_tatapmuka'],
             'kegiatan' => ['barokahdosen_kegiatan'],
             'dosen_bulanan' => ['barokahdosen_bulanan'],
+            'absensi' => ['barokahdosen_bulanan'],
             default => [],
         };
     }
@@ -3329,6 +3338,7 @@ class RabController extends Controller
             ['title' => 'Transportasi', 'value' => 'transportasi'],
             ['title' => 'Pengeluaran Umum', 'value' => 'umum'],
             ['title' => 'Bulanan', 'value' => 'dosen_bulanan'],
+            ['title' => 'Barokah Absensi', 'value' => 'absensi'],
         ];
 
         if (Schema::hasTable('keuangan_piutang') && Schema::hasTable('pegawai')) {
