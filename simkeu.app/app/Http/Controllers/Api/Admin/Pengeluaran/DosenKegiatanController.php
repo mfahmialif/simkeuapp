@@ -105,6 +105,7 @@ class DosenKegiatanController extends Controller
             'kode_dosen' => 'pegawai.kode',
             'nama_dosen' => 'pegawai.nama',
             'kategori_detail' => 'keuangan_pengeluaran_dosen_kegiatan.kategori_detail',
+            'nama' => 'keuangan_pengeluaran_dosen_kegiatan.nama',
             'nama_kegiatan' => 'keuangan_pengeluaran_dosen_kegiatan.nama_kegiatan',
             'transport' => 'keuangan_pengeluaran_dosen_kegiatan.transport',
             'barokah' => 'keuangan_pengeluaran_dosen_kegiatan.barokah',
@@ -171,6 +172,7 @@ class DosenKegiatanController extends Controller
             'items.*.tanggal' => ['required', 'date'],
             'items.*.kategori_detail' => ['required', Rule::in(self::KATEGORI_DETAIL)],
             'items.*.pegawai_id' => ['nullable', Rule::exists('pegawai', 'id')],
+            'items.*.nama' => ['nullable', 'string', 'max:255'],
             'items.*.nama_kegiatan' => ['required', 'string', 'max:255'],
             'items.*.transport' => ['nullable', 'numeric', 'min:0'],
             'items.*.barokah' => ['nullable', 'numeric', 'min:0'],
@@ -313,6 +315,7 @@ class DosenKegiatanController extends Controller
             'items.*.tanggal' => ['required', 'date'],
             'items.*.kategori_detail' => ['required', Rule::in(self::KATEGORI_DETAIL)],
             'items.*.pegawai_id' => ['nullable', Rule::exists('pegawai', 'id')],
+            'items.*.nama' => ['nullable', 'string', 'max:255'],
             'items.*.nama_kegiatan' => ['required', 'string', 'max:255'],
             'items.*.transport' => ['nullable', 'numeric', 'min:0'],
             'items.*.barokah' => ['nullable', 'numeric', 'min:0'],
@@ -547,6 +550,7 @@ class DosenKegiatanController extends Controller
             'prodi.nama as prodi',
             'staff.jabatan as jabatan',
             'pengeluaran_rekap.nama as rekap',
+            'keuangan_pengeluaran_dosen_kegiatan.nama',
             'keuangan_pengeluaran_dosen_kegiatan.nama_kegiatan',
             'keuangan_pengeluaran_dosen_kegiatan.transport',
             'keuangan_pengeluaran_dosen_kegiatan.barokah',
@@ -841,6 +845,7 @@ class DosenKegiatanController extends Controller
 
         $query->where(function ($q) use ($search) {
             $q->orWhere('keuangan_pengeluaran_dosen_kegiatan.tanggal', 'LIKE', "%{$search}%")
+                ->orWhere('keuangan_pengeluaran_dosen_kegiatan.nama', 'LIKE', "%{$search}%")
                 ->orWhere('keuangan_pengeluaran_dosen_kegiatan.nama_kegiatan', 'LIKE', "%{$search}%")
                 ->orWhere('keuangan_pengeluaran_dosen_kegiatan.transport', 'LIKE', "%{$search}%")
                 ->orWhere('keuangan_pengeluaran_dosen_kegiatan.barokah', 'LIKE', "%{$search}%")
@@ -951,6 +956,7 @@ class DosenKegiatanController extends Controller
                 new RequiredIf($kategoriDetail === 'pegawai'),
                 Rule::exists('pegawai', 'id'),
             ],
+            'nama' => ['nullable', 'string', 'max:255'],
             'nama_kegiatan' => 'required|string|max:255',
             'transport' => 'nullable|numeric|min:0',
             'barokah' => 'nullable|numeric|min:0',
@@ -984,6 +990,7 @@ class DosenKegiatanController extends Controller
         $data->kategori_detail = $kategoriDetail;
         $data->pegawai_id = $isPegawai ? $request->pegawai_id : null;
         $data->petugas_id = $this->petugasIdForPengeluaran($request);
+        $data->nama = $isPegawai ? null : $this->nullableString($request->input('nama'));
         $data->nama_kegiatan = $request->nama_kegiatan;
         $data->transport = $transport;
         $data->barokah = $barokah;
@@ -1057,5 +1064,12 @@ class DosenKegiatanController extends Controller
     private function number($value): float
     {
         return is_numeric($value) ? (float) $value : 0;
+    }
+
+    private function nullableString($value): ?string
+    {
+        $value = trim((string) $value);
+
+        return $value === '' ? null : $value;
     }
 }

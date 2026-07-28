@@ -240,6 +240,206 @@ class RabController extends Controller
         ], 201);
     }
 
+    public function update(Request $request, string $moduleKey, $id)
+    {
+        if (! array_key_exists($moduleKey, self::SOURCES)) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Jenis rekap tidak valid.',
+            ], 422);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'module_key' => ['required', Rule::in(array_keys(self::SOURCES))],
+            'petugas_id' => ['required', 'integer', 'exists:users,id'],
+            'nama' => ['required', 'string', 'max:255'],
+            'bulan_tahun' => ['required', 'date_format:Y-m'],
+            'tanggal_rekap' => ['required', 'date_format:Y-m-d'],
+            'tanggal_pencairan' => ['nullable', 'date_format:Y-m-d'],
+            'jumlah_sementara' => ['required', 'integer', 'min:0'],
+            'keterangan' => ['nullable', 'string'],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'message' => $validator->errors(),
+            ], 422);
+        }
+
+        $validated = $validator->validated();
+        $targetModuleKey = $validated['module_key'];
+        $id = (int) $id;
+
+        if (! $this->petugasAllowedForModule((int) $validated['petugas_id'], $targetModuleKey)) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Petugas tidak sesuai dengan jenis rekap yang dipilih.',
+            ], 422);
+        }
+
+        if (! $this->scopedRekapQuery($moduleKey, $id)->exists()) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Rekap tidak ditemukan atau tidak dapat diakses.',
+            ], 404);
+        }
+
+        $source = self::SOURCES[$moduleKey];
+        $targetSource = self::SOURCES[$targetModuleKey];
+        $isMovingModule = $moduleKey !== $targetModuleKey;
+        $usage = $this->rekapUsageSummary($moduleKey, $id);
+
+        if ($isMovingModule && (
+            $usage['detail_count'] > 0
+            || $usage['lpj_count'] > 0
+            || $usage['lpj_status_count'] > 0
+            || $usage['process_count'] > 0
+            || $usage['cetak_rab']
+        )) {
+            return response()->json([
+                'status' => false,
+                'message' => [
+                    'module_key' => [
+                        'Jenis rekap hanya bisa diubah jika rekap belum memiliki data RAB, LPJ, atau proses RAB.',
+                    ],
+                ],
+            ], 422);
+        }
+
+        $nameExists = DB::table($targetSource['rekap_table'])
+            ->where('nama', $validated['nama'])
+            ->when(
+                ! $isMovingModule,
+                fn ($query) => $query->where('id', '<>', $id)
+            )
+            ->exists();
+
+        if ($nameExists) {
+            return response()->json([
+                'status' => false,
+                'message' => [
+                    'nama' => ['Nama rekap sudah digunakan pada jenis rekap ini.'],
+                ],
+            ], 422);
+        }
+
+        $newId = $id;
+        $updated = false;
+
+        DB::transaction(function () use (
+            $id,
+            $moduleKey,
+            $targetModuleKey,
+            $source,
+            $targetSource,
+            $validated,
+            $isMovingModule,
+            &$newId,
+            &$updated
+        ) {
+            $oldRekap = $this->scopedRekapQuery($moduleKey, $id)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $oldRekap) {
+                return;
+            }
+
+            $currentUsage = $this->rekapUsageSummary($moduleKey, $id);
+
+            if ($isMovingModule) {
+                if (
+                    $currentUsage['detail_count'] > 0
+                    || $currentUsage['lpj_count'] > 0
+                    || $currentUsage['lpj_status_count'] > 0
+                    || $currentUsage['process_count'] > 0
+                    || $currentUsage['cetak_rab']
+                ) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'module_key' => [
+                            'Jenis rekap hanya bisa diubah jika rekap belum memiliki data RAB, LPJ, atau proses RAB.',
+                        ],
+                    ]);
+                }
+            }
+
+            $now = now();
+            $payload = [
+                'nama' => $validated['nama'],
+                'bulan_tahun' => $validated['bulan_tahun'].'-01',
+                'tanggal_rekap' => $validated['tanggal_rekap'],
+                'tanggal_pencairan' => $validated['tanggal_pencairan'] ?? null,
+                'petugas_id' => (int) $validated['petugas_id'],
+                'keterangan' => $validated['keterangan'] ?? null,
+                'updated_at' => $now,
+            ];
+
+            if (! $isMovingModule && $currentUsage['detail_count'] > 0) {
+                DB::table($source['rekap_table'])
+                    ->where('id', $id)
+                    ->update($payload);
+
+                $updated = true;
+
+                return;
+            }
+
+            $payload['jumlah_sementara'] = (int) $validated['jumlah_sementara'];
+
+            if (! $isMovingModule) {
+                DB::table($source['rekap_table'])
+                    ->where('id', $id)
+                    ->update($payload);
+
+                $updated = true;
+
+                return;
+            }
+
+            $insertPayload = [
+                ...$payload,
+                'created_at' => $oldRekap->created_at ?? $now,
+            ];
+
+            if ($this->rekapHasCetakRabColumn($targetModuleKey)) {
+                $insertPayload['cetak_rab'] = false;
+            }
+
+            $newId = DB::table($targetSource['rekap_table'])->insertGetId($insertPayload);
+
+            DB::table($source['rekap_table'])
+                ->where('id', $id)
+                ->delete();
+
+            $updated = true;
+        });
+
+        if (! $updated) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Rekap tidak ditemukan atau tidak dapat diakses.',
+            ], 404);
+        }
+
+        $data = $this->findRabRow($targetModuleKey, $newId);
+
+        if (! $data) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Rekap tidak ditemukan atau tidak dapat diakses.',
+            ], 404);
+        }
+
+        return response()->json([
+            'status' => true,
+            'data' => $data,
+            'message' => $isMovingModule
+                ? 'Kategori rekap berhasil diubah.'
+                : 'Rekap anggaran berhasil diperbarui.',
+        ]);
+    }
+
     public function merger(Request $request)
     {
         $validator = Validator::make($request->all(), [
@@ -2489,6 +2689,84 @@ class RabController extends Controller
                 DB::raw('CASE WHEN COALESCE(summary.jumlah_data, 0) = 0 THEN 1 ELSE 0 END as is_jumlah_sementara'),
                 DB::raw("{$temporaryDifference} as selisih_sementara"),
             ]);
+    }
+
+    private function findRabRow(string $moduleKey, int $id): ?object
+    {
+        if (! array_key_exists($moduleKey, self::SOURCES)) {
+            return null;
+        }
+
+        $source = self::SOURCES[$moduleKey];
+        $query = DB::query()
+            ->fromSub($this->rekapSourceQuery($moduleKey, $source), 'rab')
+            ->leftJoin('users as petugas', 'petugas.id', '=', 'rab.petugas_id')
+            ->where('rab.id', $id)
+            ->select('rab.*', 'petugas.name as petugas_nama');
+
+        $item = $query->first();
+
+        if (! $item) {
+            return null;
+        }
+
+        $this->castRabRow($item);
+
+        return $item;
+    }
+
+    private function castRabRow(object $item): void
+    {
+        $item->jumlah = (int) $item->jumlah;
+        $item->jumlah_sementara = $item->jumlah_sementara === null
+            ? null
+            : (int) $item->jumlah_sementara;
+        $item->jumlah_data = (int) $item->jumlah_data;
+        $item->total_pengeluaran = (int) $item->total_pengeluaran;
+        $item->total_lpj = (int) $item->total_lpj;
+        $item->is_jumlah_sementara = (bool) $item->is_jumlah_sementara;
+        $item->selisih_sementara = (int) $item->selisih_sementara;
+        $item->cetak_rab = (bool) $item->cetak_rab;
+        $item->petugas_nama = $item->petugas_nama ?? null;
+    }
+
+    private function rekapUsageSummary(string $moduleKey, int $id): array
+    {
+        $source = self::SOURCES[$moduleKey];
+        $detailCount = Schema::hasTable($source['detail_table'])
+            ? DB::table($source['detail_table'])
+                ->where('rekap_id', $id)
+                ->count()
+            : 0;
+        $lpjCount = Schema::hasTable($source['lpj_table'])
+            ? DB::table($source['lpj_table'])
+                ->where('rekap_id', $id)
+                ->count()
+            : 0;
+        $lpjStatusCount = Schema::hasTable('keuangan_pengeluaran_lpj_rekap_status')
+            ? DB::table('keuangan_pengeluaran_lpj_rekap_status')
+                ->where('module_key', $moduleKey)
+                ->where('rekap_id', $id)
+                ->count()
+            : 0;
+        $processCount = Schema::hasTable('keuangan_cetak_rab_detail')
+            ? DB::table('keuangan_cetak_rab_detail')
+                ->where('module_key', $moduleKey)
+                ->where('rekap_id', $id)
+                ->count()
+            : 0;
+        $cetakRab = $this->rekapHasCetakRabColumn($moduleKey)
+            && (bool) DB::table($source['rekap_table'])
+                ->where('id', $id)
+                ->value('cetak_rab');
+
+        return [
+            'detail_count' => (int) $detailCount,
+            'lpj_count' => (int) $lpjCount,
+            'lpj_status_count' => (int) $lpjStatusCount,
+            'process_count' => (int) $processCount,
+            'cetak_rab' => $cetakRab,
+        ];
     }
 
     private function piutangRabQuery(Request $request): ?Builder

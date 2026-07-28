@@ -443,6 +443,8 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
         ->middleware('role:admin,pimpinan,keuangan,kabag,kabag_pengeluaran,barokahdosen_tatapmuka,barokahdosen_kegiatan,barokahdosen_bulanan');
     Route::post('laporan/rab', [RabController::class, 'store'])
         ->middleware('role:admin,keuangan,kabag,kabag_pengeluaran,barokahdosen_tatapmuka,barokahdosen_kegiatan,barokahdosen_bulanan');
+    Route::put('laporan/rab/{moduleKey}/{id}', [RabController::class, 'update'])
+        ->middleware('role:admin,keuangan,kabag,kabag_pengeluaran,barokahdosen_tatapmuka,barokahdosen_kegiatan,barokahdosen_bulanan');
     Route::post('laporan/rab/merger', [RabController::class, 'merger'])
         ->middleware('role:admin,keuangan,kabag,kabag_pengeluaran,barokahdosen_tatapmuka,barokahdosen_kegiatan,barokahdosen_bulanan');
     Route::put('laporan/rab/tanggal-pencairan', [RabController::class, 'updateTanggalPencairan'])

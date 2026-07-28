@@ -214,7 +214,7 @@ trait ManagesPengeluaranRekap
             return $this->downloadGroupedRabDetailExport($rekap, $data, $tab);
         }
 
-        $config = $this->genericRekapDetailExportConfig();
+        $config = $this->genericRekapDetailExportConfig($data);
         $rows = $data->values()->map($config['row'])->all();
         $totalRow = array_fill(0, count($config['headings']), '');
         $totalRow[1] = 'TOTAL';
@@ -548,8 +548,13 @@ trait ManagesPengeluaranRekap
         });
     }
 
-    private function genericRekapDetailExportConfig(): array
+    private function genericRekapDetailExportConfig($data = null): array
     {
+        $detailRows = collect($data);
+        $isKegiatanNonPegawaiOnly = $this->pengeluaranTable() === 'keuangan_pengeluaran_dosen_kegiatan'
+            && $detailRows->isNotEmpty()
+            && $detailRows->every(fn ($item) => ($item->kategori_detail ?? null) === 'non_pegawai');
+
         return match ($this->pengeluaranTable()) {
             'keuangan_pengeluaran_dosen' => [
                 'headings' => [
@@ -600,43 +605,77 @@ trait ManagesPengeluaranRekap
                 'text_columns' => [3],
                 'total_column' => 18,
             ],
-            'keuangan_pengeluaran_dosen_kegiatan' => [
-                'headings' => [
-                    'NO',
-                    'TANGGAL',
-                    'KATEGORI',
-                    'KODE',
-                    'NAMA',
-                    'TIPE',
-                    'PRODI/JABATAN',
-                    'NAMA KEGIATAN',
-                    'TRANSPORT',
-                    'BAROKAH',
-                    'NOMINAL',
-                    'TOTAL',
-                    'JENIS PEMBAYARAN',
-                    'KETERANGAN',
+            'keuangan_pengeluaran_dosen_kegiatan' => $isKegiatanNonPegawaiOnly
+                ? [
+                    'headings' => [
+                        'NO',
+                        'TANGGAL',
+                        'KATEGORI',
+                        'NAMA',
+                        'NAMA KEGIATAN',
+                        'TRANSPORT',
+                        'BAROKAH',
+                        'NOMINAL',
+                        'TOTAL',
+                        'JENIS PEMBAYARAN',
+                        'KETERANGAN',
+                    ],
+                    'row' => fn ($item, $index) => [
+                        $index + 1,
+                        $this->formatGenericRekapExportDate($item->tanggal ?? null),
+                        $item->kategori_detail ?: '-',
+                        ($item->nama ?? '') ?: '-',
+                        $item->nama_kegiatan ?: '-',
+                        (int) ($item->transport ?? 0),
+                        (int) ($item->barokah ?? 0),
+                        (int) ($item->nominal ?? 0),
+                        (int) ($item->total ?? 0),
+                        $item->jenis_pembayaran ?: '',
+                        $item->keterangan ?: '',
+                    ],
+                    'amount_columns' => [6, 7, 8, 9],
+                    'text_columns' => [4],
+                    'total_column' => 9,
+                ]
+                : [
+                    'headings' => [
+                        'NO',
+                        'TANGGAL',
+                        'KATEGORI',
+                        'KODE',
+                        'NAMA',
+                        'TIPE',
+                        'PRODI/JABATAN',
+                        'NAMA KEGIATAN',
+                        'TRANSPORT',
+                        'BAROKAH',
+                        'NOMINAL',
+                        'TOTAL',
+                        'JENIS PEMBAYARAN',
+                        'KETERANGAN',
+                    ],
+                    'row' => fn ($item, $index) => [
+                        $index + 1,
+                        $this->formatGenericRekapExportDate($item->tanggal ?? null),
+                        $item->kategori_detail ?: '-',
+                        (string) ($item->kode_pegawai ?? ''),
+                        ($item->kategori_detail ?? null) === 'non_pegawai'
+                            ? (($item->nama ?? '') ?: '-')
+                            : ($item->nama_pegawai ?: '-'),
+                        $item->tipe_pegawai ?: '-',
+                        $item->prodi ?: ($item->jabatan ?: '-'),
+                        $item->nama_kegiatan ?: '-',
+                        (int) ($item->transport ?? 0),
+                        (int) ($item->barokah ?? 0),
+                        (int) ($item->nominal ?? 0),
+                        (int) ($item->total ?? 0),
+                        $item->jenis_pembayaran ?: '',
+                        $item->keterangan ?: '',
+                    ],
+                    'amount_columns' => [9, 10, 11, 12],
+                    'text_columns' => [4],
+                    'total_column' => 12,
                 ],
-                'row' => fn ($item, $index) => [
-                    $index + 1,
-                    $this->formatGenericRekapExportDate($item->tanggal ?? null),
-                    $item->kategori_detail ?: '-',
-                    (string) ($item->kode_pegawai ?? ''),
-                    $item->nama_pegawai ?: '-',
-                    $item->tipe_pegawai ?: '-',
-                    $item->prodi ?: ($item->jabatan ?: '-'),
-                    $item->nama_kegiatan ?: '-',
-                    (int) ($item->transport ?? 0),
-                    (int) ($item->barokah ?? 0),
-                    (int) ($item->nominal ?? 0),
-                    (int) ($item->total ?? 0),
-                    $item->jenis_pembayaran ?: '',
-                    $item->keterangan ?: '',
-                ],
-                'amount_columns' => [9, 10, 11, 12],
-                'text_columns' => [4],
-                'total_column' => 12,
-            ],
             'keuangan_pengeluaran_transportasi' => [
                 'headings' => [
                     'NO',

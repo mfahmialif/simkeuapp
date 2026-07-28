@@ -882,6 +882,7 @@ trait ManagesPengeluaranLpj
             foreach ([
                 'tanggal',
                 'kategori_detail',
+                'nama',
                 'nama_kegiatan',
                 'kelompok_anggaran',
                 'prioritas',
@@ -920,6 +921,7 @@ trait ManagesPengeluaranLpj
             'id' => 'lpj.id',
             'tanggal' => $hasColumn('tanggal') ? 'lpj.tanggal' : 'lpj.id',
             'kategori_detail' => $hasColumn('kategori_detail') ? 'lpj.kategori_detail' : 'lpj.id',
+            'nama' => $hasColumn('nama') ? 'lpj.nama' : 'lpj.id',
             'kelompok_anggaran' => $hasColumn('kelompok_anggaran') ? 'lpj.kelompok_anggaran' : 'lpj.id',
             'uraian' => $hasColumn('nama_kegiatan') ? 'lpj.nama_kegiatan' : 'lpj.id',
             'volume' => $hasColumn('volume') ? 'lpj.volume' : 'lpj.id',
@@ -1055,6 +1057,7 @@ trait ManagesPengeluaranLpj
             'tanggal' => $item['tanggal'] ?? now()->toDateString(),
             'kategori_detail' => $kategoriDetail,
             'pegawai_id' => $isPegawai ? $this->nullableInt($item['pegawai_id'] ?? null) : null,
+            'nama' => $isPegawai ? null : $this->nullableString($item['nama'] ?? null),
             'nama_kegiatan' => $item['nama_kegiatan'] ?? 'LPJ Kegiatan',
             'transport' => (int) round($transport),
             'barokah' => (int) round($barokah),

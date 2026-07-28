@@ -125,7 +125,7 @@ class PegawaiController extends Controller
         }
 
         $validator = Validator::make($request->all(), [
-            'mode' => ['nullable', Rule::in(['bulan', 'rentang'])],
+            'mode' => ['nullable', Rule::in(['bulan', 'rentang', 'semua'])],
             'bulan' => ['nullable', 'date_format:Y-m'],
             'tanggal_mulai' => ['nullable', 'date'],
             'tanggal_akhir' => ['nullable', 'date', 'after_or_equal:tanggal_mulai'],
@@ -138,8 +138,8 @@ class PegawaiController extends Controller
             ], 422);
         }
 
-        $period = $this->resolveBarokahPeriod($request);
         $modules = $this->barokahModulesForPegawai($pegawai);
+        $period = $this->resolveBarokahPeriod($request, $pegawai, $modules);
         $periods = $this->barokahChartPeriods($period['start'], $period['end']);
         $periodTotals = collect($periods)->mapWithKeys(fn ($item) => [$item['key'] => 0])->all();
         $moduleSummaries = [];
@@ -739,7 +739,7 @@ class PegawaiController extends Controller
         ]);
     }
 
-    private function resolveBarokahPeriod(Request $request): array
+    private function resolveBarokahPeriod(Request $request, ?Pegawai $pegawai = null, array $modules = []): array
     {
         $mode = $request->input('mode');
         if (! $mode) {
@@ -748,7 +748,14 @@ class PegawaiController extends Controller
                 : 'bulan';
         }
 
-        if ($mode === 'rentang') {
+        if ($mode === 'semua') {
+            $bounds = $pegawai
+                ? $this->barokahDateBoundsForPegawai($modules ?: $this->barokahModulesForPegawai($pegawai), (int) $pegawai->id)
+                : null;
+            $start = $bounds['start'] ?? now()->startOfMonth();
+            $end = $bounds['end'] ?? now()->endOfMonth();
+            $bulan = null;
+        } elseif ($mode === 'rentang') {
             $start = $request->filled('tanggal_mulai')
                 ? Carbon::parse($request->tanggal_mulai)->startOfDay()
                 : now()->startOfMonth();
@@ -767,10 +774,54 @@ class PegawaiController extends Controller
             'bulan' => $bulan,
             'start' => $start,
             'end' => $end,
-            'label' => $mode === 'bulan'
-                ? $this->barokahMonthLabel($start)
-                : $this->barokahDateLabel($start).' - '.$this->barokahDateLabel($end),
+            'label' => match ($mode) {
+                'semua' => 'Semua data',
+                'bulan' => $this->barokahMonthLabel($start),
+                default => $this->barokahDateLabel($start).' - '.$this->barokahDateLabel($end),
+            },
         ];
+    }
+
+    private function barokahDateBoundsForPegawai(array $modules, int $pegawaiId): ?array
+    {
+        $start = null;
+        $end = null;
+
+        foreach ($modules as $module) {
+            $table = $module['table'];
+
+            if (! $this->barokahTableIsUsable($table)) {
+                continue;
+            }
+
+            $query = DB::table($table)
+                ->where("{$table}.pegawai_id", $pegawaiId);
+            Helper::applyExpenseGenderScope($query, $table);
+
+            if ($module['key'] === 'kegiatan' && Schema::hasColumn($table, 'kategori_detail')) {
+                $query->where("{$table}.kategori_detail", 'pegawai');
+            }
+
+            $bounds = $query
+                ->selectRaw("MIN({$table}.tanggal) as tanggal_mulai")
+                ->selectRaw("MAX({$table}.tanggal) as tanggal_akhir")
+                ->first();
+
+            if (! $bounds?->tanggal_mulai || ! $bounds?->tanggal_akhir) {
+                continue;
+            }
+
+            $moduleStart = Carbon::parse($bounds->tanggal_mulai)->startOfDay();
+            $moduleEnd = Carbon::parse($bounds->tanggal_akhir)->endOfDay();
+            $start = $start && $start->lessThanOrEqualTo($moduleStart) ? $start : $moduleStart;
+            $end = $end && $end->greaterThanOrEqualTo($moduleEnd) ? $end : $moduleEnd;
+        }
+
+        if (! $start || ! $end) {
+            return null;
+        }
+
+        return compact('start', 'end');
     }
 
     private function resolveSlipBarokahPeriod(Request $request): array
