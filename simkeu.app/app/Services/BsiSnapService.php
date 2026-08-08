@@ -400,6 +400,14 @@ class BsiSnapService
         }
 
         $payload = $this->jsonPayload($request, '25');
+        $kodeBpi = collect(['kodeBPI', 'kode_bpi', 'kodeBpi'])
+            ->map(fn (string $key) => $payload[$key] ?? null)
+            ->first(fn ($value) => $value !== null && trim((string) $value) !== '');
+
+        if ($kodeBpi !== null) {
+            $payload['kodeBPI'] = $kodeBpi;
+        }
+
         $this->requireFields($payload, ['action', 'kodeBankBI', 'kodeBPI', 'allChecksum', 'data'], '25');
 
         if (! in_array(strtolower((string) $payload['action']), ['recon', 'rekonsiliasi'], true)
