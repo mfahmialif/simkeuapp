@@ -50,6 +50,7 @@ class BsiPaymentOrderService
             'va_number' => $bsiPaymentNumber,
             'expired_at' => $expiredAt,
             'data_test' => (bool) $settings->test_mode,
+            'production' => strtolower((string) $settings->environment) === 'production',
             'admin_fee_bearer' => $adminFee['bearer'],
             'admin_fee_amount' => $adminFee['amount'],
         ]);
@@ -84,6 +85,7 @@ class BsiPaymentOrderService
             'currency' => 'IDR',
             'status' => $payment->status,
             'data_test' => (bool) $payment->data_test,
+            'production' => (bool) $payment->production,
             'expired_at' => $payment->expired_at,
             'paid_at' => $payment->paid_at,
             'details' => $payment->details->map(fn ($detail) => [

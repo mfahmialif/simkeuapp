@@ -72,28 +72,6 @@ class BsiPaymentController extends Controller
         ]);
     }
 
-    public function post(
-        Request $request,
-        KeuanganPembayaranBsi $paymentBsi,
-        BsiPaymentService $service
-    ): JsonResponse {
-        $validated = $request->validate([
-            'confirm_review' => 'nullable|boolean',
-        ]);
-
-        $payment = $service->postPayment(
-            $paymentBsi,
-            (int) $request->user()->id,
-            (bool) ($validated['confirm_review'] ?? false)
-        );
-
-        return response()->json([
-            'status' => true,
-            'message' => 'Pembayaran BSI berhasil diposting ke transaksi mahasiswa.',
-            'data' => $payment,
-        ]);
-    }
-
     public function reject(
         Request $request,
         KeuanganPembayaranBsi $paymentBsi,

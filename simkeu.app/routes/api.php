@@ -177,8 +177,6 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
             Route::prefix('pembayaran-bsi')->middleware('role:admin,pimpinan,keuangan')->group(function () {
                 Route::get('/', [BsiPaymentController::class, 'index']);
                 Route::get('{paymentBsi}', [BsiPaymentController::class, 'show']);
-                Route::post('{paymentBsi}/post', [BsiPaymentController::class, 'post'])
-                    ->middleware('role:admin,keuangan');
                 Route::post('{paymentBsi}/reject', [BsiPaymentController::class, 'reject'])
                     ->middleware('role:admin,keuangan');
             });

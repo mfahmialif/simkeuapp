@@ -7,14 +7,12 @@ use App\Models\BsiIntegrationSetting;
 use App\Models\BsiReconciliation;
 use App\Models\KeuanganPembayaranBsi;
 use App\Services\BsiPaymentOrderService;
-use App\Services\BsiPaymentService;
 use App\Services\BsiSettingsService;
 use App\Services\BsiSnapService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
-use Mockery;
 use Tests\TestCase;
 
 class BsiSnapFlowTest extends TestCase
@@ -103,15 +101,7 @@ PEM;
             'urutan' => 1,
         ]);
 
-        $posting = Mockery::mock(BsiPaymentService::class);
-        $posting->shouldReceive('postPayment')->once()->andReturnUsing(
-            function (KeuanganPembayaranBsi $staging): KeuanganPembayaranBsi {
-                $staging->update(['status' => 'success', 'posted_at' => now()]);
-
-                return $staging->refresh();
-            }
-        );
-        $service = new BsiSnapService(new BsiSettingsService, $posting);
+        $service = new BsiSnapService(new BsiSettingsService);
 
         [$authBody, $authStatus] = $service->authenticate($this->authRequest());
         $this->assertSame(200, $authStatus);
@@ -161,6 +151,7 @@ PEM;
         ));
         $this->assertSame('2002500', $paymentBody['responseCode']);
         $this->assertSame('success', $payment->refresh()->status);
+        $this->assertDatabaseCount('keuangan_pembayaran', 0);
 
         $advicePayload = [
             'partnerServiceId' => '    5090',
@@ -288,7 +279,7 @@ PEM;
 
     public function test_auth_uses_documented_error_responses(): void
     {
-        $service = new BsiSnapService(new BsiSettingsService, Mockery::mock(BsiPaymentService::class));
+        $service = new BsiSnapService(new BsiSettingsService);
 
         $badRequest = Request::create('/api/bpi-bi-snap/auth', 'POST');
         $this->assertSnapException(
@@ -319,7 +310,7 @@ PEM;
 
     public function test_inquiry_uses_documented_header_field_token_and_not_found_codes(): void
     {
-        $service = new BsiSnapService(new BsiSettingsService, Mockery::mock(BsiPaymentService::class));
+        $service = new BsiSnapService(new BsiSettingsService);
         [$authBody] = $service->authenticate($this->authRequest());
         $token = $authBody['accessToken'];
         $externalId = 'INQ-CODE-TEST';
@@ -508,6 +499,7 @@ PEM;
             $table->unsignedInteger('payment_expiry_minutes');
             $table->string('admin_fee_bearer', 20)->default('institution');
             $table->decimal('admin_fee_amount', 15, 2)->default(2500);
+            $table->decimal('sandbox_admin_fee_amount', 15, 2)->default(3000);
             $table->unsignedInteger('timestamp_tolerance');
             $table->json('allowed_ips')->nullable();
             $table->boolean('enforce_ip_allowlist');
@@ -547,6 +539,7 @@ PEM;
             $table->decimal('admin_fee_amount', 15, 2)->default(2500);
             $table->string('status');
             $table->boolean('data_test')->default(false);
+            $table->boolean('production')->default(false);
             $table->dateTime('expired_at');
             $table->dateTime('paid_at')->nullable();
             $table->dateTime('posted_at')->nullable();

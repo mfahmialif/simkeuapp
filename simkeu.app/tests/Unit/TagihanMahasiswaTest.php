@@ -49,7 +49,7 @@ class TagihanMahasiswaTest extends TestCase
         });
     }
 
-    public function test_sisa_tagihan_ignores_test_bsi_ledger_but_counts_production_payment(): void
+    public function test_sisa_tagihan_counts_all_ledger_payments_without_bsi_rules(): void
     {
         $tagihanId = DB::table('keuangan_tagihan')->insertGetId(['jumlah' => 250000]);
 
@@ -82,6 +82,6 @@ class TagihanMahasiswaTest extends TestCase
             ],
         ]);
 
-        $this->assertSame(200000.0, TagihanMahasiswa::getSisaTagihan('20200101', $tagihanId));
+        $this->assertSame(190000.0, TagihanMahasiswa::getSisaTagihan('20200101', $tagihanId));
     }
 }

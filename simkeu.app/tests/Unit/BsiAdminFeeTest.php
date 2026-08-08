@@ -33,19 +33,20 @@ class BsiAdminFeeTest extends TestCase
         $this->assertSame(10000.0, $payment->expectedSettlementTotal());
     }
 
-    public function test_sandbox_fee_is_fixed_and_charged_to_payer(): void
+    public function test_sandbox_fee_uses_its_own_setting_and_is_charged_to_payer(): void
     {
         $settings = new BsiIntegrationSetting([
             'environment' => 'sandbox',
             'admin_fee_bearer' => 'institution',
             'admin_fee_amount' => 9999,
+            'sandbox_admin_fee_amount' => 3250,
         ]);
 
         $configuration = (new BsiSettingsService)->adminFeeConfiguration($settings);
 
         $this->assertSame('payer', $configuration['bearer']);
-        $this->assertSame(3000.0, $configuration['amount']);
-        $this->assertTrue($configuration['locked']);
+        $this->assertSame(3250.0, $configuration['amount']);
+        $this->assertFalse($configuration['locked']);
     }
 
     public function test_production_fee_uses_saved_configuration(): void
@@ -65,16 +66,32 @@ class BsiAdminFeeTest extends TestCase
 
     public function test_sandbox_sends_principal_to_snap_while_bank_adds_fee(): void
     {
-        $settings = new BsiIntegrationSetting(['environment' => 'sandbox']);
+        $settings = new BsiIntegrationSetting(['environment' => 'production']);
         $payment = new KeuanganPembayaranBsi([
             'total' => 250000,
             'admin_fee_bearer' => 'payer',
             'admin_fee_amount' => 3000,
+            'production' => false,
         ]);
         $service = new BsiSettingsService;
 
         $this->assertSame(250000.0, $service->snapTransactionAmount($payment, $settings));
         $this->assertSame(250000.0, $service->expectedSettlementAmount($payment, $settings));
         $this->assertSame(253000.0, $payment->payableTotal());
+    }
+
+    public function test_production_sends_total_including_payer_fee(): void
+    {
+        $settings = new BsiIntegrationSetting(['environment' => 'sandbox']);
+        $payment = new KeuanganPembayaranBsi([
+            'total' => 250000,
+            'admin_fee_bearer' => 'payer',
+            'admin_fee_amount' => 3000,
+            'production' => true,
+        ]);
+        $service = new BsiSettingsService;
+
+        $this->assertSame(253000.0, $service->snapTransactionAmount($payment, $settings));
+        $this->assertSame(250000.0, $service->expectedSettlementAmount($payment, $settings));
     }
 }

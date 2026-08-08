@@ -19,6 +19,7 @@ class KeuanganPembayaranBsi extends Model
         'total' => 'decimal:2',
         'admin_fee_amount' => 'decimal:2',
         'data_test' => 'boolean',
+        'production' => 'boolean',
         'expired_at' => 'datetime',
         'paid_at' => 'datetime',
         'posted_at' => 'datetime',
@@ -67,11 +68,6 @@ class KeuanganPembayaranBsi extends Model
         return $this->hasMany(BsiReconciliation::class, 'pembayaran_bsi_id')->latest('id');
     }
 
-    public function biayaLayanan()
-    {
-        return $this->hasOne(BsiBiayaLayanan::class, 'pembayaran_bsi_id');
-    }
-
     public function payableTotal(): float
     {
         $fee = $this->admin_fee_bearer === 'payer'
@@ -88,6 +84,13 @@ class KeuanganPembayaranBsi extends Model
             : 0;
 
         return round(max(0, (float) $this->total - $fee), 2);
+    }
+
+    public function snapTransactionAmount(): float
+    {
+        return $this->production
+            ? $this->payableTotal()
+            : round((float) $this->total, 2);
     }
 
     public function getPayableTotalAttribute(): float

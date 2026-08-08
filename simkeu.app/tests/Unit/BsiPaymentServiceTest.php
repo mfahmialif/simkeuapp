@@ -21,7 +21,7 @@ class BsiPaymentServiceTest extends TestCase
         $this->assertFalse(BsiPaymentService::verifySignature($timestamp, $body, '', $secret));
     }
 
-    public function test_it_builds_stable_internal_and_ledger_numbers(): void
+    public function test_it_builds_stable_internal_numbers(): void
     {
         $number = BsiPaymentService::buildInternalNumber(
             42,
@@ -29,16 +29,5 @@ class BsiPaymentServiceTest extends TestCase
         );
 
         $this->assertSame('BSI-20260611-00000042', $number);
-        $this->assertSame('BSI-20260611-00000042-03', BsiPaymentService::buildPostedPaymentNumber($number, 3));
-    }
-
-    public function test_it_resolves_student_semester_from_nim_and_academic_year(): void
-    {
-        $service = new BsiPaymentService;
-
-        $this->assertSame(1, $service->resolveSemester('20260001', '20261'));
-        $this->assertSame(4, $service->resolveSemester('20240001', '20252'));
-        $this->assertNull($service->resolveSemester('INVALID', '20261'));
-        $this->assertNull($service->resolveSemester('20260001', '20263'));
     }
 }

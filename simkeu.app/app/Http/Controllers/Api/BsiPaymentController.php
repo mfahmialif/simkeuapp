@@ -106,6 +106,7 @@ class BsiPaymentController extends Controller
             'expected_settlement_total' => $payment->expectedSettlementTotal(),
             'status' => $payment->status,
             'data_test' => (bool) $payment->data_test,
+            'production' => (bool) $payment->production,
             'expired_at' => $payment->expired_at,
             'paid_at' => $payment->paid_at,
             'posted_at' => $payment->posted_at,

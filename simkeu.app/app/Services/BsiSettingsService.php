@@ -10,7 +10,7 @@ class BsiSettingsService
 {
     public const SANDBOX_ADMIN_FEE_BEARER = 'payer';
 
-    public const SANDBOX_ADMIN_FEE_AMOUNT = 3000.0;
+    public const DEFAULT_SANDBOX_ADMIN_FEE_AMOUNT = 3000.0;
 
     public const DEFAULT_ALLOWED_IPS = [
         '149.129.255.119',
@@ -25,7 +25,8 @@ class BsiSettingsService
             'environment' => 'sandbox',
             'payment_expiry_minutes' => 1440,
             'admin_fee_bearer' => self::SANDBOX_ADMIN_FEE_BEARER,
-            'admin_fee_amount' => self::SANDBOX_ADMIN_FEE_AMOUNT,
+            'admin_fee_amount' => 2500,
+            'sandbox_admin_fee_amount' => self::DEFAULT_SANDBOX_ADMIN_FEE_AMOUNT,
             'timestamp_tolerance' => 300,
             'allowed_ips' => self::DEFAULT_ALLOWED_IPS,
             'verify_signatures' => true,
@@ -82,6 +83,10 @@ class BsiSettingsService
             'admin_fee_bearer' => $adminFee['bearer'],
             'admin_fee_amount' => $adminFee['amount'],
             'admin_fee_locked' => $adminFee['locked'],
+            'production_admin_fee_bearer' => $settings->admin_fee_bearer ?: 'institution',
+            'production_admin_fee_amount' => (float) ($settings->admin_fee_amount ?? 2500),
+            'sandbox_admin_fee_amount' => (float) ($settings->sandbox_admin_fee_amount
+                ?? self::DEFAULT_SANDBOX_ADMIN_FEE_AMOUNT),
             'timestamp_tolerance' => (int) $settings->timestamp_tolerance,
             'allowed_ips' => $settings->allowed_ips ?: self::DEFAULT_ALLOWED_IPS,
             'enforce_ip_allowlist' => (bool) $settings->enforce_ip_allowlist,
@@ -103,8 +108,9 @@ class BsiSettingsService
         if (strtolower((string) $settings->environment) === 'sandbox') {
             return [
                 'bearer' => self::SANDBOX_ADMIN_FEE_BEARER,
-                'amount' => self::SANDBOX_ADMIN_FEE_AMOUNT,
-                'locked' => true,
+                'amount' => (float) ($settings->sandbox_admin_fee_amount
+                    ?? self::DEFAULT_SANDBOX_ADMIN_FEE_AMOUNT),
+                'locked' => false,
             ];
         }
 
@@ -119,18 +125,14 @@ class BsiSettingsService
         KeuanganPembayaranBsi $payment,
         BsiIntegrationSetting $settings
     ): float {
-        return strtolower((string) $settings->environment) === 'sandbox'
-            ? round((float) $payment->total, 2)
-            : $payment->payableTotal();
+        return $payment->snapTransactionAmount();
     }
 
     public function expectedSettlementAmount(
         KeuanganPembayaranBsi $payment,
         BsiIntegrationSetting $settings
     ): float {
-        return strtolower((string) $settings->environment) === 'sandbox'
-            ? round((float) $payment->total, 2)
-            : $payment->expectedSettlementTotal();
+        return $payment->expectedSettlementTotal();
     }
 
     /**

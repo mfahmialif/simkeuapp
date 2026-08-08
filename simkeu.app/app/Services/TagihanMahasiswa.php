@@ -188,21 +188,7 @@ class TagihanMahasiswa
         $jml_bayar_idn = $pembayaran->total_bayar;
 
         $pembayaran = KeuanganPembayaran::select(DB::raw('SUM(jumlah) as total_bayar'))
-            ->where('tagihan_id', $tagihan_id)
-            ->where('nim', $nim)
-            ->whereNotExists(function ($query) {
-                $query->selectRaw('1')
-                    ->from('keuangan_pembayaran_bsi_detail as bsi_detail')
-                    ->join(
-                        'keuangan_pembayaran_bsi as bsi_payment',
-                        'bsi_payment.id',
-                        '=',
-                        'bsi_detail.pembayaran_bsi_id'
-                    )
-                    ->whereColumn('bsi_detail.pembayaran_id', 'keuangan_pembayaran.id')
-                    ->where('bsi_payment.data_test', true);
-            })
-            ->first();
+            ->where('tagihan_id', $tagihan_id)->where('nim', $nim)->first();
         $jml_bayar_pdw = $pembayaran->total_bayar;
 
         $sisa = $jml_tagihan - ($jml_bayar_idn + $jml_bayar_pdw);

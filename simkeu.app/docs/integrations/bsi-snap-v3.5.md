@@ -9,7 +9,7 @@ Dokumen ini menjelaskan implementasi BSI pada SIMKEU dan kontrak server-to-serve
 3. SIAKAD membuat payment order di SIMKEU dengan `request_id` unik.
 4. SIMKEU mengembalikan nomor pembayaran BSI dan nomor VA antarbank.
 5. BSI melakukan Auth, Inquiry, lalu Payment ke endpoint BI-SNAP SIMKEU.
-6. Payment valid otomatis diposting ke ledger SIMKEU dan status menjadi `success`.
+6. Payment valid disimpan sebagai transaksi BSI berstatus `success` tanpa menulis ledger SIMKEU.
 7. Advice mengembalikan respons Payment yang sama persis. Rekonsiliasi dicatat dan dicocokkan dengan transaksi.
 
 ## Konfigurasi
@@ -127,7 +127,7 @@ GET /api/v1/integrations/siakad/bsi/payment-orders/{request_id}
 Status penting:
 
 - `pending`: menunggu pembayaran.
-- `success`: Payment BSI valid dan sudah diposting ke ledger.
+- `success`: Payment BSI valid dan sudah dikonfirmasi pada data standalone BSI.
 - `expired`: nomor pembayaran kedaluwarsa.
 - `cancelled`: dibatalkan sebelum dibayar.
 - `needs_review`: perlu pemeriksaan staf keuangan.

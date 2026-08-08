@@ -150,7 +150,7 @@ class BsiIntegrationSettingController extends Controller
 
         return response()->json([
             'status' => true,
-            'message' => 'Transaksi mode uji dan ledger terkait berhasil dihapus.',
+            'message' => 'Transaksi mode uji BSI berhasil dihapus.',
         ]);
     }
 
@@ -200,6 +200,7 @@ class BsiIntegrationSettingController extends Controller
             'payment_expiry_minutes' => 'required|integer|min:5|max:10080',
             'admin_fee_bearer' => ['required', Rule::in(['institution', 'payer'])],
             'admin_fee_amount' => 'required|numeric|min:0|max:1000000',
+            'sandbox_admin_fee_amount' => 'required|numeric|min:0|max:1000000',
             'timestamp_tolerance' => 'required|integer|min:0|max:3600',
             'allowed_ips' => 'nullable|array|max:30',
             'allowed_ips.*' => 'required|ip',
@@ -225,11 +226,6 @@ class BsiIntegrationSettingController extends Controller
             if (blank($validated[$secret] ?? null)) {
                 unset($validated[$secret]);
             }
-        }
-
-        if ($validated['environment'] === 'sandbox') {
-            $validated['admin_fee_bearer'] = BsiSettingsService::SANDBOX_ADMIN_FEE_BEARER;
-            $validated['admin_fee_amount'] = BsiSettingsService::SANDBOX_ADMIN_FEE_AMOUNT;
         }
 
         $settings->update([

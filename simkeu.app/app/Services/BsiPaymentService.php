@@ -3,12 +3,8 @@
 namespace App\Services;
 
 use App\Models\KeuanganJenisPembayaran;
-use App\Models\KeuanganJenisPembayaranDetail;
-use App\Models\KeuanganNota;
-use App\Models\KeuanganPembayaran;
 use App\Models\KeuanganPembayaranBsi;
 use App\Models\KeuanganPembayaranBsiCallback;
-use App\Models\BsiBiayaLayanan;
 use App\Models\KeuanganTagihan;
 use Carbon\Carbon;
 use Illuminate\Database\QueryException;
@@ -57,11 +53,6 @@ class BsiPaymentService
         $date = $date ? Carbon::parse($date) : now();
 
         return sprintf('BSI-%s-%08d', $date->format('Ymd'), $id);
-    }
-
-    public static function buildPostedPaymentNumber(string $bsiNumber, int $sequence): string
-    {
-        return sprintf('%s-%02d', $bsiNumber, $sequence);
     }
 
     public function availableTagihan(string $nim): array
@@ -376,133 +367,9 @@ class BsiPaymentService
             ->sum('detail.jumlah');
     }
 
-    public function resolveSemester(string $nim, string $thAkademikKode): ?int
-    {
-        $tahunMasuk = (int) substr($nim, 0, 4);
-        $tahunAkademik = (int) substr($thAkademikKode, 0, 4);
-        $semesterAkademik = (int) substr($thAkademikKode, -1);
-
-        if ($tahunMasuk <= 0 || $tahunAkademik <= 0 || ! in_array($semesterAkademik, [1, 2], true)) {
-            return null;
-        }
-
-        $semester = (($tahunAkademik - $tahunMasuk) * 2) + $semesterAkademik;
-
-        return $semester > 0 ? $semester : null;
-    }
-
-    public function postPayment(
-        KeuanganPembayaranBsi $payment,
-        ?int $userId,
-        bool $confirmReview = false
-    ): KeuanganPembayaranBsi {
-        $posted = DB::transaction(function () use ($confirmReview, $payment, $userId) {
-            $locked = KeuanganPembayaranBsi::lockForUpdate()
-                ->with(['details.tahunAkademik', 'details.pembayaran'])
-                ->findOrFail($payment->id);
-
-            if (in_array($locked->status, ['posted', 'success'], true)) {
-                return $locked;
-            }
-
-            if ($locked->status !== 'paid'
-                && ! ($locked->status === 'needs_review' && $confirmReview)) {
-                throw ValidationException::withMessages([
-                    'status' => 'Hanya transaksi BSI berstatus paid atau needs_review yang telah dikonfirmasi yang dapat diposting.',
-                ]);
-            }
-
-            $paidAt = $locked->paid_at ?: now();
-            $nota = Helper::generateNota($paidAt->toDateTimeString(), $locked->jk_id);
-
-            foreach ($locked->details as $detail) {
-                if ($detail->pembayaran_id && $detail->pembayaran) {
-                    continue;
-                }
-
-                $semester = $this->resolveSemester(
-                    $locked->nim,
-                    (string) $detail->tahunAkademik?->kode
-                );
-
-                if (! $semester) {
-                    throw ValidationException::withMessages([
-                        'tahun_akademik' => "Semester untuk tagihan {$detail->tagihan_nama} tidak dapat ditentukan.",
-                    ]);
-                }
-
-                $ledgerPayment = KeuanganPembayaran::create([
-                    'th_akademik_id' => $detail->th_akademik_id,
-                    'nomor' => self::buildPostedPaymentNumber($locked->nomor, $detail->urutan),
-                    'tanggal' => $paidAt,
-                    'tagihan_id' => $detail->tagihan_id,
-                    'nim' => $locked->nim,
-                    'jumlah' => $detail->jumlah,
-                    'smt' => $semester,
-                    'jml_sks' => 1,
-                    'jk_id' => $locked->jk_id,
-                    'user_id' => $userId,
-                    'sumber' => 'bsi',
-                ]);
-
-                KeuanganJenisPembayaranDetail::create([
-                    'jenis_pembayaran_id' => $locked->jenis_pembayaran_id,
-                    'pembayaran_id' => $ledgerPayment->id,
-                ]);
-
-                KeuanganNota::create([
-                    'nota' => $nota,
-                    'pembayaran_id' => $ledgerPayment->id,
-                ]);
-
-                $detail->update([
-                    'pembayaran_id' => $ledgerPayment->id,
-                ]);
-            }
-
-            if ($locked->admin_fee_bearer === 'institution'
-                && (float) $locked->admin_fee_amount > 0) {
-                BsiBiayaLayanan::updateOrCreate(
-                    ['pembayaran_bsi_id' => $locked->id],
-                    [
-                        'tanggal' => $paidAt,
-                        'jumlah' => (float) $locked->admin_fee_amount,
-                        'dibebankan' => 'instansi',
-                        'mata_uang' => 'IDR',
-                    ]
-                );
-            } else {
-                BsiBiayaLayanan::where('pembayaran_bsi_id', $locked->id)->delete();
-            }
-
-            $locked->update([
-                'status' => 'success',
-                'posted_at' => now(),
-                'posted_by' => $userId,
-            ]);
-
-            return $locked->refresh()->load([
-                'details.tahunAkademik',
-                'details.pembayaran',
-                'jenisPembayaran',
-                'postedBy',
-            ]);
-        });
-
-        SemesterPendek::syncTagihanIds($posted->details->pluck('tagihan_id')->all(), $posted->nim);
-
-        if ($posted->details->contains(
-            fn ($detail) => Str::contains(Str::lower($detail->tagihan_nama), ['daftar ulang', 'regist'])
-        )) {
-            Mahasiswa::updateStatusMahasiswa($posted->nim, 18);
-        }
-
-        return $posted;
-    }
-
     public function deleteTestPayment(KeuanganPembayaranBsi $payment): void
     {
-        [$nim, $tagihanIds] = DB::transaction(function () use ($payment) {
+        DB::transaction(function () use ($payment) {
             $locked = KeuanganPembayaranBsi::lockForUpdate()
                 ->with('details')
                 ->findOrFail($payment->id);
@@ -513,35 +380,9 @@ class BsiPaymentService
                 ]);
             }
 
-            $paymentIds = $locked->details
-                ->pluck('pembayaran_id')
-                ->filter()
-                ->unique()
-                ->values();
-            $tagihanIds = $locked->details
-                ->pluck('tagihan_id')
-                ->filter()
-                ->unique()
-                ->values()
-                ->all();
-
-            if ($paymentIds->isNotEmpty()) {
-                $locked->details()
-                    ->whereIn('pembayaran_id', $paymentIds)
-                    ->update(['pembayaran_id' => null]);
-
-                KeuanganNota::whereIn('pembayaran_id', $paymentIds)->delete();
-                KeuanganJenisPembayaranDetail::whereIn('pembayaran_id', $paymentIds)->delete();
-                KeuanganPembayaran::whereIn('id', $paymentIds)->delete();
-            }
-
             $locked->details()->delete();
             $locked->delete();
-
-            return [$locked->nim, $tagihanIds];
         });
-
-        SemesterPendek::syncTagihanIds($tagihanIds, $nim);
     }
 
     public function rejectPayment(
@@ -593,8 +434,8 @@ class BsiPaymentService
 
         if (in_array($callback->bank_status, $successStatuses, true)) {
             $amountMatches = $callback->amount !== null
-                && abs((float) $callback->amount - $payment->payableTotal()) < 0.01;
-            $newStatus = $amountMatches ? 'paid' : 'needs_review';
+                && abs((float) $callback->amount - $payment->snapTransactionAmount()) < 0.01;
+            $newStatus = $amountMatches ? 'success' : 'needs_review';
             $message = $amountMatches
                 ? 'Pembayaran BSI berhasil dikonfirmasi.'
                 : 'Nominal callback berbeda dari total transaksi.';

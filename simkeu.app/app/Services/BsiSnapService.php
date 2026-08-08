@@ -60,8 +60,7 @@ class BsiSnapService
     ];
 
     public function __construct(
-        private readonly BsiSettingsService $settingsService,
-        private readonly BsiPaymentService $paymentService
+        private readonly BsiSettingsService $settingsService
     ) {}
 
     public function authenticate(Request $request): array
@@ -304,7 +303,7 @@ class BsiSnapService
             }
 
             $payment->update([
-                'status' => 'paid',
+                'status' => 'success',
                 'payment_request_id' => $paymentRequestId,
                 'payment_request_hash' => $requestHash,
                 'channel_id' => $request->header('channel-id'),
@@ -314,15 +313,13 @@ class BsiSnapService
                 'bank_reference' => $paymentRequestId,
                 'raw_callback' => $payload,
             ]);
-
-            $posted = $this->paymentService->postPayment($payment, null);
-            $posted->load('details');
+            $payment->load('details');
 
             $response = [
                 'responseCode' => '2002500',
                 'responseMessage' => 'Successful',
                 'virtualAccountData' => $this->virtualAccountData(
-                    $posted,
+                    $payment,
                     $settings,
                     'paymentRequestId',
                     $paymentRequestId,
@@ -330,9 +327,9 @@ class BsiSnapService
                 ),
             ];
 
-            $posted->update(['payment_response' => $response]);
+            $payment->update(['payment_response' => $response]);
 
-            return [$response, 200, $posted->refresh()];
+            return [$response, 200, $payment->refresh()];
         });
     }
 
@@ -559,15 +556,6 @@ class BsiSnapService
             if ($payment) {
                 $payment->update(['reconciliation_status' => $matchStatus]);
 
-                if ($payment->admin_fee_bearer === 'institution') {
-                    $payment->biayaLayanan()->update([
-                        'bsi_reconciliation_id' => $reconciliation->id,
-                        'status_rekonsiliasi' => $matchStatus,
-                        'direkonsiliasi_pada' => $this->safeDate(
-                            $item['wktRekonsiliasi'] ?? null
-                        ),
-                    ]);
-                }
             }
 
             $responses[] = ['rc' => $matchStatus === 'matched', 'idRekon' => $reconId];
@@ -697,7 +685,7 @@ class BsiSnapService
             'value' => number_format((float) $detail->jumlah, 2, '.', ''),
         ]);
 
-        if (strtolower((string) $settings->environment) !== 'sandbox'
+        if ($payment->production
             && $payment->admin_fee_bearer === 'payer'
             && (float) $payment->admin_fee_amount > 0) {
             $billDetail->push([
