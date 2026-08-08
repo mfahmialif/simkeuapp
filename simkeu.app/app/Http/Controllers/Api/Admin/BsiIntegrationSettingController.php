@@ -227,6 +227,11 @@ class BsiIntegrationSettingController extends Controller
             }
         }
 
+        if ($validated['environment'] === 'sandbox') {
+            $validated['admin_fee_bearer'] = BsiSettingsService::SANDBOX_ADMIN_FEE_BEARER;
+            $validated['admin_fee_amount'] = BsiSettingsService::SANDBOX_ADMIN_FEE_AMOUNT;
+        }
+
         $settings->update([
             ...$validated,
             'allowed_ips' => $validated['allowed_ips'] ?? BsiSettingsService::DEFAULT_ALLOWED_IPS,

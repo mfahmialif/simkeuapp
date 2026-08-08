@@ -43,14 +43,15 @@ class BsiPaymentOrderService
         $bsiPaymentNumber = $existing?->va_number ?: $settings->kode_bpi.$customerNo;
         $expiredAt = $existing?->expired_at
             ?: now()->addMinutes((int) $settings->payment_expiry_minutes);
+        $adminFee = $this->settingsService->adminFeeConfiguration($settings);
 
         [$payment, $created] = $this->paymentService->createPending([
             ...$payload,
             'va_number' => $bsiPaymentNumber,
             'expired_at' => $expiredAt,
             'data_test' => (bool) $settings->test_mode,
-            'admin_fee_bearer' => $settings->admin_fee_bearer ?: 'institution',
-            'admin_fee_amount' => (float) ($settings->admin_fee_amount ?? 2500),
+            'admin_fee_bearer' => $adminFee['bearer'],
+            'admin_fee_amount' => $adminFee['amount'],
         ]);
 
         if ($created || blank($payment->customer_no)) {

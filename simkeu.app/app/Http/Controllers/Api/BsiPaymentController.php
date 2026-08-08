@@ -44,9 +44,10 @@ class BsiPaymentController extends Controller
         ]);
 
         $settings = $settingsService->settings();
+        $adminFee = $settingsService->adminFeeConfiguration($settings);
         $validated['data_test'] = (bool) $settings->test_mode;
-        $validated['admin_fee_bearer'] = $settings->admin_fee_bearer ?: 'institution';
-        $validated['admin_fee_amount'] = (float) ($settings->admin_fee_amount ?? 2500);
+        $validated['admin_fee_bearer'] = $adminFee['bearer'];
+        $validated['admin_fee_amount'] = $adminFee['amount'];
         [$payment, $created] = $service->createPending($validated);
 
         return response()->json([

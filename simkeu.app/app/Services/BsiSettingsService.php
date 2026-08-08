@@ -7,6 +7,10 @@ use Illuminate\Support\Str;
 
 class BsiSettingsService
 {
+    public const SANDBOX_ADMIN_FEE_BEARER = 'payer';
+
+    public const SANDBOX_ADMIN_FEE_AMOUNT = 3000.0;
+
     public const DEFAULT_ALLOWED_IPS = [
         '149.129.255.119',
         '202.74.236.178',
@@ -19,8 +23,8 @@ class BsiSettingsService
         return BsiIntegrationSetting::query()->firstOrCreate([], [
             'environment' => 'sandbox',
             'payment_expiry_minutes' => 1440,
-            'admin_fee_bearer' => 'institution',
-            'admin_fee_amount' => 2500,
+            'admin_fee_bearer' => self::SANDBOX_ADMIN_FEE_BEARER,
+            'admin_fee_amount' => self::SANDBOX_ADMIN_FEE_AMOUNT,
             'timestamp_tolerance' => 300,
             'allowed_ips' => self::DEFAULT_ALLOWED_IPS,
             'verify_signatures' => true,
@@ -59,6 +63,8 @@ class BsiSettingsService
 
     public function publicData(BsiIntegrationSetting $settings): array
     {
+        $adminFee = $this->adminFeeConfiguration($settings);
+
         return [
             'id' => $settings->id,
             'enabled' => (bool) $settings->enabled,
@@ -72,8 +78,9 @@ class BsiSettingsService
             'reconciliation_secret_configured' => filled($settings->reconciliation_secret),
             'reconciliation_email' => $settings->reconciliation_email,
             'payment_expiry_minutes' => (int) $settings->payment_expiry_minutes,
-            'admin_fee_bearer' => $settings->admin_fee_bearer ?: 'institution',
-            'admin_fee_amount' => (float) ($settings->admin_fee_amount ?? 2500),
+            'admin_fee_bearer' => $adminFee['bearer'],
+            'admin_fee_amount' => $adminFee['amount'],
+            'admin_fee_locked' => $adminFee['locked'],
             'timestamp_tolerance' => (int) $settings->timestamp_tolerance,
             'allowed_ips' => $settings->allowed_ips ?: self::DEFAULT_ALLOWED_IPS,
             'enforce_ip_allowlist' => (bool) $settings->enforce_ip_allowlist,
@@ -87,6 +94,23 @@ class BsiSettingsService
             'endpoints' => $this->endpoints(),
             'response_codes' => BsiSnapService::RESPONSE_CODE_CATALOG,
             'updated_at' => $settings->updated_at,
+        ];
+    }
+
+    public function adminFeeConfiguration(BsiIntegrationSetting $settings): array
+    {
+        if (strtolower((string) $settings->environment) === 'sandbox') {
+            return [
+                'bearer' => self::SANDBOX_ADMIN_FEE_BEARER,
+                'amount' => self::SANDBOX_ADMIN_FEE_AMOUNT,
+                'locked' => true,
+            ];
+        }
+
+        return [
+            'bearer' => $settings->admin_fee_bearer ?: 'institution',
+            'amount' => (float) ($settings->admin_fee_amount ?? 2500),
+            'locked' => false,
         ];
     }
 

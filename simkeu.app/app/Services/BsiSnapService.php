@@ -408,11 +408,18 @@ class BsiSnapService
             $payload['kodeBPI'] = $kodeBpi;
         }
 
-        $this->requireFields($payload, ['action', 'kodeBankBI', 'kodeBPI', 'allChecksum', 'data'], '25');
+        $isSandbox = strtolower((string) $settings->environment) === 'sandbox';
+        $requiredFields = ['action', 'kodeBankBI', 'allChecksum', 'data'];
+
+        if (! $isSandbox) {
+            $requiredFields[] = 'kodeBPI';
+        }
+
+        $this->requireFields($payload, $requiredFields, '25');
 
         if (! in_array(strtolower((string) $payload['action']), ['recon', 'rekonsiliasi'], true)
             || trim((string) $payload['kodeBankBI']) !== '451'
-            || trim((string) $payload['kodeBPI']) !== (string) $settings->kode_bpi
+            || ($kodeBpi !== null && trim((string) $kodeBpi) !== (string) $settings->kode_bpi)
             || ! preg_match('/^[a-f0-9]{40}$/i', (string) $payload['allChecksum'])
             || ! is_array($payload['data'])) {
             throw new BsiSnapException('4002501', 400, 'Invalid Field Format');

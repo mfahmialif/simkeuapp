@@ -193,7 +193,6 @@ PEM;
             json_encode([
                 'action' => 'recon',
                 'kodeBankBI' => '451',
-                'kode_bpi' => '5090',
                 'allChecksum' => str_repeat('0', 40),
                 'data' => [[
                     'idRekon' => $reconId,
