@@ -103,6 +103,8 @@ Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
         Route::post('siakad-key/rotate', [BsiIntegrationSettingController::class, 'rotateSiakadKey']);
         Route::post('validate', [BsiIntegrationSettingController::class, 'validateConfiguration']);
         Route::get('summary', [BsiIntegrationSettingController::class, 'summary']);
+        Route::get('messaging-logs', [BsiIntegrationSettingController::class, 'messagingLogs']);
+        Route::get('reconciliations', [BsiIntegrationSettingController::class, 'reconciliations']);
         Route::get('simulation/bills/{nim}', [BsiIntegrationSettingController::class, 'simulationBills']);
         Route::get('simulation/payments', [BsiIntegrationSettingController::class, 'simulationPayments']);
         Route::post('simulation/payment-orders', [BsiIntegrationSettingController::class, 'simulationStore']);

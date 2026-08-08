@@ -72,6 +72,10 @@ class BsiSnapService
         $clientId = (string) $request->header('x-client-key', '');
         $timestamp = (string) $request->header('x-timestamp', '');
         $signature = (string) $request->header('x-signature', '');
+        $request->attributes->set(
+            'bsi_signature_valid',
+            $settings->verify_signatures && $signature === '' ? false : null
+        );
 
         if ($clientId === '' || $timestamp === ''
             || ($settings->verify_signatures && $signature === '')
@@ -101,6 +105,7 @@ class BsiSnapService
                     $publicKey,
                     OPENSSL_ALGO_SHA256
                 ) === 1;
+            $request->attributes->set('bsi_signature_valid', $verified);
 
             if (! $verified) {
                 throw new BsiSnapException('4047311', 404, 'Unauthorized Signature');
@@ -156,6 +161,8 @@ class BsiSnapService
         $this->assertTestVirtualAccountAllowed($customerNo, $settings, '24');
         $payment = KeuanganPembayaranBsi::with('details')
             ->where('customer_no', $customerNo)
+            ->orderByRaw("CASE WHEN status = 'pending' THEN 0 ELSE 1 END")
+            ->latest('id')
             ->first();
 
         if (! $payment) {
@@ -254,6 +261,8 @@ class BsiSnapService
         ) {
             $payment = KeuanganPembayaranBsi::where('customer_no', $customerNo)
                 ->with(['details.tahunAkademik', 'details.pembayaran'])
+                ->orderByRaw("CASE WHEN status = 'pending' THEN 0 ELSE 1 END")
+                ->latest('id')
                 ->lockForUpdate()
                 ->first();
 
@@ -457,6 +466,7 @@ class BsiSnapService
             if (! $payment && filled($item['nomorPembayaran'] ?? null)) {
                 $payment = KeuanganPembayaranBsi::where('customer_no', $item['nomorPembayaran'])
                     ->orWhere('bsi_payment_number', $item['nomorPembayaran'])
+                    ->latest('id')
                     ->first();
             }
 
@@ -534,6 +544,10 @@ class BsiSnapService
         $partnerId = (string) $request->header('x-partner-id', '');
         $channelId = (string) $request->header('channel-id', '');
         $externalId = (string) $request->header('x-external-id', '');
+        $request->attributes->set(
+            'bsi_signature_valid',
+            $settings->verify_signatures && $signature === '' ? false : null
+        );
 
         if (! preg_match('/^Bearer\s+(.+)$/i', $authorization, $matches)
             || $timestamp === '' || ($settings->verify_signatures && $signature === '')
@@ -589,8 +603,10 @@ class BsiSnapService
                 $timestamp,
                 (string) $settings->client_secret
             );
+            $signatureValid = hash_equals($expected, trim($signature));
+            $request->attributes->set('bsi_signature_valid', $signatureValid);
 
-            if (! hash_equals($expected, trim($signature))) {
+            if (! $signatureValid) {
                 throw new BsiSnapException('401'.$serviceCode.'00', 401, 'Unauthorized Access');
             }
         }

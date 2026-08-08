@@ -46,6 +46,10 @@ Dokumen Specification menyebut biller akan memperoleh KODE BPI, credential, dan 
 
 Subtab **Keamanan & Operasional** menyediakan kontrol untuk mengaktifkan endpoint H2H, menerapkan IP whitelist, memverifikasi signature, menyimpan body request/response, menandai seluruh payment order baru sebagai data uji, serta melayani VA uji berawalan `9999` yang sudah dibuat di SIMKEU. Tersedia juga simulasi DB Error untuk endpoint transaksi saja (`5002499`/`5002599`) atau seluruh endpoint termasuk Auth (`5007399`). Seluruh simulasi harus dinonaktifkan kembali setelah pengujian BSI selesai.
 
+Customer number VA memakai NIM mahasiswa setelah karakter titik dan spasi dihapus. Contoh `2020.02.02.0202` menjadi `202002020202`. Hanya satu payment order aktif yang diperbolehkan untuk satu NIM; nomor yang sama dapat digunakan kembali setelah order sebelumnya tidak lagi aktif.
+
+Menu **Konfig BSI** menyediakan tab **Log Messaging** untuk menelusuri event, kode respons, validitas signature, durasi, IP, serta detail request/response. Tab **Rekonsiliasi** menampilkan checksum dan hasil pencocokan laporan BSI dengan transaksi SIMKEU. Halaman pembayaran BSI operasional tidak menampilkan transaksi bertanda `data_test=true`; data tersebut hanya tampil pada Simulasi Pembayaran.
+
 Rotasi Client Secret langsung membuat signature dengan secret lama tidak valid. Koordinasikan rotasi dengan tim BSI dan segera perbarui portal SmartBilling.
 
 Admin dapat menguji pembuatan payment order melalui tab **Simulasi Pembayaran** pada menu yang sama. Nominal per tagihan dapat diubah sampai batas `tersedia` (sisa resmi dikurangi reservasi BSI). Simulasi membuat transaksi `pending` nyata dan menyediakan tombol pembatalan untuk melepaskan reservasinya. Tabel riwayat pada tab ini hanya menampilkan transaksi dengan `data_test=true`.

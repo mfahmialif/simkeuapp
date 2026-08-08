@@ -12,6 +12,7 @@ class BsiSnapLog extends Model
         'request_headers' => 'array',
         'request_payload' => 'array',
         'response_payload' => 'array',
+        'signature_valid' => 'boolean',
         'requested_at' => 'datetime',
     ];
 

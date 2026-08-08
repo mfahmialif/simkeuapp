@@ -522,7 +522,7 @@ PEM;
             $table->unsignedBigInteger('jk_id');
             $table->unsignedBigInteger('jenis_pembayaran_id');
             $table->string('va_number');
-            $table->string('customer_no')->nullable()->unique();
+            $table->string('customer_no')->nullable()->index();
             $table->string('bsi_payment_number')->nullable();
             $table->string('interbank_va_number')->nullable();
             $table->string('bank_reference')->nullable();

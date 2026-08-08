@@ -166,6 +166,7 @@ class BsiSnapController extends Controller
                     : null,
                 'http_status' => $httpStatus,
                 'outcome' => $outcome,
+                'signature_valid' => $request->attributes->get('bsi_signature_valid'),
                 'duration_ms' => (int) round((microtime(true) - $startedAt) * 1000),
                 'source_ip' => $request->header('cf-connecting-ip') ?: $request->ip(),
                 'request_headers' => [

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\BsiReconciliation;
 use App\Models\BsiSnapLog;
 use App\Models\KeuanganPembayaranBsi;
 use App\Services\BsiPaymentOrderService;
@@ -14,6 +15,73 @@ use Illuminate\Validation\Rule;
 
 class BsiIntegrationSettingController extends Controller
 {
+    public function messagingLogs(Request $request): JsonResponse
+    {
+        $query = BsiSnapLog::with('payment:id,nim,nama_mahasiswa,customer_no,bsi_payment_number');
+
+        if ($request->filled('operation') && $request->operation !== 'all') {
+            $query->where('operation', $request->operation);
+        }
+
+        if ($request->boolean('failed_only')) {
+            $query->whereIn('outcome', ['rejected', 'failed']);
+        }
+
+        if ($request->filled('search')) {
+            $search = trim((string) $request->search);
+            $query->where(function ($query) use ($search) {
+                $query->where('external_id', 'like', "%$search%")
+                    ->orWhere('response_code', 'like', "%$search%")
+                    ->orWhere('request_payload', 'like', "%$search%")
+                    ->orWhereHas('payment', function ($query) use ($search) {
+                        $query->where('customer_no', 'like', "%$search%")
+                            ->orWhere('bsi_payment_number', 'like', "%$search%")
+                            ->orWhere('nim', 'like', "%$search%")
+                            ->orWhere('nama_mahasiswa', 'like', "%$search%");
+                    });
+            });
+        }
+
+        $limit = max(1, min(100, (int) $request->input('limit', 20)));
+
+        return response()->json([
+            'status' => true,
+            'data' => $query->latest('id')->paginate($limit),
+        ]);
+    }
+
+    public function reconciliations(Request $request): JsonResponse
+    {
+        $query = BsiReconciliation::with(
+            'payment:id,nim,nama_mahasiswa,customer_no,bsi_payment_number'
+        );
+
+        if ($request->filled('status') && $request->status !== 'all') {
+            $query->where('match_status', $request->status);
+        }
+
+        if ($request->filled('search')) {
+            $search = trim((string) $request->search);
+            $query->where(function ($query) use ($search) {
+                $query->where('recon_id', 'like', "%$search%")
+                    ->orWhere('journal_number', 'like', "%$search%")
+                    ->orWhere('payment_number', 'like', "%$search%")
+                    ->orWhere('settlement_code', 'like', "%$search%")
+                    ->orWhereHas('payment', function ($query) use ($search) {
+                        $query->where('nim', 'like', "%$search%")
+                            ->orWhere('nama_mahasiswa', 'like', "%$search%");
+                    });
+            });
+        }
+
+        $limit = max(1, min(100, (int) $request->input('limit', 20)));
+
+        return response()->json([
+            'status' => true,
+            'data' => $query->latest('id')->paginate($limit),
+        ]);
+    }
+
     public function simulationBills(string $nim, BsiPaymentService $service): JsonResponse
     {
         return response()->json([

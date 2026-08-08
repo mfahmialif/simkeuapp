@@ -19,7 +19,9 @@ class BsiPaymentController extends Controller
             'jenisPembayaran',
             'postedBy',
             'rejectedBy',
-        ]);
+        ])->where(function ($query) {
+            $query->where('data_test', false)->orWhereNull('data_test');
+        });
 
         if ($request->filled('status') && $request->status !== 'all') {
             $query->where('status', $request->status);

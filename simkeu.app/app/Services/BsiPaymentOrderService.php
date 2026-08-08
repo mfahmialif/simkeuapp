@@ -23,7 +23,23 @@ class BsiPaymentOrderService
         }
 
         $existing = KeuanganPembayaranBsi::where('request_id', $payload['request_id'])->first();
-        $customerNo = $existing?->customer_no ?: $this->generateCustomerNo();
+        $customerNo = $existing?->customer_no ?: self::customerNumberFromNim($payload['nim']);
+
+        if (! $existing) {
+            BsiPaymentService::expirePending();
+            $activeOrder = KeuanganPembayaranBsi::where('customer_no', $customerNo)
+                ->whereIn('status', BsiPaymentService::RESERVING_STATUSES)
+                ->latest('id')
+                ->first();
+
+            if ($activeOrder) {
+                throw ValidationException::withMessages([
+                    'nim' => 'Mahasiswa masih memiliki payment order aktif dengan nomor '.
+                        ($activeOrder->bsi_payment_number ?: $activeOrder->va_number).'.',
+                ]);
+            }
+        }
+
         $bsiPaymentNumber = $existing?->va_number ?: $settings->kode_bpi.$customerNo;
         $expiredAt = $existing?->expired_at
             ?: now()->addMinutes((int) $settings->payment_expiry_minutes);
@@ -98,17 +114,16 @@ class BsiPaymentOrderService
         });
     }
 
-    private function generateCustomerNo(): string
+    public static function customerNumberFromNim(string $nim): string
     {
-        for ($attempt = 0; $attempt < 20; $attempt++) {
-            $number = str_pad((string) random_int(0, 999999999999), 12, '0', STR_PAD_LEFT);
-            if (! KeuanganPembayaranBsi::where('customer_no', $number)->exists()) {
-                return $number;
-            }
+        $number = preg_replace('/[.\s]+/', '', trim($nim)) ?? '';
+
+        if (! preg_match('/^\d{5,12}$/', $number)) {
+            throw ValidationException::withMessages([
+                'nim' => 'NIM setelah titik dihapus harus berupa 5 sampai 12 digit.',
+            ]);
         }
 
-        throw ValidationException::withMessages([
-            'customer_no' => 'Nomor pembayaran belum dapat dibuat. Silakan ulangi.',
-        ]);
+        return $number;
     }
 }
