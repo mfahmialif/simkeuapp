@@ -48,6 +48,8 @@ Subtab **Keamanan & Operasional** menyediakan kontrol untuk mengaktifkan endpoin
 
 Customer number VA memakai NIM mahasiswa setelah karakter titik dan spasi dihapus. Contoh `2020.02.02.0202` menjadi `202002020202`. Hanya satu payment order aktif yang diperbolehkan untuk satu NIM; nomor yang sama dapat digunakan kembali setelah order sebelumnya tidak lagi aktif.
 
+Endpoint menormalkan `customerNo` yang dikirim sebagai NIM maupun yang sudah berprefix KODE BPI. `virtualAccountNo` tetap divalidasi terhadap kedua bentuk request SmartBilling tersebut, sedangkan response selalu dikembalikan dalam format kanonis KODE BPI + NIM tanpa penggandaan prefix.
+
 Menu **Konfig BSI** menyediakan tab **Log Messaging** untuk menelusuri event, kode respons, validitas signature, durasi, IP, serta detail request/response. Tab **Rekonsiliasi** menampilkan checksum dan hasil pencocokan laporan BSI dengan transaksi SIMKEU. Halaman pembayaran BSI operasional tidak menampilkan transaksi bertanda `data_test=true`; data tersebut hanya tampil pada Simulasi Pembayaran.
 
 Rotasi Client Secret langsung membuat signature dengan secret lama tidak valid. Koordinasikan rotasi dengan tim BSI dan segera perbarui portal SmartBilling.

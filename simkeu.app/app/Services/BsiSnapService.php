@@ -649,9 +649,15 @@ class BsiSnapService
         string $serviceCode
     ): void {
         $partner = str_pad((string) $settings->kode_bpi, 8, ' ', STR_PAD_LEFT);
+        $rawCustomerNo = trim((string) ($payload['customerNo'] ?? ''));
+        $actualVirtualAccount = trim((string) ($payload['virtualAccountNo'] ?? ''));
+        $acceptedVirtualAccounts = array_unique([
+            trim($partner.$customerNo),
+            trim($partner.$rawCustomerNo),
+        ]);
 
         if ((string) $payload['partnerServiceId'] !== $partner
-            || (string) $payload['virtualAccountNo'] !== $partner.$customerNo) {
+            || ! in_array($actualVirtualAccount, $acceptedVirtualAccounts, true)) {
             throw new BsiSnapException('404'.$serviceCode.'19', 404, 'Invalid Bill number format');
         }
     }
