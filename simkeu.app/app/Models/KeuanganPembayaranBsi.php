@@ -67,6 +67,11 @@ class KeuanganPembayaranBsi extends Model
         return $this->hasMany(BsiReconciliation::class, 'pembayaran_bsi_id')->latest('id');
     }
 
+    public function biayaLayanan()
+    {
+        return $this->hasOne(BsiBiayaLayanan::class, 'pembayaran_bsi_id');
+    }
+
     public function payableTotal(): float
     {
         $fee = $this->admin_fee_bearer === 'payer'

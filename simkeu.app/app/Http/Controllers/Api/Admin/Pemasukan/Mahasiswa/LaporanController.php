@@ -9,6 +9,7 @@ use App\Exports\RekapExport;
 use Illuminate\Http\Request;
 use Illuminate\Support\FacadesDB;
 use App\Models\KeuanganPembayaran;
+use App\Models\BsiBiayaLayanan;
 use Illuminate\Support\Facades\DB;
 use App\Exports\RekapTahunanExport;
 use App\Http\Controllers\Controller;
@@ -641,6 +642,143 @@ class LaporanController extends Controller
         return false;
     }
 
+    private function getBsiBiayaLayananReportData(
+        $startDate,
+        $endDate,
+        $jp,
+        $jenjang,
+        $jenisPembayaranId = null,
+        $userId = null,
+    ) {
+        return BsiBiayaLayanan::query()
+            ->with([
+                "pembayaranBsi.postedBy",
+                "pembayaranBsi.details.tagihan.prodi",
+            ])
+            ->whereBetween("tanggal", [
+                $startDate . " 00:00:00",
+                $endDate . " 23:59:59",
+            ])
+            ->where("dibebankan", "instansi")
+            ->whereHas("pembayaranBsi", function ($query) use (
+                $jp,
+                $jenjang,
+                $jenisPembayaranId,
+                $userId,
+            ) {
+                $query
+                    ->where("data_test", false)
+                    ->where("jk_id", "LIKE", "%{$jp->id}%")
+                    ->when(
+                        $jenisPembayaranId,
+                        fn($query) => $query->where(
+                            "jenis_pembayaran_id",
+                            $jenisPembayaranId,
+                        ),
+                    )
+                    ->when(
+                        $userId,
+                        fn($query) => $query->where("posted_by", $userId),
+                    )
+                    ->whereHas(
+                        "details.tagihan.prodi",
+                        function ($query) use ($jenjang) {
+                            if ($jenjang === "sarjana") {
+                                $query->where("jenjang", "S1");
+                            } elseif ($jenjang === "pascasarjana") {
+                                $query->whereIn("jenjang", ["S2", "S3"]);
+                            }
+                        },
+                    );
+            })
+            ->get();
+    }
+
+    private function excludeBsiTestPayments($query)
+    {
+        return $query->whereNotExists(function ($query) {
+            $query
+                ->selectRaw("1")
+                ->from("keuangan_pembayaran_bsi_detail as bsi_test_detail")
+                ->join(
+                    "keuangan_pembayaran_bsi as bsi_test",
+                    "bsi_test.id",
+                    "=",
+                    "bsi_test_detail.pembayaran_bsi_id",
+                )
+                ->whereColumn(
+                    "bsi_test_detail.pembayaran_id",
+                    "keuangan_pembayaran.id",
+                )
+                ->where("bsi_test.data_test", true);
+        });
+    }
+
+    private function getBsiBiayaLayananPaymentRows(
+        $startDate,
+        $endDate,
+        $jp,
+        $jenjang,
+        $jenisPembayaranId = null,
+        $userId = null,
+    ) {
+        return $this->getBsiBiayaLayananReportData(
+            $startDate,
+            $endDate,
+            $jp,
+            $jenjang,
+            $jenisPembayaranId,
+            $userId,
+        )->map(function ($biaya) {
+            $prodiId = data_get(
+                $biaya,
+                "pembayaranBsi.details.0.tagihan.prodi_id",
+            );
+
+            return (object) [
+                "tgl" => $biaya->tanggal->toDateString(),
+                "bulan" => (int) $biaya->tanggal->format("n"),
+                "tagihan_nama" => "BIAYA LAYANAN BSI",
+                "prodi_id" => $prodiId,
+                "jenis_pembayaran_nama" => "VA BSI",
+                "mata_uang_id" => null,
+                "mata_uang_kode" => "IDR",
+                "mata_uang_nama" => "Rupiah",
+                "mata_uang_simbol" => "Rp",
+                "total_jumlah" => -1 * (float) $biaya->jumlah,
+            ];
+        });
+    }
+
+    private function normalizeLaporanHarianBsiBiayaRows($biayaLayanan)
+    {
+        return $biayaLayanan
+            ->map(function ($biaya) {
+                $payment = $biaya->pembayaranBsi;
+                $prodi = data_get($payment, "details.0.tagihan.prodi");
+
+                return [
+                    "tanggal_input" => $biaya->created_at?->toDateString(),
+                    "tanggal_transaksi" => $biaya->tanggal?->toDateString(),
+                    "kwitansi" => ($payment->nomor ?: "BSI") . "-BIAYA",
+                    "nim" => $payment->nim,
+                    "nama" => $payment->nama_mahasiswa ?: "-",
+                    "jenis_kelamin" => (int) $payment->jk_id === 8 ? "L" : "P",
+                    "prodi" => $this->normalizeLaporanHarianProdi(
+                        data_get($prodi, "nama", data_get($prodi, "alias", "-")),
+                    ),
+                    "pembayaran" => "BIAYA LAYANAN BSI (DITANGGUNG INSTANSI)",
+                    "nominal" => -1 * (float) $biaya->jumlah,
+                    "mata_uang" => MataUangFormatter::defaultCurrency(),
+                    "metode" => "VA BSI",
+                    "petugas" => data_get($payment, "postedBy.name", "Sistem BSI"),
+                    "source" => "SIMKEU",
+                ];
+            })
+            ->values()
+            ->toArray();
+    }
+
     private function getPemasukanTunaiColumns($jenjang = "sarjana")
     {
         // a) SPP per Prodi
@@ -664,6 +802,12 @@ class LaporanController extends Controller
 
         // b) Fixed categories
         $fixedCategories = [
+            [
+                "key" => "bsi_biaya_layanan",
+                "label" => "BIAYA LAYANAN BSI",
+                "type" => "fixed",
+                "search" => ["%BIAYA LAYANAN BSI%"],
+            ],
             [
                 "key" => "registrasi",
                 "label" => "REGISTRASI, DAFTAR ULANG & PENDAFTARAN",
@@ -880,6 +1024,8 @@ class LaporanController extends Controller
                 ->where("kt.nama", "NOT LIKE", "%SEMESTER PENDEK%")
                 ->where("keuangan_pembayaran.jk_id", "LIKE", "%$jp->id%");
 
+            $this->excludeBsiTestPayments($paymentsQuery);
+
             if ($jenjang === "sarjana") {
                 $paymentsQuery
                     ->join("prodi as p", "p.id", "=", "kt.prodi_id")
@@ -934,6 +1080,8 @@ class LaporanController extends Controller
                 ->where("kt.nama", "LIKE", "%SEMESTER PENDEK%")
                 ->where("keuangan_pembayaran.jk_id", "LIKE", "%$jp->id%");
 
+            $this->excludeBsiTestPayments($spPaymentsQuery);
+
             if ($jenisPembayaranId) {
                 $spPaymentsQuery
                     ->join(
@@ -972,7 +1120,18 @@ class LaporanController extends Controller
                 $jenjang,
             );
 
-            $payments = $payments->concat($spPayments);
+            $payments = $payments
+                ->concat($spPayments)
+                ->concat(
+                    $this->getBsiBiayaLayananPaymentRows(
+                        $startDate,
+                        $endDate,
+                        $jp,
+                        $jenjang,
+                        $jenisPembayaranId,
+                        $userId,
+                    ),
+                );
         } else {
             $payments = $prefetchedPayments;
         }
@@ -1267,6 +1426,8 @@ class LaporanController extends Controller
                     ->where("kt.nama", "NOT LIKE", "%SEMESTER PENDEK%")
                     ->where("keuangan_pembayaran.jk_id", "LIKE", "%$jp->id%");
 
+                $this->excludeBsiTestPayments($allPaymentsQuery);
+
                 if ($jenjang === "sarjana") {
                     $allPaymentsQuery
                         ->join("prodi as p", "p.id", "=", "kt.prodi_id")
@@ -1324,6 +1485,8 @@ class LaporanController extends Controller
                     ->where("kt.nama", "LIKE", "%SEMESTER PENDEK%")
                     ->where("keuangan_pembayaran.jk_id", "LIKE", "%$jp->id%");
 
+                $this->excludeBsiTestPayments($spPaymentsQuery);
+
                 if ($jenisPembayaranId) {
                     $spPaymentsQuery
                         ->join(
@@ -1365,7 +1528,18 @@ class LaporanController extends Controller
                     $jenjang,
                 );
 
-                $allPayments = $allPayments->concat($spPayments);
+                $allPayments = $allPayments
+                    ->concat($spPayments)
+                    ->concat(
+                        $this->getBsiBiayaLayananPaymentRows(
+                            $startDateYear,
+                            $endDateYear,
+                            $jp,
+                            $jenjang,
+                            $jenisPembayaranId,
+                            $userId,
+                        ),
+                    );
 
                 $paymentsByMonth = [];
                 foreach ($allPayments as $payment) {
@@ -1969,6 +2143,8 @@ class LaporanController extends Controller
             ->where("kt.nama", "NOT LIKE", "%SEMESTER PENDEK%")
             ->where("keuangan_pembayaran.jk_id", "LIKE", "%$jp->id%");
 
+        $this->excludeBsiTestPayments($paymentsQuery);
+
         if ($jenjang === "sarjana") {
             $paymentsQuery->where("p.jenjang", "S1");
         } elseif ($jenjang === "pascasarjana") {
@@ -2049,6 +2225,8 @@ class LaporanController extends Controller
             ->where("kt.nama", "LIKE", "%SEMESTER PENDEK%")
             ->where("keuangan_pembayaran.jk_id", "LIKE", "%$jp->id%");
 
+        $this->excludeBsiTestPayments($spPaymentsQuery);
+
         if ($jenisPembayaranId) {
             $spPaymentsQuery->where(
                 "kjpd.jenis_pembayaran_id",
@@ -2088,6 +2266,20 @@ class LaporanController extends Controller
         $rows = array_merge(
             $rows,
             $this->normalizeLaporanHarianSemesterPendekRows($spPayments, $jenjang),
+        );
+
+        $rows = array_merge(
+            $rows,
+            $this->normalizeLaporanHarianBsiBiayaRows(
+                $this->getBsiBiayaLayananReportData(
+                    $tanggal,
+                    $tanggal,
+                    $jp,
+                    $jenjang,
+                    $jenisPembayaranId,
+                    $userId,
+                ),
+            ),
         );
 
         if (!$userId) {
@@ -2370,6 +2562,8 @@ class LaporanController extends Controller
                 ->where("kt.nama", "NOT LIKE", "%SEMESTER PENDEK%")
                 ->where("keuangan_pembayaran.jk_id", "LIKE", "%$jp->id%");
 
+            $this->excludeBsiTestPayments($paymentsQuery);
+
             if ($jenjang === "sarjana") {
                 $paymentsQuery
                     ->join("prodi as p", "p.id", "=", "kt.prodi_id")
@@ -2443,6 +2637,8 @@ class LaporanController extends Controller
                 ->where("kt.nama", "LIKE", "%SEMESTER PENDEK%")
                 ->where("keuangan_pembayaran.jk_id", "LIKE", "%$jp->id%");
 
+            $this->excludeBsiTestPayments($spPaymentsQuery);
+
             if ($userId) {
                 $spPaymentsQuery->where(
                     "keuangan_pembayaran.user_id",
@@ -2491,7 +2687,18 @@ class LaporanController extends Controller
                 $jenjang,
             );
 
-            $payments = $payments->concat($spPayments);
+            $payments = $payments
+                ->concat($spPayments)
+                ->concat(
+                    $this->getBsiBiayaLayananPaymentRows(
+                        $startDate,
+                        $endDate,
+                        $jp,
+                        $jenjang,
+                        null,
+                        $userId,
+                    ),
+                );
 
             // Mapping logic for Tunai, Transfer, Yayasan
             $getPaymentType = function ($namaRaw) {
@@ -2504,7 +2711,9 @@ class LaporanController extends Controller
                 }
                 if (
                     strpos($nama, "transfer") !== false ||
-                    strpos($nama, "tf") !== false
+                    strpos($nama, "tf") !== false ||
+                    strpos($nama, "va bsi") !== false ||
+                    strpos($nama, "virtual account") !== false
                 ) {
                     return "transfer";
                 }

@@ -62,4 +62,19 @@ class BsiAdminFeeTest extends TestCase
         $this->assertSame(2750.0, $configuration['amount']);
         $this->assertFalse($configuration['locked']);
     }
+
+    public function test_sandbox_sends_principal_to_snap_while_bank_adds_fee(): void
+    {
+        $settings = new BsiIntegrationSetting(['environment' => 'sandbox']);
+        $payment = new KeuanganPembayaranBsi([
+            'total' => 250000,
+            'admin_fee_bearer' => 'payer',
+            'admin_fee_amount' => 3000,
+        ]);
+        $service = new BsiSettingsService;
+
+        $this->assertSame(250000.0, $service->snapTransactionAmount($payment, $settings));
+        $this->assertSame(250000.0, $service->expectedSettlementAmount($payment, $settings));
+        $this->assertSame(253000.0, $payment->payableTotal());
+    }
 }

@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\BsiIntegrationSetting;
+use App\Models\KeuanganPembayaranBsi;
 use Illuminate\Support\Str;
 
 class BsiSettingsService
@@ -112,6 +113,24 @@ class BsiSettingsService
             'amount' => (float) ($settings->admin_fee_amount ?? 2500),
             'locked' => false,
         ];
+    }
+
+    public function snapTransactionAmount(
+        KeuanganPembayaranBsi $payment,
+        BsiIntegrationSetting $settings
+    ): float {
+        return strtolower((string) $settings->environment) === 'sandbox'
+            ? round((float) $payment->total, 2)
+            : $payment->payableTotal();
+    }
+
+    public function expectedSettlementAmount(
+        KeuanganPembayaranBsi $payment,
+        BsiIntegrationSetting $settings
+    ): float {
+        return strtolower((string) $settings->environment) === 'sandbox'
+            ? round((float) $payment->total, 2)
+            : $payment->expectedSettlementTotal();
     }
 
     /**

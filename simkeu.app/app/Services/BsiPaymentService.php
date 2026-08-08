@@ -8,6 +8,7 @@ use App\Models\KeuanganNota;
 use App\Models\KeuanganPembayaran;
 use App\Models\KeuanganPembayaranBsi;
 use App\Models\KeuanganPembayaranBsiCallback;
+use App\Models\BsiBiayaLayanan;
 use App\Models\KeuanganTagihan;
 use Carbon\Carbon;
 use Illuminate\Database\QueryException;
@@ -457,6 +458,21 @@ class BsiPaymentService
                 $detail->update([
                     'pembayaran_id' => $ledgerPayment->id,
                 ]);
+            }
+
+            if ($locked->admin_fee_bearer === 'institution'
+                && (float) $locked->admin_fee_amount > 0) {
+                BsiBiayaLayanan::updateOrCreate(
+                    ['pembayaran_bsi_id' => $locked->id],
+                    [
+                        'tanggal' => $paidAt,
+                        'jumlah' => (float) $locked->admin_fee_amount,
+                        'dibebankan' => 'instansi',
+                        'mata_uang' => 'IDR',
+                    ]
+                );
+            } else {
+                BsiBiayaLayanan::where('pembayaran_bsi_id', $locked->id)->delete();
             }
 
             $locked->update([

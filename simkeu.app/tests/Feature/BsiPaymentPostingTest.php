@@ -118,6 +118,19 @@ class BsiPaymentPostingTest extends TestCase
             $table->unsignedBigInteger('pembayaran_id')->nullable();
             $table->timestamps();
         });
+
+        Schema::create('bsi_biaya_layanan', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('pembayaran_bsi_id')->unique();
+            $table->unsignedBigInteger('bsi_reconciliation_id')->nullable();
+            $table->dateTime('tanggal');
+            $table->decimal('jumlah', 15, 2);
+            $table->string('dibebankan', 20);
+            $table->string('mata_uang', 3);
+            $table->string('status_rekonsiliasi', 30)->nullable();
+            $table->dateTime('direkonsiliasi_pada')->nullable();
+            $table->timestamps();
+        });
     }
 
     public function test_it_posts_a_paid_staging_transaction_once(): void
@@ -156,6 +169,8 @@ class BsiPaymentPostingTest extends TestCase
             'jenis_pembayaran_id' => $paymentTypeId,
             'va_number' => '900001',
             'total' => 150000,
+            'admin_fee_bearer' => 'institution',
+            'admin_fee_amount' => 2500,
             'status' => 'paid',
             'expired_at' => now()->addHour(),
             'paid_at' => '2026-06-11 09:30:00',
@@ -188,6 +203,13 @@ class BsiPaymentPostingTest extends TestCase
             'jenis_pembayaran_id' => $paymentTypeId,
         ]);
         $this->assertDatabaseCount('keuangan_nota', 1);
+        $this->assertDatabaseCount('bsi_biaya_layanan', 1);
+        $this->assertDatabaseHas('bsi_biaya_layanan', [
+            'pembayaran_bsi_id' => $payment->id,
+            'jumlah' => 2500,
+            'dibebankan' => 'instansi',
+            'mata_uang' => 'IDR',
+        ]);
         $this->assertNotNull($detail->refresh()->pembayaran_id);
     }
 }

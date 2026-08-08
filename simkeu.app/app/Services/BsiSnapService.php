@@ -298,7 +298,8 @@ class BsiSnapService
             $this->assertPartnerAndVirtualAccount($payload, $settings, $customerNo, '25');
 
             $paidAmount = round((float) $payload['paidAmount']['value'], 2);
-            if (abs($paidAmount - $payment->payableTotal()) >= 0.01) {
+            $expectedAmount = $this->settingsService->snapTransactionAmount($payment, $settings);
+            if (abs($paidAmount - $expectedAmount) >= 0.01) {
                 throw new BsiSnapException('4042513', 404, 'Payment Amount not valid');
             }
 
@@ -376,7 +377,8 @@ class BsiSnapService
         $this->assertTestVirtualAccountAllowed($customerNo, $settings, '25');
         $this->assertPartnerAndVirtualAccount($payload, $settings, $customerNo, '25');
         $amountMatches = abs(
-            (float) $payload['paidAmount']['value'] - $payment->payableTotal()
+            (float) $payload['paidAmount']['value']
+            - $this->settingsService->snapTransactionAmount($payment, $settings)
         ) < 0.01;
 
         $trxDateMatches = $this->parseSnapDate((string) $payload['trxDateTime'], '25')
@@ -488,11 +490,15 @@ class BsiSnapService
             }
 
             $amountMatches = $payment
-                && abs($payment->payableTotal() - (float) ($item['totalPembayaran'] ?? 0)) < 0.01;
+                && abs(
+                    $this->settingsService->snapTransactionAmount($payment, $settings)
+                    - (float) ($item['totalPembayaran'] ?? 0)
+                ) < 0.01;
             $settlementMatches = ! $payment
                 || ! array_key_exists('totalSettlement', $item)
                 || abs(
-                    $payment->expectedSettlementTotal() - (float) $item['totalSettlement']
+                    $this->settingsService->expectedSettlementAmount($payment, $settings)
+                    - (float) $item['totalSettlement']
                 ) < 0.01;
             $statusMatches = $payment
                 && in_array($payment->status, ['success', 'posted'], true)
@@ -505,7 +511,7 @@ class BsiSnapService
                 ? 'matched'
                 : 'mismatch';
 
-            BsiReconciliation::updateOrCreate(
+            $reconciliation = BsiReconciliation::updateOrCreate(
                 ['recon_id' => $reconId],
                 [
                     'pembayaran_bsi_id' => $payment?->id,
@@ -525,6 +531,16 @@ class BsiSnapService
 
             if ($payment) {
                 $payment->update(['reconciliation_status' => $matchStatus]);
+
+                if ($payment->admin_fee_bearer === 'institution') {
+                    $payment->biayaLayanan()->update([
+                        'bsi_reconciliation_id' => $reconciliation->id,
+                        'status_rekonsiliasi' => $matchStatus,
+                        'direkonsiliasi_pada' => $this->safeDate(
+                            $item['wktRekonsiliasi'] ?? null
+                        ),
+                    ]);
+                }
             }
 
             $responses[] = ['rc' => $matchStatus === 'matched', 'idRekon' => $reconId];
@@ -654,7 +670,9 @@ class BsiSnapService
             'value' => number_format((float) $detail->jumlah, 2, '.', ''),
         ]);
 
-        if ($payment->admin_fee_bearer === 'payer' && (float) $payment->admin_fee_amount > 0) {
+        if (strtolower((string) $settings->environment) !== 'sandbox'
+            && $payment->admin_fee_bearer === 'payer'
+            && (float) $payment->admin_fee_amount > 0) {
             $billDetail->push([
                 'label' => 'BIAYA ADMIN BSI',
                 'value' => number_format((float) $payment->admin_fee_amount, 2, '.', ''),
@@ -668,7 +686,12 @@ class BsiSnapService
             'virtualAccountName' => (string) $payment->nama_mahasiswa,
             $requestIdKey => $requestId,
             $amountKey => [
-                'value' => number_format($payment->payableTotal(), 2, '.', ''),
+                'value' => number_format(
+                    $this->settingsService->snapTransactionAmount($payment, $settings),
+                    2,
+                    '.',
+                    ''
+                ),
                 'currency' => 'IDR',
             ],
             'billDetail' => $billDetail->values()->all(),

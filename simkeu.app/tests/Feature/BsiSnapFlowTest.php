@@ -91,6 +91,8 @@ PEM;
             'interbank_va_number' => '9005090123456789012',
             'reference_no' => 'BSI-20260808-00000001',
             'total' => 350000,
+            'admin_fee_bearer' => 'payer',
+            'admin_fee_amount' => 3000,
             'status' => 'pending',
             'expired_at' => now()->addDay(),
         ]);
@@ -133,6 +135,11 @@ PEM;
         ));
         $this->assertSame('2002400', $inquiryBody['responseCode']);
         $this->assertSame('350000.00', $inquiryBody['virtualAccountData']['totalAmount']['value']);
+        $this->assertSame(353000.0, $payment->payableTotal());
+        $this->assertNotContains(
+            'BIAYA ADMIN BSI',
+            collect($inquiryBody['virtualAccountData']['billDetail'])->pluck('label')->all()
+        );
 
         $paymentId = 'PAY-20260808-000001';
         $trxDateTime = now()->startOfSecond()->toIso8601String();
