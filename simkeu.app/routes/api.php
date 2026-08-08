@@ -5,6 +5,8 @@ use App\Models\FormSchadule;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BsiPaymentController as PublicBsiPaymentController;
+use App\Http\Controllers\Api\BsiSnapController;
+use App\Http\Controllers\Api\SiakadBsiPaymentController;
 use App\Http\Controllers\Api\HelperController;
 use App\Http\Controllers\Api\Admin\RefController;
 use App\Http\Controllers\Api\Admin\RoleController;
@@ -24,6 +26,7 @@ use App\Http\Controllers\Api\Admin\FormSchaduleController;
 use App\Http\Controllers\Api\Admin\HutangController;
 use App\Http\Controllers\Api\Admin\PiutangController;
 use App\Http\Controllers\Api\Admin\SaldoController;
+use App\Http\Controllers\Api\Admin\BsiIntegrationSettingController;
 
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\LaporanController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\SetoranController;
@@ -66,6 +69,21 @@ Route::prefix('bsi')->group(function () {
         ->middleware('bsi.callback');
 });
 
+Route::prefix('bpi-bi-snap')->group(function () {
+    Route::post('auth', [BsiSnapController::class, 'auth']);
+    Route::post('inquiry', [BsiSnapController::class, 'inquiry']);
+    Route::post('payment', [BsiSnapController::class, 'payment']);
+    Route::post('advice', [BsiSnapController::class, 'advice']);
+    Route::post('reconciliation', [BsiSnapController::class, 'reconciliation']);
+});
+
+Route::prefix('v1/integrations/siakad/bsi')->middleware('bsi.siakad')->group(function () {
+    Route::get('bills/{nim}', [SiakadBsiPaymentController::class, 'bills']);
+    Route::post('payment-orders', [SiakadBsiPaymentController::class, 'store']);
+    Route::get('payment-orders/{requestId}', [SiakadBsiPaymentController::class, 'show']);
+    Route::post('payment-orders/{requestId}/cancel', [SiakadBsiPaymentController::class, 'cancel']);
+});
+
 Route::prefix('auth')->group(function () {
     Route::post('/login', [AuthController::class, 'login']);
     Route::post('/register', [AuthController::class, 'register']);
@@ -77,6 +95,20 @@ Route::prefix('auth')->group(function () {
 });
 
 Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
+    Route::prefix('setting/bsi')->middleware('role:admin')->group(function () {
+        Route::get('/', [BsiIntegrationSettingController::class, 'show']);
+        Route::put('/', [BsiIntegrationSettingController::class, 'update']);
+        Route::post('h2h-credentials/rotate', [BsiIntegrationSettingController::class, 'rotateH2hCredentials']);
+        Route::post('reconciliation-secret/rotate', [BsiIntegrationSettingController::class, 'rotateReconciliationSecret']);
+        Route::post('siakad-key/rotate', [BsiIntegrationSettingController::class, 'rotateSiakadKey']);
+        Route::post('validate', [BsiIntegrationSettingController::class, 'validateConfiguration']);
+        Route::get('summary', [BsiIntegrationSettingController::class, 'summary']);
+        Route::get('simulation/bills/{nim}', [BsiIntegrationSettingController::class, 'simulationBills']);
+        Route::get('simulation/payments', [BsiIntegrationSettingController::class, 'simulationPayments']);
+        Route::post('simulation/payment-orders', [BsiIntegrationSettingController::class, 'simulationStore']);
+        Route::post('simulation/payment-orders/{requestId}/cancel', [BsiIntegrationSettingController::class, 'simulationCancel']);
+    });
+
     Route::get('pegawai', [PegawaiController::class, 'index']);
     Route::get('pegawai/export-excel', [PegawaiController::class, 'exportExcel']);
     Route::post('pegawai/import-excel', [PegawaiController::class, 'importExcel'])->middleware('role:admin');

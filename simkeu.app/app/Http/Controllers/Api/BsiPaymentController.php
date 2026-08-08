@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\KeuanganPembayaranBsi;
 use App\Services\BsiPaymentService;
+use App\Services\BsiSettingsService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -27,8 +28,11 @@ class BsiPaymentController extends Controller
         ]);
     }
 
-    public function store(Request $request, BsiPaymentService $service): JsonResponse
-    {
+    public function store(
+        Request $request,
+        BsiPaymentService $service,
+        BsiSettingsService $settingsService,
+    ): JsonResponse {
         $validated = $request->validate([
             'request_id' => 'required|string|max:255',
             'nim' => 'required|string|max:255',
@@ -39,6 +43,8 @@ class BsiPaymentController extends Controller
             'items.*.jumlah' => 'required|numeric|min:0.01',
         ]);
 
+        $settings = $settingsService->settings();
+        $validated['data_test'] = (bool) $settings->test_mode;
         [$payment, $created] = $service->createPending($validated);
 
         return response()->json([
@@ -92,6 +98,7 @@ class BsiPaymentController extends Controller
             'bank_reference' => $payment->bank_reference,
             'total' => $payment->total,
             'status' => $payment->status,
+            'data_test' => (bool) $payment->data_test,
             'expired_at' => $payment->expired_at,
             'paid_at' => $payment->paid_at,
             'posted_at' => $payment->posted_at,

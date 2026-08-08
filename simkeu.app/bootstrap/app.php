@@ -2,6 +2,7 @@
 
 use App\Http\Middleware\RoleMiddleware;
 use App\Http\Middleware\ValidateBsiCallback;
+use App\Http\Middleware\ValidateBsiSiakadApiKey;
 use App\Http\Middleware\ValidateSimkeuv2ApiKey;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -19,6 +20,7 @@ $app = Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'role' => RoleMiddleware::class,
             'bsi.callback' => ValidateBsiCallback::class,
+            'bsi.siakad' => ValidateBsiSiakadApiKey::class,
             'simkeuv2.apikey' => ValidateSimkeuv2ApiKey::class,
         ]);
     })

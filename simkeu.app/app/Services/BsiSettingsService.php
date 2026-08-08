@@ -1,0 +1,151 @@
+<?php
+
+namespace App\Services;
+
+use App\Models\BsiIntegrationSetting;
+use Illuminate\Support\Str;
+
+class BsiSettingsService
+{
+    public const DEFAULT_ALLOWED_IPS = [
+        '149.129.255.119',
+        '202.74.236.178',
+        '103.59.160.254',
+        '103.219.251.186',
+    ];
+
+    public function settings(): BsiIntegrationSetting
+    {
+        return BsiIntegrationSetting::query()->firstOrCreate([], [
+            'environment' => 'sandbox',
+            'payment_expiry_minutes' => 1440,
+            'timestamp_tolerance' => 300,
+            'allowed_ips' => self::DEFAULT_ALLOWED_IPS,
+        ]);
+    }
+
+    public function isReady(?BsiIntegrationSetting $settings = null): bool
+    {
+        $settings ??= $this->settings();
+
+        return $settings->enabled
+            && filled($settings->kode_bpi)
+            && filled($settings->client_id)
+            && filled($settings->client_secret)
+            && filled($settings->bpi_public_key)
+            && filled($settings->siakad_api_key_hash);
+    }
+
+    public function readiness(BsiIntegrationSetting $settings): array
+    {
+        return [
+            'enabled' => (bool) $settings->enabled,
+            'kode_bpi' => filled($settings->kode_bpi),
+            'client_id' => filled($settings->client_id),
+            'client_secret' => filled($settings->client_secret),
+            'bpi_public_key' => filled($settings->bpi_public_key),
+            'reconciliation_secret' => filled($settings->reconciliation_secret)
+                || filled($settings->client_secret),
+            'siakad_api_key' => filled($settings->siakad_api_key_hash),
+            'ready' => $this->isReady($settings),
+        ];
+    }
+
+    public function publicData(BsiIntegrationSetting $settings): array
+    {
+        return [
+            'id' => $settings->id,
+            'enabled' => (bool) $settings->enabled,
+            'environment' => $settings->environment,
+            'test_mode' => (bool) $settings->test_mode,
+            'institution_name' => $settings->institution_name,
+            'kode_bpi' => $settings->kode_bpi,
+            'client_id' => $settings->client_id,
+            'client_secret_configured' => filled($settings->client_secret),
+            'bpi_public_key' => $settings->bpi_public_key,
+            'reconciliation_secret_configured' => filled($settings->reconciliation_secret),
+            'reconciliation_email' => $settings->reconciliation_email,
+            'payment_expiry_minutes' => (int) $settings->payment_expiry_minutes,
+            'timestamp_tolerance' => (int) $settings->timestamp_tolerance,
+            'allowed_ips' => $settings->allowed_ips ?: self::DEFAULT_ALLOWED_IPS,
+            'enforce_ip_allowlist' => (bool) $settings->enforce_ip_allowlist,
+            'siakad_api_key_configured' => filled($settings->siakad_api_key_hash),
+            'siakad_api_key_hint' => $settings->siakad_api_key_hint,
+            'readiness' => $this->readiness($settings),
+            'endpoints' => $this->endpoints(),
+            'response_codes' => BsiSnapService::RESPONSE_CODE_CATALOG,
+            'updated_at' => $settings->updated_at,
+        ];
+    }
+
+    public function endpoints(): array
+    {
+        $base = rtrim((string) config('app.url'), '/');
+
+        return [
+            'auth' => $base.'/api/bpi-bi-snap/auth',
+            'inquiry' => $base.'/api/bpi-bi-snap/inquiry',
+            'payment' => $base.'/api/bpi-bi-snap/payment',
+            'advice' => $base.'/api/bpi-bi-snap/advice',
+            'reconciliation' => $base.'/api/bpi-bi-snap/reconciliation',
+            'siakad_bills' => $base.'/api/v1/integrations/siakad/bsi/bills/{nim}',
+            'siakad_payment_orders' => $base.'/api/v1/integrations/siakad/bsi/payment-orders',
+        ];
+    }
+
+    public function rotateSiakadKey(BsiIntegrationSetting $settings, ?int $userId = null): string
+    {
+        $plain = 'bsi_siakad_'.Str::random(48);
+        $settings->update([
+            'siakad_api_key_hash' => hash('sha256', $plain),
+            'siakad_api_key_hint' => substr($plain, -8),
+            'updated_by' => $userId,
+        ]);
+
+        return $plain;
+    }
+
+    public function rotateH2hCredentials(BsiIntegrationSetting $settings, ?int $userId = null): array
+    {
+        $clientId = (string) Str::uuid();
+        $clientSecret = Str::random(64);
+
+        $settings->update([
+            'client_id' => $clientId,
+            'client_secret' => $clientSecret,
+            'updated_by' => $userId,
+        ]);
+
+        return [
+            'client_id' => $clientId,
+            'client_secret' => $clientSecret,
+        ];
+    }
+
+    public function rotateReconciliationSecret(
+        BsiIntegrationSetting $settings,
+        ?int $userId = null
+    ): string {
+        $secret = Str::random(64);
+
+        $settings->update([
+            'reconciliation_secret' => $secret,
+            'updated_by' => $userId,
+        ]);
+
+        return $secret;
+    }
+
+    public function validPublicKey(?string $key): bool
+    {
+        if (blank($key)) {
+            return false;
+        }
+
+        try {
+            return openssl_pkey_get_public($key) !== false;
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+}

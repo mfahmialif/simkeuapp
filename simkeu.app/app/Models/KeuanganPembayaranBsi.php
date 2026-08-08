@@ -12,6 +12,7 @@ class KeuanganPembayaranBsi extends Model
 
     protected $casts = [
         'total' => 'decimal:2',
+        'data_test' => 'boolean',
         'expired_at' => 'datetime',
         'paid_at' => 'datetime',
         'posted_at' => 'datetime',
@@ -19,6 +20,8 @@ class KeuanganPembayaranBsi extends Model
         'cancelled_at' => 'datetime',
         'raw_request' => 'array',
         'raw_callback' => 'array',
+        'payment_response' => 'array',
+        'trx_date_time' => 'datetime',
     ];
 
     public function details()
@@ -46,5 +49,15 @@ class KeuanganPembayaranBsi extends Model
     public function rejectedBy()
     {
         return $this->belongsTo(User::class, 'rejected_by');
+    }
+
+    public function snapLogs()
+    {
+        return $this->hasMany(BsiSnapLog::class, 'pembayaran_bsi_id')->latest('id');
+    }
+
+    public function reconciliations()
+    {
+        return $this->hasMany(BsiReconciliation::class, 'pembayaran_bsi_id')->latest('id');
     }
 }

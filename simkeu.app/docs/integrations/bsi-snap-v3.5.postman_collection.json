@@ -1,0 +1,194 @@
+{
+  "info": {
+    "name": "SIMKEU - BSI Smart Billing BI-SNAP v3.5",
+    "description": "API SIAKAD dan endpoint BI-SNAP SIMKEU. Import bersama environment bsi-snap-v3.5.postman_environment.json.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "SIAKAD",
+      "item": [
+        {
+          "name": "Ambil Tagihan",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "X-SIAKAD-API-KEY", "value": "{{siakad_api_key}}", "type": "text" }
+            ],
+            "url": "{{base_url}}/api/v1/integrations/siakad/bsi/bills/{{nim}}"
+          }
+        },
+        {
+          "name": "Buat Payment Order",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-SIAKAD-API-KEY", "value": "{{siakad_api_key}}", "type": "text" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"request_id\": \"{{siakad_request_id}}\",\n  \"nim\": \"{{nim}}\",\n  \"items\": [\n    { \"tagihan_id\": 10, \"jumlah\": 250000 }\n  ]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{base_url}}/api/v1/integrations/siakad/bsi/payment-orders"
+          }
+        },
+        {
+          "name": "Cek Payment Order",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "X-SIAKAD-API-KEY", "value": "{{siakad_api_key}}", "type": "text" }
+            ],
+            "url": "{{base_url}}/api/v1/integrations/siakad/bsi/payment-orders/{{siakad_request_id}}"
+          }
+        },
+        {
+          "name": "Batalkan Payment Order",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "X-SIAKAD-API-KEY", "value": "{{siakad_api_key}}", "type": "text" }
+            ],
+            "url": "{{base_url}}/api/v1/integrations/siakad/bsi/payment-orders/{{siakad_request_id}}/cancel"
+          }
+        }
+      ]
+    },
+    {
+      "name": "BSI BI-SNAP",
+      "item": [
+        {
+          "name": "Auth",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.variables.set('snap_timestamp', new Date().toISOString());",
+                  "// Isi snap_auth_signature dengan Base64 RSA-SHA256(client_id + '|' + snap_timestamp) menggunakan BSI private key."
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) pm.environment.set('access_token', pm.response.json().accessToken);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-TIMESTAMP", "value": "{{snap_timestamp}}" },
+              { "key": "X-CLIENT-KEY", "value": "{{client_id}}" },
+              { "key": "X-SIGNATURE", "value": "{{snap_auth_signature}}", "type": "text" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"grantType\": \"client_credentials\"\n}", "options": { "raw": { "language": "json" } } },
+            "url": "{{base_url}}/api/bpi-bi-snap/auth"
+          }
+        },
+        {
+          "name": "Inquiry",
+          "event": [{ "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+            "const endpoint = '/api/bpi-bi-snap/inquiry';",
+            "const timestamp = new Date().toISOString();",
+            "const body = JSON.stringify(JSON.parse(pm.variables.replaceIn(pm.request.body.raw)));",
+            "const bodyHash = CryptoJS.SHA256(body).toString(CryptoJS.enc.Hex).toLowerCase();",
+            "const stringToSign = `POST:${endpoint}:${pm.environment.get('access_token')}:${bodyHash}:${timestamp}`;",
+            "const signature = CryptoJS.HmacSHA512(stringToSign, pm.environment.get('client_secret')).toString(CryptoJS.enc.Base64);",
+            "pm.variables.set('snap_endpoint', endpoint); pm.variables.set('snap_timestamp', timestamp); pm.variables.set('snap_signature', signature);"
+          ] } }],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}", "type": "text" },
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-TIMESTAMP", "value": "{{snap_timestamp}}" },
+              { "key": "X-SIGNATURE", "value": "{{snap_signature}}", "type": "text" },
+              { "key": "X-PARTNER-ID", "value": "{{kode_bpi}}" },
+              { "key": "CHANNEL-ID", "value": "6099" },
+              { "key": "X-EXTERNAL-ID", "value": "{{inquiry_request_id}}" },
+              { "key": "ENDPOINT-URL", "value": "{{snap_endpoint}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"partnerServiceId\": \"    {{kode_bpi}}\",\n  \"customerNo\": \"{{customer_no}}\",\n  \"trxDateInit\": \"2026-08-08T10:00:00+07:00\",\n  \"virtualAccountNo\": \"    {{kode_bpi}}{{customer_no}}\",\n  \"inquiryRequestId\": \"{{inquiry_request_id}}\",\n  \"sourceBankCode\": \"451\"\n}", "options": { "raw": { "language": "json" } } },
+            "url": "{{base_url}}/api/bpi-bi-snap/inquiry"
+          }
+        },
+        {
+          "name": "Payment",
+          "event": [{ "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+            "const endpoint = '/api/bpi-bi-snap/payment';",
+            "const timestamp = new Date().toISOString();",
+            "const body = JSON.stringify(JSON.parse(pm.variables.replaceIn(pm.request.body.raw)));",
+            "const bodyHash = CryptoJS.SHA256(body).toString(CryptoJS.enc.Hex).toLowerCase();",
+            "const stringToSign = `POST:${endpoint}:${pm.environment.get('access_token')}:${bodyHash}:${timestamp}`;",
+            "const signature = CryptoJS.HmacSHA512(stringToSign, pm.environment.get('client_secret')).toString(CryptoJS.enc.Base64);",
+            "pm.variables.set('snap_endpoint', endpoint); pm.variables.set('snap_timestamp', timestamp); pm.variables.set('snap_signature', signature);"
+          ] } }],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}", "type": "text" },
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-TIMESTAMP", "value": "{{snap_timestamp}}" },
+              { "key": "X-SIGNATURE", "value": "{{snap_signature}}", "type": "text" },
+              { "key": "X-PARTNER-ID", "value": "{{kode_bpi}}" },
+              { "key": "X-EXTERNAL-ID", "value": "{{payment_request_id}}" },
+              { "key": "ENDPOINT-URL", "value": "{{snap_endpoint}}" },
+              { "key": "CHANNEL-ID", "value": "6099" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"partnerServiceId\": \"    {{kode_bpi}}\",\n  \"customerNo\": \"{{customer_no}}\",\n  \"virtualAccountNo\": \"    {{kode_bpi}}{{customer_no}}\",\n  \"virtualAccountName\": \"MAHASISWA\",\n  \"paidAmount\": { \"value\": \"{{paid_amount}}\", \"currency\": \"IDR\" },\n  \"trxDateTime\": \"{{payment_trx_time}}\",\n  \"paymentRequestId\": \"{{payment_request_id}}\",\n  \"sourceBankCode\": \"451\"\n}", "options": { "raw": { "language": "json" } } },
+            "url": "{{base_url}}/api/bpi-bi-snap/payment"
+          }
+        },
+        {
+          "name": "Advice",
+          "event": [{ "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+            "const endpoint = '/api/bpi-bi-snap/advice';",
+            "const timestamp = new Date().toISOString();",
+            "const body = JSON.stringify(JSON.parse(pm.variables.replaceIn(pm.request.body.raw)));",
+            "const bodyHash = CryptoJS.SHA256(body).toString(CryptoJS.enc.Hex).toLowerCase();",
+            "const stringToSign = `POST:${endpoint}:${pm.environment.get('access_token')}:${bodyHash}:${timestamp}`;",
+            "const signature = CryptoJS.HmacSHA512(stringToSign, pm.environment.get('client_secret')).toString(CryptoJS.enc.Base64);",
+            "pm.variables.set('snap_endpoint', endpoint); pm.variables.set('snap_timestamp', timestamp); pm.variables.set('snap_signature', signature);"
+          ] } }],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}", "type": "text" },
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-TIMESTAMP", "value": "{{snap_timestamp}}" },
+              { "key": "X-SIGNATURE", "value": "{{snap_signature}}", "type": "text" },
+              { "key": "X-PARTNER-ID", "value": "{{kode_bpi}}" },
+              { "key": "CHANNEL-ID", "value": "6099" },
+              { "key": "X-EXTERNAL-ID", "value": "{{payment_request_id}}" },
+              { "key": "ENDPOINT-URL", "value": "{{snap_endpoint}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"partnerServiceId\": \"    {{kode_bpi}}\",\n  \"customerNo\": \"{{customer_no}}\",\n  \"virtualAccountNo\": \"    {{kode_bpi}}{{customer_no}}\",\n  \"virtualAccountName\": \"MAHASISWA\",\n  \"paidAmount\": { \"value\": \"{{paid_amount}}\", \"currency\": \"IDR\" },\n  \"trxDateTime\": \"{{payment_trx_time}}\",\n  \"paymentRequestId\": \"{{payment_request_id}}\",\n  \"sourceBankCode\": \"451\"\n}", "options": { "raw": { "language": "json" } } },
+            "url": "{{base_url}}/api/bpi-bi-snap/advice"
+          }
+        },
+        {
+          "name": "Reconciliation",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"action\": \"recon\",\n  \"kodeBankBI\": \"451\",\n  \"kodeBPI\": \"{{kode_bpi}}\",\n  \"allChecksum\": \"{{all_checksum}}\",\n  \"data\": [\n    {\n      \"idRekon\": \"123456\",\n      \"wktRekonsiliasi\": \"2026-08-09 09:30:00\",\n      \"wktTransaksi\": \"2026-08-08 10:00:00\",\n      \"nomorPembayaran\": \"{{customer_no}}\",\n      \"totalPembayaran\": \"{{paid_amount}}\",\n      \"totalSettlement\": \"{{paid_amount}}\",\n      \"nomorJurnalPembukuan\": \"{{payment_request_id}}\",\n      \"kodeFT\": \"FT-EXAMPLE\",\n      \"statusRekonsiliasi\": \"SUKSES\",\n      \"checksum\": \"{{item_checksum}}\"\n    }\n  ]\n}", "options": { "raw": { "language": "json" } } },
+            "url": "{{base_url}}/api/bpi-bi-snap/reconciliation"
+          }
+        }
+      ]
+    }
+  ]
+}

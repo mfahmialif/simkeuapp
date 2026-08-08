@@ -11,6 +11,7 @@ use App\Models\KeuanganPembayaranBsiCallback;
 use App\Models\KeuanganTagihan;
 use Carbon\Carbon;
 use Illuminate\Database\QueryException;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -127,9 +128,16 @@ class BsiPaymentService
             'nim' => $nim,
             'va_number' => trim($payload['va_number']),
             'expired_at' => Carbon::parse($payload['expired_at'])->toIso8601String(),
+            'data_test' => (bool) ($payload['data_test'] ?? false),
             'items' => $normalizedItems,
         ];
-        $requestHash = hash('sha256', json_encode($canonical, JSON_UNESCAPED_SLASHES));
+        // data_test ditentukan oleh konfigurasi internal dan bukan bagian payload
+        // idempotensi dari pemanggil. Dengan begitu replay tetap valid walaupun
+        // mode uji sudah diaktifkan atau dinonaktifkan setelah order pertama dibuat.
+        $requestHash = hash('sha256', json_encode(
+            Arr::except($canonical, 'data_test'),
+            JSON_UNESCAPED_SLASHES
+        ));
 
         $existing = KeuanganPembayaranBsi::where('request_id', $canonical['request_id'])->first();
         if ($existing) {
@@ -157,9 +165,9 @@ class BsiPaymentService
         }
 
         $jenisPembayaran = KeuanganJenisPembayaran::whereIn(DB::raw('LOWER(TRIM(nama))'), [
-                'va bsi',
-                'va bsi - '.Str::lower($gender['kategori']),
-            ])
+            'va bsi',
+            'va bsi - '.Str::lower($gender['kategori']),
+        ])
             ->where('kategori', $gender['kategori'])
             ->where('is_manual', false)
             ->first();
@@ -246,6 +254,7 @@ class BsiPaymentService
                     'va_number' => $canonical['va_number'],
                     'total' => $total,
                     'status' => 'pending',
+                    'data_test' => $canonical['data_test'],
                     'expired_at' => Carbon::parse($canonical['expired_at']),
                     'raw_request' => $canonical,
                 ]);
@@ -376,7 +385,7 @@ class BsiPaymentService
 
     public function postPayment(
         KeuanganPembayaranBsi $payment,
-        int $userId,
+        ?int $userId,
         bool $confirmReview = false
     ): KeuanganPembayaranBsi {
         $posted = DB::transaction(function () use ($confirmReview, $payment, $userId) {
@@ -384,13 +393,14 @@ class BsiPaymentService
                 ->with(['details.tahunAkademik', 'details.pembayaran'])
                 ->findOrFail($payment->id);
 
-            if ($locked->status === 'posted') {
+            if (in_array($locked->status, ['posted', 'success'], true)) {
                 return $locked;
             }
 
-            if ($locked->status !== 'paid') {
+            if ($locked->status !== 'paid'
+                && ! ($locked->status === 'needs_review' && $confirmReview)) {
                 throw ValidationException::withMessages([
-                    'status' => 'Hanya transaksi BSI berstatus paid yang dapat diposting.',
+                    'status' => 'Hanya transaksi BSI berstatus paid atau needs_review yang telah dikonfirmasi yang dapat diposting.',
                 ]);
             }
 
@@ -443,7 +453,7 @@ class BsiPaymentService
             }
 
             $locked->update([
-                'status' => 'posted',
+                'status' => 'success',
                 'posted_at' => now(),
                 'posted_by' => $userId,
             ]);
@@ -479,7 +489,7 @@ class BsiPaymentService
                 return $locked;
             }
 
-            if ($locked->status === 'posted') {
+            if (in_array($locked->status, ['posted', 'success'], true)) {
                 throw ValidationException::withMessages([
                     'status' => 'Transaksi yang sudah diposting tidak dapat ditolak.',
                 ]);
@@ -500,7 +510,7 @@ class BsiPaymentService
         KeuanganPembayaranBsiCallback $callback,
         KeuanganPembayaranBsi $payment
     ): KeuanganPembayaranBsiCallback {
-        if (in_array($payment->status, ['posted', 'rejected'], true)) {
+        if (in_array($payment->status, ['posted', 'success', 'rejected'], true)) {
             $callback->update([
                 'process_status' => 'ignored',
                 'message' => 'Transaksi sudah '.$payment->status.'.',

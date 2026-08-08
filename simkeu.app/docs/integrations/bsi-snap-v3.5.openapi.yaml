@@ -1,0 +1,529 @@
+openapi: 3.0.3
+info:
+  title: SIMKEU - SIAKAD / BSI Smart Billing API
+  version: 3.5.0
+  description: Kontrak API payment order SIAKAD dan endpoint callback BSI BI-SNAP v3.5.
+servers:
+  - url: https://simkeuv2.uiidalwa.web.id
+    description: Production
+  - url: http://localhost
+    description: Local
+tags:
+  - name: SIAKAD
+  - name: BSI BI-SNAP
+paths:
+  /api/v1/integrations/siakad/bsi/bills/{nim}:
+    get:
+      tags: [SIAKAD]
+      summary: Ambil tagihan mahasiswa yang dapat dibayar
+      security:
+        - SiakadApiKey: []
+      parameters:
+        - name: nim
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "20240001"
+      responses:
+        "200":
+          description: Daftar tagihan
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: boolean, example: true }
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Bill"
+        "401": { $ref: "#/components/responses/SiakadUnauthorized" }
+        "503": { $ref: "#/components/responses/IntegrationDisabled" }
+  /api/v1/integrations/siakad/bsi/payment-orders:
+    post:
+      tags: [SIAKAD]
+      summary: Buat payment order BSI secara idempoten
+      security:
+        - SiakadApiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePaymentOrder"
+      responses:
+        "201":
+          description: Payment order baru dibuat
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentOrderResponse"
+        "200":
+          description: Payment order idempoten yang telah ada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentOrderResponse"
+        "401": { $ref: "#/components/responses/SiakadUnauthorized" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+        "503": { $ref: "#/components/responses/IntegrationDisabled" }
+  /api/v1/integrations/siakad/bsi/payment-orders/{requestId}:
+    get:
+      tags: [SIAKAD]
+      summary: Cek status payment order
+      security:
+        - SiakadApiKey: []
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+      responses:
+        "200":
+          description: Detail payment order
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentOrderResponse"
+        "401": { $ref: "#/components/responses/SiakadUnauthorized" }
+        "404": { description: Payment order tidak ditemukan }
+  /api/v1/integrations/siakad/bsi/payment-orders/{requestId}/cancel:
+    post:
+      tags: [SIAKAD]
+      summary: Batalkan payment order pending
+      security:
+        - SiakadApiKey: []
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+      responses:
+        "200":
+          description: Berhasil dibatalkan atau sebelumnya sudah dibatalkan
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentOrderResponse"
+        "401": { $ref: "#/components/responses/SiakadUnauthorized" }
+        "404": { description: Payment order tidak ditemukan }
+        "422": { $ref: "#/components/responses/ValidationError" }
+  /api/bpi-bi-snap/auth:
+    post:
+      tags: [BSI BI-SNAP]
+      summary: Mendapatkan access token BI-SNAP
+      parameters:
+        - { name: X-TIMESTAMP, in: header, required: true, schema: { type: string, format: date-time } }
+        - { name: X-CLIENT-KEY, in: header, required: true, schema: { type: string } }
+        - { name: X-SIGNATURE, in: header, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [grantType]
+              properties:
+                grantType: { type: string, enum: [client_credentials] }
+      responses:
+        "200":
+          description: Auth sukses
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400": { $ref: "#/components/responses/SnapError" }
+        "401": { $ref: "#/components/responses/SnapError" }
+        "404": { $ref: "#/components/responses/SnapError" }
+        "500": { $ref: "#/components/responses/SnapError" }
+        "504": { $ref: "#/components/responses/SnapError" }
+  /api/bpi-bi-snap/inquiry:
+    post:
+      tags: [BSI BI-SNAP]
+      summary: Inquiry tagihan BI-SNAP protocol 24
+      security:
+        - SnapBearer: []
+      parameters:
+        - $ref: "#/components/parameters/SnapTimestamp"
+        - $ref: "#/components/parameters/SnapSignature"
+        - $ref: "#/components/parameters/PartnerId"
+        - $ref: "#/components/parameters/ChannelId"
+        - $ref: "#/components/parameters/ExternalId"
+        - $ref: "#/components/parameters/EndpointUrl"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InquiryRequest"
+      responses:
+        "200":
+          description: Inquiry sukses
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InquiryResponse"
+        "400": { $ref: "#/components/responses/SnapError" }
+        "401": { $ref: "#/components/responses/SnapError" }
+        "404": { $ref: "#/components/responses/SnapError" }
+        "500": { $ref: "#/components/responses/SnapError" }
+        "504": { $ref: "#/components/responses/SnapError" }
+  /api/bpi-bi-snap/payment:
+    post:
+      tags: [BSI BI-SNAP]
+      summary: Notifikasi Payment BI-SNAP protocol 25
+      security:
+        - SnapBearer: []
+      parameters:
+        - $ref: "#/components/parameters/SnapTimestamp"
+        - $ref: "#/components/parameters/SnapSignature"
+        - $ref: "#/components/parameters/PartnerId"
+        - $ref: "#/components/parameters/ChannelId"
+        - $ref: "#/components/parameters/ExternalId"
+        - $ref: "#/components/parameters/EndpointUrl"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PaymentRequest"
+      responses:
+        "200":
+          description: Payment diterima dan diposting
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentResponse"
+        "400": { $ref: "#/components/responses/SnapError" }
+        "401": { $ref: "#/components/responses/SnapError" }
+        "404": { $ref: "#/components/responses/SnapError" }
+        "500": { $ref: "#/components/responses/SnapError" }
+        "504": { $ref: "#/components/responses/SnapError" }
+  /api/bpi-bi-snap/advice:
+    post:
+      tags: [BSI BI-SNAP]
+      summary: Konfirmasi status Payment sebelumnya
+      security:
+        - SnapBearer: []
+      parameters:
+        - $ref: "#/components/parameters/SnapTimestamp"
+        - $ref: "#/components/parameters/SnapSignature"
+        - $ref: "#/components/parameters/PartnerId"
+        - $ref: "#/components/parameters/ChannelId"
+        - $ref: "#/components/parameters/ExternalId"
+        - $ref: "#/components/parameters/EndpointUrl"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PaymentRequest"
+      responses:
+        "200":
+          description: Respons sama persis dengan Payment sebelumnya
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentResponse"
+        "400": { $ref: "#/components/responses/SnapError" }
+        "401": { $ref: "#/components/responses/SnapError" }
+        "404": { $ref: "#/components/responses/SnapError" }
+        "500": { $ref: "#/components/responses/SnapError" }
+        "504": { $ref: "#/components/responses/SnapError" }
+  /api/bpi-bi-snap/reconciliation:
+    post:
+      tags: [BSI BI-SNAP]
+      summary: Menerima hasil rekonsiliasi BSI
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReconciliationRequest"
+      responses:
+        "200":
+          description: Hasil per item
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: [rc, idRekon]
+                  properties:
+                    rc: { type: boolean }
+                    idRekon: { type: string }
+        "400": { $ref: "#/components/responses/SnapError" }
+        "500": { $ref: "#/components/responses/SnapError" }
+components:
+  securitySchemes:
+    SiakadApiKey:
+      type: apiKey
+      in: header
+      name: X-SIAKAD-API-KEY
+    SnapBearer:
+      type: http
+      scheme: bearer
+  parameters:
+    RequestId:
+      name: requestId
+      in: path
+      required: true
+      schema: { type: string, maxLength: 255 }
+    SnapTimestamp:
+      name: X-TIMESTAMP
+      in: header
+      required: true
+      schema: { type: string, format: date-time }
+    SnapSignature:
+      name: X-SIGNATURE
+      in: header
+      required: true
+      schema: { type: string }
+    PartnerId:
+      name: X-PARTNER-ID
+      in: header
+      required: true
+      schema: { type: string, minLength: 4, maxLength: 4, example: "5090" }
+    ChannelId:
+      name: CHANNEL-ID
+      in: header
+      required: true
+      schema:
+        type: string
+        enum: ["6011", "6014", "6017", "6027", "6099", "6199"]
+    ExternalId:
+      name: X-EXTERNAL-ID
+      in: header
+      required: true
+      schema: { type: string }
+    EndpointUrl:
+      name: ENDPOINT-URL
+      in: header
+      required: true
+      schema: { type: string }
+  responses:
+    SiakadUnauthorized:
+      description: API key SIAKAD tidak valid
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+    IntegrationDisabled:
+      description: Integrasi belum diaktifkan
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+    ValidationError:
+      description: Payload atau state transaksi tidak valid
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+    SnapError:
+      description: Respons error BI-SNAP
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/SnapResponse"
+  schemas:
+    ApiError:
+      type: object
+      properties:
+        status: { type: boolean, example: false }
+        message: { type: string }
+        errors: { type: object, additionalProperties: true }
+    Bill:
+      type: object
+      additionalProperties: true
+      description: Bentuk tagihan mengikuti hasil BsiPaymentService::availableTagihan.
+    CreatePaymentOrder:
+      type: object
+      required: [request_id, nim, items]
+      properties:
+        request_id: { type: string, maxLength: 255, example: SIAKAD-20260808-000001 }
+        nim: { type: string, maxLength: 255, example: "20240001" }
+        items:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            type: object
+            required: [tagihan_id, jumlah]
+            properties:
+              tagihan_id: { type: integer, example: 10 }
+              jumlah: { type: number, format: double, minimum: 0.01, example: 250000 }
+    PaymentOrderResponse:
+      type: object
+      properties:
+        status: { type: boolean, example: true }
+        created: { type: boolean }
+        message: { type: string }
+        data:
+          $ref: "#/components/schemas/PaymentOrder"
+    PaymentOrder:
+      type: object
+      properties:
+        request_id: { type: string }
+        reference_no: { type: string }
+        nim: { type: string }
+        nama_mahasiswa: { type: string, nullable: true }
+        customer_no: { type: string, example: "123456789012" }
+        bsi_payment_number: { type: string, example: "5090123456789012" }
+        interbank_va_number: { type: string, example: "9005090123456789012" }
+        total: { type: string, example: "350000.00" }
+        currency: { type: string, enum: [IDR] }
+        status:
+          type: string
+          enum: [pending, paid, success, needs_review, expired, cancelled, rejected]
+        expired_at: { type: string, format: date-time }
+        paid_at: { type: string, format: date-time, nullable: true }
+        details:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+    SnapResponse:
+      type: object
+      required: [responseCode, responseMessage]
+      properties:
+        responseCode:
+          type: string
+          enum:
+            - "2000000"
+            - "2007300"
+            - "4007300"
+            - "4007302"
+            - "4017300"
+            - "4017301"
+            - "4047311"
+            - "4047312"
+            - "5007399"
+            - "5007300"
+            - "2002400"
+            - "4002401"
+            - "4002402"
+            - "4012400"
+            - "4012401"
+            - "4042411"
+            - "4042412"
+            - "4042414"
+            - "4042419"
+            - "4042420"
+            - "5002400"
+            - "5002499"
+            - "5042400"
+            - "5042468"
+            - "2002500"
+            - "4002501"
+            - "4002502"
+            - "4012500"
+            - "4012501"
+            - "4042511"
+            - "4042512"
+            - "4042513"
+            - "4042514"
+            - "4042519"
+            - "5002500"
+            - "5002599"
+            - "5042500"
+            - "5042568"
+        responseMessage: { type: string }
+    AuthResponse:
+      allOf:
+        - $ref: "#/components/schemas/SnapResponse"
+        - type: object
+          properties:
+            accessToken: { type: string }
+            tokenType: { type: string, example: BearerToken }
+            expiresIn: { type: string, example: "900" }
+    Amount:
+      type: object
+      required: [value, currency]
+      properties:
+        value: { type: string, example: "350000.00" }
+        currency: { type: string, enum: [IDR] }
+    InquiryRequest:
+      type: object
+      required: [partnerServiceId, customerNo, trxDateInit, virtualAccountNo, inquiryRequestId, sourceBankCode]
+      properties:
+        partnerServiceId: { type: string, example: "    5090" }
+        customerNo: { type: string, example: "123456789012" }
+        trxDateInit: { type: string, format: date-time }
+        amount: { $ref: "#/components/schemas/Amount" }
+        virtualAccountNo: { type: string, example: "    5090123456789012" }
+        inquiryRequestId: { type: string }
+        sourceBankCode: { type: string, example: "451" }
+    InquiryResponse:
+      allOf:
+        - $ref: "#/components/schemas/SnapResponse"
+        - type: object
+          properties:
+            virtualAccountData:
+              allOf:
+                - $ref: "#/components/schemas/VirtualAccountData"
+                - type: object
+                  properties:
+                    inquiryRequestId: { type: string }
+                    totalAmount: { $ref: "#/components/schemas/Amount" }
+    PaymentRequest:
+      type: object
+      required: [partnerServiceId, customerNo, virtualAccountNo, paidAmount, trxDateTime, paymentRequestId, sourceBankCode]
+      properties:
+        partnerServiceId: { type: string, example: "    5090" }
+        customerNo: { type: string, example: "123456789012" }
+        virtualAccountNo: { type: string, example: "    5090123456789012" }
+        virtualAccountName: { type: string }
+        paidAmount: { $ref: "#/components/schemas/Amount" }
+        trxDateTime: { type: string, format: date-time }
+        paymentRequestId: { type: string }
+        sourceBankCode: { type: string, example: "451" }
+    PaymentResponse:
+      allOf:
+        - $ref: "#/components/schemas/SnapResponse"
+        - type: object
+          properties:
+            virtualAccountData:
+              allOf:
+                - $ref: "#/components/schemas/VirtualAccountData"
+                - type: object
+                  properties:
+                    paymentRequestId: { type: string }
+                    paidAmount: { $ref: "#/components/schemas/Amount" }
+    VirtualAccountData:
+      type: object
+      properties:
+        partnerServiceId: { type: string }
+        customerNo: { type: string }
+        virtualAccountNo: { type: string }
+        virtualAccountName: { type: string }
+        billDetail:
+          type: array
+          items:
+            type: object
+            properties:
+              label: { type: string }
+              value: { type: string }
+        referenceNo: { type: string }
+    ReconciliationRequest:
+      type: object
+      required: [action, kodeBankBI, kodeBPI, allChecksum, data]
+      properties:
+        action: { type: string, example: recon }
+        kodeBankBI: { type: string, example: "451" }
+        kodeBPI: { type: string, example: "5090" }
+        allChecksum: { type: string, pattern: "^[a-fA-F0-9]{40}$" }
+        data:
+          type: array
+          items:
+            type: object
+            required: [idRekon, wktRekonsiliasi, wktTransaksi, nomorPembayaran, totalPembayaran, kodeFT, statusRekonsiliasi, checksum]
+            properties:
+              idRekon: { type: string }
+              wktRekonsiliasi: { type: string }
+              wktTransaksi: { type: string }
+              nomorPembayaran: { type: string }
+              nama: { type: string }
+              nomorInvoice: { type: string }
+              totalPembayaran: { type: string }
+              totalSettlement: { type: string }
+              nomorJurnalPembukuan: { type: string }
+              kodeFT: { type: string }
+              statusRekonsiliasi: { type: string }
+              checksum: { type: string, pattern: "^[a-fA-F0-9]{40}$" }

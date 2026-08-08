@@ -61,6 +61,8 @@ class BsiPaymentController extends Controller
                 'details.tahunAkademik',
                 'details.pembayaran',
                 'callbacks',
+                'snapLogs',
+                'reconciliations',
                 'jenisPembayaran',
                 'postedBy',
                 'rejectedBy',

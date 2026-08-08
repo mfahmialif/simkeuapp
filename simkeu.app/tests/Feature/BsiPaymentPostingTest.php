@@ -173,7 +173,7 @@ class BsiPaymentPostingTest extends TestCase
         $posted = $service->postPayment($payment, $userId);
         $service->postPayment($posted, $userId);
 
-        $this->assertSame('posted', $posted->status);
+        $this->assertSame('success', $posted->status);
         $this->assertDatabaseCount('keuangan_pembayaran', 1);
         $this->assertDatabaseHas('keuangan_pembayaran', [
             'nomor' => 'BSI-20260611-00000001-01',

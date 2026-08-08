@@ -1,0 +1,22 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class BsiIntegrationSetting extends Model
+{
+    protected $guarded = [];
+
+    protected $casts = [
+        'enabled' => 'boolean',
+        'test_mode' => 'boolean',
+        'test_nims' => 'array',
+        'client_secret' => 'encrypted',
+        'reconciliation_secret' => 'encrypted',
+        'payment_expiry_minutes' => 'integer',
+        'timestamp_tolerance' => 'integer',
+        'allowed_ips' => 'array',
+        'enforce_ip_allowlist' => 'boolean',
+    ];
+}
