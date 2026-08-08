@@ -99,8 +99,8 @@ class BsiIntegrationSettingController extends Controller
     {
         return response()->json([
             'status' => true,
-            'data' => $service->publicData($service->settings()),
-        ]);
+            'data' => $service->adminData($service->settings()),
+        ])->header('Cache-Control', 'no-store, private');
     }
 
     public function update(Request $request, BsiSettingsService $service): JsonResponse
@@ -121,6 +121,10 @@ class BsiIntegrationSettingController extends Controller
             'allowed_ips' => 'nullable|array|max:30',
             'allowed_ips.*' => 'required|ip',
             'enforce_ip_allowlist' => 'required|boolean',
+            'verify_signatures' => 'required|boolean',
+            'log_payloads' => 'required|boolean',
+            'serve_test_va' => 'required|boolean',
+            'database_failure_mode' => ['required', Rule::in(['none', 'transactions', 'all'])],
         ]);
 
         if (filled($validated['bpi_public_key'] ?? null)
@@ -149,8 +153,8 @@ class BsiIntegrationSettingController extends Controller
         return response()->json([
             'status' => true,
             'message' => 'Konfigurasi BSI berhasil disimpan.',
-            'data' => $service->publicData($settings->refresh()),
-        ]);
+            'data' => $service->adminData($settings->refresh()),
+        ])->header('Cache-Control', 'no-store, private');
     }
 
     public function rotateSiakadKey(Request $request, BsiSettingsService $service): JsonResponse
@@ -177,9 +181,9 @@ class BsiIntegrationSettingController extends Controller
 
         return response()->json([
             'status' => true,
-            'message' => 'Client ID dan Client Secret baru berhasil diterbitkan. Salin keduanya ke portal BSI sekarang.',
+            'message' => 'Client ID dan Client Secret baru berhasil diterbitkan dan disimpan terenkripsi.',
             'data' => $credentials,
-        ]);
+        ])->header('Cache-Control', 'no-store, private');
     }
 
     public function rotateReconciliationSecret(
@@ -191,9 +195,9 @@ class BsiIntegrationSettingController extends Controller
 
         return response()->json([
             'status' => true,
-            'message' => 'Secret rekonsiliasi baru berhasil diterbitkan. Salin ke portal BSI sekarang.',
+            'message' => 'Secret rekonsiliasi baru berhasil diterbitkan dan disimpan terenkripsi.',
             'data' => ['reconciliation_secret' => $secret],
-        ]);
+        ])->header('Cache-Control', 'no-store, private');
     }
 
     public function validateConfiguration(BsiSettingsService $service): JsonResponse
@@ -201,7 +205,9 @@ class BsiIntegrationSettingController extends Controller
         $settings = $service->settings();
         $readiness = $service->readiness($settings);
 
-        if (filled($settings->bpi_public_key)) {
+        if (! $settings->verify_signatures) {
+            $readiness['bpi_public_key_valid'] = true;
+        } elseif (filled($settings->bpi_public_key)) {
             $readiness['bpi_public_key_valid'] = $service->validPublicKey($settings->bpi_public_key);
         } else {
             $readiness['bpi_public_key_valid'] = false;

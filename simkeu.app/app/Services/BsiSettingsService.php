@@ -21,6 +21,10 @@ class BsiSettingsService
             'payment_expiry_minutes' => 1440,
             'timestamp_tolerance' => 300,
             'allowed_ips' => self::DEFAULT_ALLOWED_IPS,
+            'verify_signatures' => true,
+            'log_payloads' => true,
+            'serve_test_va' => false,
+            'database_failure_mode' => 'none',
         ]);
     }
 
@@ -32,7 +36,7 @@ class BsiSettingsService
             && filled($settings->kode_bpi)
             && filled($settings->client_id)
             && filled($settings->client_secret)
-            && filled($settings->bpi_public_key)
+            && (! $settings->verify_signatures || filled($settings->bpi_public_key))
             && filled($settings->siakad_api_key_hash);
     }
 
@@ -43,7 +47,7 @@ class BsiSettingsService
             'kode_bpi' => filled($settings->kode_bpi),
             'client_id' => filled($settings->client_id),
             'client_secret' => filled($settings->client_secret),
-            'bpi_public_key' => filled($settings->bpi_public_key),
+            'bpi_public_key' => ! $settings->verify_signatures || filled($settings->bpi_public_key),
             'reconciliation_secret' => filled($settings->reconciliation_secret)
                 || filled($settings->client_secret),
             'siakad_api_key' => filled($settings->siakad_api_key_hash),
@@ -69,12 +73,29 @@ class BsiSettingsService
             'timestamp_tolerance' => (int) $settings->timestamp_tolerance,
             'allowed_ips' => $settings->allowed_ips ?: self::DEFAULT_ALLOWED_IPS,
             'enforce_ip_allowlist' => (bool) $settings->enforce_ip_allowlist,
+            'verify_signatures' => (bool) $settings->verify_signatures,
+            'log_payloads' => (bool) $settings->log_payloads,
+            'serve_test_va' => (bool) $settings->serve_test_va,
+            'database_failure_mode' => $settings->database_failure_mode ?: 'none',
             'siakad_api_key_configured' => filled($settings->siakad_api_key_hash),
             'siakad_api_key_hint' => $settings->siakad_api_key_hint,
             'readiness' => $this->readiness($settings),
             'endpoints' => $this->endpoints(),
             'response_codes' => BsiSnapService::RESPONSE_CODE_CATALOG,
             'updated_at' => $settings->updated_at,
+        ];
+    }
+
+    /**
+     * Konfigurasi lengkap yang hanya boleh dikirim melalui endpoint admin.
+     * Secret tetap dienkripsi oleh model saat tersimpan di database.
+     */
+    public function adminData(BsiIntegrationSetting $settings): array
+    {
+        return [
+            ...$this->publicData($settings),
+            'client_secret' => $settings->client_secret,
+            'reconciliation_secret' => $settings->reconciliation_secret,
         ];
     }
 

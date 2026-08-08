@@ -37,10 +37,14 @@ Dokumen Specification menyebut biller akan memperoleh KODE BPI, credential, dan 
 
 1. Daftarkan email institusi di `https://sandbox.bpi.co.id`, aktivasi email, lalu sampaikan email tersebut ke tim BSI agar akun di-assign ke dashboard biller.
 2. KODE BPI empat digit dan BPI RSA Public Key diperoleh dari tim/portal BSI; keduanya tidak diterbitkan SIMKEU.
-3. Pada **Konfig BSI > Konfigurasi H2H > Kredensial Host-to-Host**, terbitkan Client ID dan Client Secret. Salin keduanya ke portal BSI karena secret hanya ditampilkan penuh satu kali.
+3. Pada **Konfig BSI > Konfigurasi H2H > Kredensial Host-to-Host**, terbitkan Client ID dan Client Secret. Keduanya disimpan terenkripsi dan dapat ditampilkan atau disalin kembali oleh admin untuk dimasukkan ke portal BSI.
 4. Terbitkan Secret Rekonsiliasi dari bagian yang sama dan salin sebagai secret key checksum rekonsiliasi pada portal BSI.
 5. Pilih skema **Close amount**, lalu masukkan URL Auth, Inquiry, Payment, Advice, dan Webservice Rekonsiliasi dari subtab Data Portal BSI.
 6. Jalankan Flagging/SIT di sandbox. Setelah lulus, daftar/aktifkan akun production di `https://bsi.bpi.co.id` dan ulangi konfigurasi menggunakan endpoint production.
+
+### Kontrol operasional SIT
+
+Subtab **Keamanan & Operasional** menyediakan kontrol untuk mengaktifkan endpoint H2H, menerapkan IP whitelist, memverifikasi signature, menyimpan body request/response, menandai seluruh payment order baru sebagai data uji, serta melayani VA uji berawalan `9999` yang sudah dibuat di SIMKEU. Tersedia juga simulasi DB Error untuk endpoint transaksi saja (`5002499`/`5002599`) atau seluruh endpoint termasuk Auth (`5007399`). Seluruh simulasi harus dinonaktifkan kembali setelah pengujian BSI selesai.
 
 Rotasi Client Secret langsung membuat signature dengan secret lama tidak valid. Koordinasikan rotasi dengan tim BSI dan segera perbarui portal SmartBilling.
 

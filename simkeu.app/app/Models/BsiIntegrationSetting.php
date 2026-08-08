@@ -18,5 +18,8 @@ class BsiIntegrationSetting extends Model
         'timestamp_tolerance' => 'integer',
         'allowed_ips' => 'array',
         'enforce_ip_allowlist' => 'boolean',
+        'verify_signatures' => 'boolean',
+        'log_payloads' => 'boolean',
+        'serve_test_va' => 'boolean',
     ];
 }

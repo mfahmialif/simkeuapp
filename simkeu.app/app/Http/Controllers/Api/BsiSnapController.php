@@ -6,6 +6,7 @@ use App\Exceptions\BsiSnapException;
 use App\Http\Controllers\Controller;
 use App\Models\BsiSnapLog;
 use App\Models\KeuanganPembayaranBsi;
+use App\Services\BsiSettingsService;
 use App\Services\BsiSnapService;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
@@ -14,6 +15,8 @@ use Throwable;
 
 class BsiSnapController extends Controller
 {
+    public function __construct(private readonly BsiSettingsService $settingsService) {}
+
     public function auth(Request $request, BsiSnapService $service): JsonResponse
     {
         return $this->dispatch(
@@ -84,6 +87,16 @@ class BsiSnapController extends Controller
         $payment = null;
 
         try {
+            if ($this->simulateDatabaseFailure($operation)) {
+                $body = [
+                    'responseCode' => $databaseErrorCode,
+                    'responseMessage' => 'DB Error',
+                ];
+                $this->writeLog($operation, $request, $body, 500, 'failed', $startedAt, null);
+
+                return response()->json($body, 500, [], JSON_UNESCAPED_SLASHES);
+            }
+
             [$body, $httpStatus, $payment] = $handler();
             $this->writeLog($operation, $request, $body, $httpStatus, 'success', $startedAt, $payment);
 
@@ -141,6 +154,7 @@ class BsiSnapController extends Controller
     ): void {
         try {
             $payload = json_decode($request->getContent(), true);
+            $logPayloads = (bool) $this->settingsService->settings()->log_payloads;
             BsiSnapLog::create([
                 'pembayaran_bsi_id' => $payment?->id,
                 'operation' => $operation,
@@ -164,13 +178,27 @@ class BsiSnapController extends Controller
                     'authorization' => $request->header('authorization') ? 'Bearer ***' : null,
                     'x-signature' => $request->header('x-signature') ? '***' : null,
                 ],
-                'request_payload' => is_array($payload) ? $payload : null,
-                'response_payload' => $this->redactResponse($response),
+                'request_payload' => $logPayloads && is_array($payload) ? $payload : null,
+                'response_payload' => $logPayloads ? $this->redactResponse($response) : null,
                 'requested_at' => now(),
             ]);
         } catch (Throwable $logException) {
             report($logException);
         }
+    }
+
+    private function simulateDatabaseFailure(string $operation): bool
+    {
+        $settings = $this->settingsService->settings();
+        if (! $settings->enabled) {
+            return false;
+        }
+
+        $mode = (string) ($settings->database_failure_mode ?: 'none');
+
+        return $mode === 'all'
+            || ($mode === 'transactions'
+                && in_array($operation, ['inquiry', 'payment', 'advice', 'reconciliation'], true));
     }
 
     private function redactResponse(array $response): array

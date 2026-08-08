@@ -12,6 +12,7 @@ use App\Services\BsiSettingsService;
 use App\Services\BsiSnapService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Mockery;
 use Tests\TestCase;
@@ -66,6 +67,10 @@ PEM;
             'timestamp_tolerance' => 300,
             'allowed_ips' => [],
             'enforce_ip_allowlist' => false,
+            'verify_signatures' => true,
+            'log_payloads' => true,
+            'serve_test_va' => false,
+            'database_failure_mode' => 'none',
             'siakad_api_key_hash' => hash('sha256', 'siakad-key'),
         ]);
     }
@@ -391,6 +396,15 @@ PEM;
         $this->assertSame($h2h['client_secret'], $settings->client_secret);
         $this->assertSame($reconciliationSecret, $settings->reconciliation_secret);
         $this->assertArrayNotHasKey('client_secret', $service->publicData($settings));
+        $this->assertSame($h2h['client_secret'], $service->adminData($settings)['client_secret']);
+        $this->assertSame(
+            $reconciliationSecret,
+            $service->adminData($settings)['reconciliation_secret']
+        );
+        $this->assertNotSame(
+            $h2h['client_secret'],
+            DB::table('bsi_integration_settings')->where('id', $settings->id)->value('client_secret')
+        );
     }
 
     private function authRequest(): Request
@@ -488,6 +502,10 @@ PEM;
             $table->unsignedInteger('timestamp_tolerance');
             $table->json('allowed_ips')->nullable();
             $table->boolean('enforce_ip_allowlist');
+            $table->boolean('verify_signatures')->default(true);
+            $table->boolean('log_payloads')->default(true);
+            $table->boolean('serve_test_va')->default(false);
+            $table->string('database_failure_mode', 20)->default('none');
             $table->string('siakad_api_key_hash')->nullable();
             $table->string('siakad_api_key_hint')->nullable();
             $table->unsignedBigInteger('updated_by')->nullable();

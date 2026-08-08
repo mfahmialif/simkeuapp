@@ -73,7 +73,8 @@ class BsiSnapService
         $timestamp = (string) $request->header('x-timestamp', '');
         $signature = (string) $request->header('x-signature', '');
 
-        if ($clientId === '' || $timestamp === '' || $signature === ''
+        if ($clientId === '' || $timestamp === ''
+            || ($settings->verify_signatures && $signature === '')
             || ! $this->isJsonRequest($request)) {
             throw new BsiSnapException('4007300', 400, 'Bad Request');
         }
@@ -89,19 +90,21 @@ class BsiSnapService
 
         $this->assertTimestamp($timestamp, $settings, '73');
 
-        $publicKey = openssl_pkey_get_public((string) $settings->bpi_public_key);
-        $decodedSignature = base64_decode($signature, true);
-        $verified = $publicKey !== false
-            && $decodedSignature !== false
-            && openssl_verify(
-                $clientId.'|'.$timestamp,
-                $decodedSignature,
-                $publicKey,
-                OPENSSL_ALGO_SHA256
-            ) === 1;
+        if ($settings->verify_signatures) {
+            $publicKey = openssl_pkey_get_public((string) $settings->bpi_public_key);
+            $decodedSignature = base64_decode($signature, true);
+            $verified = $publicKey !== false
+                && $decodedSignature !== false
+                && openssl_verify(
+                    $clientId.'|'.$timestamp,
+                    $decodedSignature,
+                    $publicKey,
+                    OPENSSL_ALGO_SHA256
+                ) === 1;
 
-        if (! $verified) {
-            throw new BsiSnapException('4047311', 404, 'Unauthorized Signature');
+            if (! $verified) {
+                throw new BsiSnapException('4047311', 404, 'Unauthorized Signature');
+            }
         }
 
         $token = bin2hex(random_bytes(32));
@@ -150,6 +153,7 @@ class BsiSnapService
         }
 
         $customerNo = $this->normalizeCustomerNo((string) $payload['customerNo'], $settings, '24');
+        $this->assertTestVirtualAccountAllowed($customerNo, $settings, '24');
         $payment = KeuanganPembayaranBsi::with('details')
             ->where('customer_no', $customerNo)
             ->first();
@@ -224,6 +228,9 @@ class BsiSnapService
         $this->assertSourceBankCode($payload, '25');
         $trxDateTime = $this->parseSnapDate((string) $payload['trxDateTime'], '25');
 
+        $customerNo = $this->normalizeCustomerNo((string) $payload['customerNo'], $settings, '25');
+        $this->assertTestVirtualAccountAllowed($customerNo, $settings, '25');
+
         $requestHash = hash('sha256', $this->minifiedBody($request));
         $duplicate = KeuanganPembayaranBsi::where('payment_request_id', $paymentRequestId)->first();
         if ($duplicate) {
@@ -235,8 +242,6 @@ class BsiSnapService
                 return [$duplicate->payment_response, 200, $duplicate];
             }
         }
-
-        $customerNo = $this->normalizeCustomerNo((string) $payload['customerNo'], $settings, '25');
 
         return DB::transaction(function () use (
             $customerNo,
@@ -359,6 +364,7 @@ class BsiSnapService
         }
 
         $customerNo = $this->normalizeCustomerNo((string) $payload['customerNo'], $settings, '25');
+        $this->assertTestVirtualAccountAllowed($customerNo, $settings, '25');
         $this->assertPartnerAndVirtualAccount($payload, $settings, $customerNo, '25');
         $amountMatches = abs((float) $payload['paidAmount']['value'] - (float) $payment->total) < 0.01;
 
@@ -530,7 +536,8 @@ class BsiSnapService
         $externalId = (string) $request->header('x-external-id', '');
 
         if (! preg_match('/^Bearer\s+(.+)$/i', $authorization, $matches)
-            || $timestamp === '' || $signature === '' || $endpoint === '') {
+            || $timestamp === '' || ($settings->verify_signatures && $signature === '')
+            || $endpoint === '') {
             throw new BsiSnapException('401'.$serviceCode.'00', 401, 'Unauthorized Access');
         }
 
@@ -573,17 +580,19 @@ class BsiSnapService
             throw new BsiSnapException('400'.$serviceCode.'01', 400, 'Invalid Field Format');
         }
 
-        $expected = self::generateTransactionSignature(
-            $request->method(),
-            $endpoint,
-            $token,
-            $minified,
-            $timestamp,
-            (string) $settings->client_secret
-        );
+        if ($settings->verify_signatures) {
+            $expected = self::generateTransactionSignature(
+                $request->method(),
+                $endpoint,
+                $token,
+                $minified,
+                $timestamp,
+                (string) $settings->client_secret
+            );
 
-        if (! hash_equals($expected, trim($signature))) {
-            throw new BsiSnapException('401'.$serviceCode.'00', 401, 'Unauthorized Access');
+            if (! hash_equals($expected, trim($signature))) {
+                throw new BsiSnapException('401'.$serviceCode.'00', 401, 'Unauthorized Access');
+            }
         }
 
         return $this->jsonPayload($request, $serviceCode);
@@ -656,15 +665,28 @@ class BsiSnapService
     {
         $settings = $this->settingsService->settings();
 
-        if (! $settings->enabled
-            || blank($settings->kode_bpi)
+        if (! $settings->enabled) {
+            throw new BsiSnapException('500'.$serviceCode.'00', 503, 'Service Unavailable');
+        }
+
+        if (blank($settings->kode_bpi)
             || blank($settings->client_id)
             || blank($settings->client_secret)
-            || blank($settings->bpi_public_key)) {
+            || ($settings->verify_signatures && blank($settings->bpi_public_key))) {
             throw new BsiSnapException('500'.$serviceCode.'99', 500, 'DB Error');
         }
 
         return $settings;
+    }
+
+    private function assertTestVirtualAccountAllowed(
+        string $customerNo,
+        BsiIntegrationSetting $settings,
+        string $serviceCode
+    ): void {
+        if (str_starts_with($customerNo, '9999') && ! $settings->serve_test_va) {
+            throw new BsiSnapException('404'.$serviceCode.'12', 404, 'Bill not found');
+        }
     }
 
     private function assertSourceIp(
