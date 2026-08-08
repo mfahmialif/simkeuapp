@@ -402,7 +402,13 @@ class BsiSnapService
         }
 
         $payload = $this->jsonPayload($request, '25');
-        $kodeBpi = collect(['kodeBPI', 'kode_bpi', 'kodeBpi'])
+        $kodeBpi = collect([
+            'kodeBPI',
+            'kode_bpi',
+            'kodeBpi',
+            'kodeBiller',
+            'kode_biller',
+        ])
             ->map(fn (string $key) => $payload[$key] ?? null)
             ->first(fn ($value) => $value !== null && trim((string) $value) !== '');
 
@@ -445,9 +451,13 @@ class BsiSnapService
                 'nomorPembayaran',
                 'totalPembayaran',
                 'kodeFT',
-                'statusRekonsiliasi',
                 'checksum',
             ];
+
+            if (! $isSandbox) {
+                $requiredItemFields[] = 'statusRekonsiliasi';
+            }
+
             $missingItemField = collect($requiredItemFields)->contains(
                 fn (string $field) => ! array_key_exists($field, $item)
                     || $item[$field] === ''
@@ -477,10 +487,22 @@ class BsiSnapService
             $checksumValid = $reconId !== ''
                 && hash_equals(strtolower($expected), strtolower((string) ($item['checksum'] ?? '')));
 
-            $payment = KeuanganPembayaranBsi::where(
-                'payment_request_id',
-                (string) ($item['nomorJurnalPembukuan'] ?? '')
-            )->first();
+            $payment = null;
+            $invoiceNumber = trim((string) ($item['nomorInvoice'] ?? ''));
+
+            if ($invoiceNumber !== '') {
+                $payment = KeuanganPembayaranBsi::where('nomor', $invoiceNumber)
+                    ->orWhere('reference_no', $invoiceNumber)
+                    ->orWhere('request_id', $invoiceNumber)
+                    ->first();
+            }
+
+            $journalNumber = trim((string) ($item['nomorJurnalPembukuan'] ?? ''));
+            if (! $payment && $journalNumber !== '') {
+                $payment = KeuanganPembayaranBsi::where('payment_request_id', $journalNumber)
+                    ->orWhere('bank_reference', $journalNumber)
+                    ->first();
+            }
 
             if (! $payment && filled($item['nomorPembayaran'] ?? null)) {
                 $payment = KeuanganPembayaranBsi::where('customer_no', $item['nomorPembayaran'])
@@ -491,7 +513,7 @@ class BsiSnapService
 
             $amountMatches = $payment
                 && abs(
-                    $this->settingsService->snapTransactionAmount($payment, $settings)
+                    $payment->payableTotal()
                     - (float) ($item['totalPembayaran'] ?? 0)
                 ) < 0.01;
             $settlementMatches = ! $payment
@@ -500,9 +522,14 @@ class BsiSnapService
                     $this->settingsService->expectedSettlementAmount($payment, $settings)
                     - (float) $item['totalSettlement']
                 ) < 0.01;
+            $bankStatus = strtoupper(trim((string) ($item['statusRekonsiliasi'] ?? '')));
+            if ($isSandbox && $bankStatus === '') {
+                $bankStatus = 'SUKSES';
+            }
+
             $statusMatches = $payment
                 && in_array($payment->status, ['success', 'posted'], true)
-                && strtoupper(trim((string) $item['statusRekonsiliasi'])) === 'SUKSES';
+                && $bankStatus === 'SUKSES';
             $matchStatus = $checksumValid
                 && $payment
                 && $amountMatches
@@ -522,7 +549,7 @@ class BsiSnapService
                     'payment_amount' => $item['totalPembayaran'] ?? null,
                     'settlement_amount' => $item['totalSettlement'] ?? null,
                     'settlement_code' => $item['kodeFT'] ?? null,
-                    'bank_status' => $item['statusRekonsiliasi'] ?? null,
+                    'bank_status' => $bankStatus ?: null,
                     'checksum_valid' => $checksumValid,
                     'match_status' => $matchStatus,
                     'payload' => $item,

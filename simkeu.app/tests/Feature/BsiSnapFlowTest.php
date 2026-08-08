@@ -186,7 +186,7 @@ PEM;
             '123456789012'.
             'recon-secret'.
             $reconciledAt.
-            '350000.00'.
+            '353000.00'.
             $reconId.
             $settlementCode
         );
@@ -200,17 +200,18 @@ PEM;
             json_encode([
                 'action' => 'recon',
                 'kodeBankBI' => '451',
+                'kodeBiller' => '5090',
                 'allChecksum' => str_repeat('0', 40),
                 'data' => [[
                     'idRekon' => $reconId,
                     'wktRekonsiliasi' => $reconciledAt,
                     'wktTransaksi' => '2026-08-08 10:00:00',
                     'nomorPembayaran' => '123456789012',
-                    'totalPembayaran' => '350000.00',
+                    'nomorInvoice' => 'BSI-20260808-00000001',
+                    'totalPembayaran' => '353000.00',
                     'totalSettlement' => '350000.00',
-                    'nomorJurnalPembukuan' => $paymentId,
+                    'nomorJurnalPembukuan' => 'JURNAL-BSI-BERBEDA',
                     'kodeFT' => $settlementCode,
-                    'statusRekonsiliasi' => 'SUKSES',
                     'checksum' => $checksum,
                 ]],
             ], JSON_UNESCAPED_SLASHES)
