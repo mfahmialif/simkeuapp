@@ -88,6 +88,8 @@ class BsiPaymentPostingTest extends TestCase
             $table->string('va_number');
             $table->string('bank_reference')->nullable();
             $table->decimal('total', 15, 2);
+            $table->string('admin_fee_bearer', 20)->default('institution');
+            $table->decimal('admin_fee_amount', 15, 2)->default(2500);
             $table->string('status');
             $table->dateTime('expired_at');
             $table->dateTime('paid_at')->nullable();

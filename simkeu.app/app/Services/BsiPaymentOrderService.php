@@ -49,6 +49,8 @@ class BsiPaymentOrderService
             'va_number' => $bsiPaymentNumber,
             'expired_at' => $expiredAt,
             'data_test' => (bool) $settings->test_mode,
+            'admin_fee_bearer' => $settings->admin_fee_bearer ?: 'institution',
+            'admin_fee_amount' => (float) ($settings->admin_fee_amount ?? 2500),
         ]);
 
         if ($created || blank($payment->customer_no)) {
@@ -74,6 +76,10 @@ class BsiPaymentOrderService
             'bsi_payment_number' => $payment->bsi_payment_number ?: $payment->va_number,
             'interbank_va_number' => $payment->interbank_va_number,
             'total' => $payment->total,
+            'admin_fee_bearer' => $payment->admin_fee_bearer ?: 'institution',
+            'admin_fee_amount' => (float) $payment->admin_fee_amount,
+            'payable_total' => $payment->payableTotal(),
+            'expected_settlement_total' => $payment->expectedSettlementTotal(),
             'currency' => 'IDR',
             'status' => $payment->status,
             'data_test' => (bool) $payment->data_test,

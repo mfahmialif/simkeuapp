@@ -10,8 +10,14 @@ class KeuanganPembayaranBsi extends Model
 
     protected $guarded = [];
 
+    protected $appends = [
+        'payable_total',
+        'expected_settlement_total',
+    ];
+
     protected $casts = [
         'total' => 'decimal:2',
+        'admin_fee_amount' => 'decimal:2',
         'data_test' => 'boolean',
         'expired_at' => 'datetime',
         'paid_at' => 'datetime',
@@ -59,5 +65,33 @@ class KeuanganPembayaranBsi extends Model
     public function reconciliations()
     {
         return $this->hasMany(BsiReconciliation::class, 'pembayaran_bsi_id')->latest('id');
+    }
+
+    public function payableTotal(): float
+    {
+        $fee = $this->admin_fee_bearer === 'payer'
+            ? max(0, (float) $this->admin_fee_amount)
+            : 0;
+
+        return round((float) $this->total + $fee, 2);
+    }
+
+    public function expectedSettlementTotal(): float
+    {
+        $fee = $this->admin_fee_bearer === 'institution'
+            ? max(0, (float) $this->admin_fee_amount)
+            : 0;
+
+        return round(max(0, (float) $this->total - $fee), 2);
+    }
+
+    public function getPayableTotalAttribute(): float
+    {
+        return $this->payableTotal();
+    }
+
+    public function getExpectedSettlementTotalAttribute(): float
+    {
+        return $this->expectedSettlementTotal();
     }
 }

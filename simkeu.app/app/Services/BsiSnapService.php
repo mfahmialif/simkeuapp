@@ -298,7 +298,7 @@ class BsiSnapService
             $this->assertPartnerAndVirtualAccount($payload, $settings, $customerNo, '25');
 
             $paidAmount = round((float) $payload['paidAmount']['value'], 2);
-            if (abs($paidAmount - (float) $payment->total) >= 0.01) {
+            if (abs($paidAmount - $payment->payableTotal()) >= 0.01) {
                 throw new BsiSnapException('4042513', 404, 'Payment Amount not valid');
             }
 
@@ -375,7 +375,9 @@ class BsiSnapService
         $customerNo = $this->normalizeCustomerNo((string) $payload['customerNo'], $settings, '25');
         $this->assertTestVirtualAccountAllowed($customerNo, $settings, '25');
         $this->assertPartnerAndVirtualAccount($payload, $settings, $customerNo, '25');
-        $amountMatches = abs((float) $payload['paidAmount']['value'] - (float) $payment->total) < 0.01;
+        $amountMatches = abs(
+            (float) $payload['paidAmount']['value'] - $payment->payableTotal()
+        ) < 0.01;
 
         $trxDateMatches = $this->parseSnapDate((string) $payload['trxDateTime'], '25')
             ->equalTo($payment->trx_date_time);
@@ -471,11 +473,20 @@ class BsiSnapService
             }
 
             $amountMatches = $payment
-                && abs((float) $payment->total - (float) ($item['totalPembayaran'] ?? 0)) < 0.01;
+                && abs($payment->payableTotal() - (float) ($item['totalPembayaran'] ?? 0)) < 0.01;
+            $settlementMatches = ! $payment
+                || ! array_key_exists('totalSettlement', $item)
+                || abs(
+                    $payment->expectedSettlementTotal() - (float) $item['totalSettlement']
+                ) < 0.01;
             $statusMatches = $payment
                 && in_array($payment->status, ['success', 'posted'], true)
                 && strtoupper(trim((string) $item['statusRekonsiliasi'])) === 'SUKSES';
-            $matchStatus = $checksumValid && $payment && $amountMatches && $statusMatches
+            $matchStatus = $checksumValid
+                && $payment
+                && $amountMatches
+                && $settlementMatches
+                && $statusMatches
                 ? 'matched'
                 : 'mismatch';
 
@@ -623,6 +634,17 @@ class BsiSnapService
     ): array {
         $customerNo = (string) $payment->customer_no;
         $partnerServiceId = str_pad((string) $settings->kode_bpi, 8, ' ', STR_PAD_LEFT);
+        $billDetail = $payment->details->map(fn ($detail) => [
+            'label' => (string) $detail->tagihan_nama,
+            'value' => number_format((float) $detail->jumlah, 2, '.', ''),
+        ]);
+
+        if ($payment->admin_fee_bearer === 'payer' && (float) $payment->admin_fee_amount > 0) {
+            $billDetail->push([
+                'label' => 'BIAYA ADMIN BSI',
+                'value' => number_format((float) $payment->admin_fee_amount, 2, '.', ''),
+            ]);
+        }
 
         return [
             'partnerServiceId' => $partnerServiceId,
@@ -631,13 +653,10 @@ class BsiSnapService
             'virtualAccountName' => (string) $payment->nama_mahasiswa,
             $requestIdKey => $requestId,
             $amountKey => [
-                'value' => number_format((float) $payment->total, 2, '.', ''),
+                'value' => number_format($payment->payableTotal(), 2, '.', ''),
                 'currency' => 'IDR',
             ],
-            'billDetail' => $payment->details->map(fn ($detail) => [
-                'label' => (string) $detail->tagihan_nama,
-                'value' => number_format((float) $detail->jumlah, 2, '.', ''),
-            ])->values()->all(),
+            'billDetail' => $billDetail->values()->all(),
             'referenceNo' => (string) ($payment->reference_no ?: $payment->nomor),
         ];
     }

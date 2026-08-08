@@ -19,6 +19,8 @@ class BsiSettingsService
         return BsiIntegrationSetting::query()->firstOrCreate([], [
             'environment' => 'sandbox',
             'payment_expiry_minutes' => 1440,
+            'admin_fee_bearer' => 'institution',
+            'admin_fee_amount' => 2500,
             'timestamp_tolerance' => 300,
             'allowed_ips' => self::DEFAULT_ALLOWED_IPS,
             'verify_signatures' => true,
@@ -70,6 +72,8 @@ class BsiSettingsService
             'reconciliation_secret_configured' => filled($settings->reconciliation_secret),
             'reconciliation_email' => $settings->reconciliation_email,
             'payment_expiry_minutes' => (int) $settings->payment_expiry_minutes,
+            'admin_fee_bearer' => $settings->admin_fee_bearer ?: 'institution',
+            'admin_fee_amount' => (float) ($settings->admin_fee_amount ?? 2500),
             'timestamp_tolerance' => (int) $settings->timestamp_tolerance,
             'allowed_ips' => $settings->allowed_ips ?: self::DEFAULT_ALLOWED_IPS,
             'enforce_ip_allowlist' => (bool) $settings->enforce_ip_allowlist,

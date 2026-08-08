@@ -70,6 +70,8 @@ Route::prefix('bsi')->group(function () {
 });
 
 Route::prefix('bpi-bi-snap')->group(function () {
+    Route::get('{operation}', [BsiSnapController::class, 'unauthorized'])
+        ->where('operation', 'auth|inquiry|payment|advice|reconciliation');
     Route::post('auth', [BsiSnapController::class, 'auth']);
     Route::post('inquiry', [BsiSnapController::class, 'inquiry']);
     Route::post('payment', [BsiSnapController::class, 'payment']);
@@ -109,6 +111,7 @@ Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
         Route::get('simulation/payments', [BsiIntegrationSettingController::class, 'simulationPayments']);
         Route::post('simulation/payment-orders', [BsiIntegrationSettingController::class, 'simulationStore']);
         Route::post('simulation/payment-orders/{requestId}/cancel', [BsiIntegrationSettingController::class, 'simulationCancel']);
+        Route::delete('simulation/payments/{paymentId}', [BsiIntegrationSettingController::class, 'simulationDestroy']);
     });
 
     Route::get('pegawai', [PegawaiController::class, 'index']);

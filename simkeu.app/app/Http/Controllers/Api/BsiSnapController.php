@@ -17,6 +17,14 @@ class BsiSnapController extends Controller
 {
     public function __construct(private readonly BsiSettingsService $settingsService) {}
 
+    public function unauthorized(): JsonResponse
+    {
+        return response()->json([
+            'responseCode' => '4017300',
+            'responseMessage' => 'Unauthorized Client',
+        ], 401, [], JSON_UNESCAPED_SLASHES);
+    }
+
     public function auth(Request $request, BsiSnapService $service): JsonResponse
     {
         return $this->dispatch(

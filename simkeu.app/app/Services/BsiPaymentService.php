@@ -129,13 +129,18 @@ class BsiPaymentService
             'va_number' => trim($payload['va_number']),
             'expired_at' => Carbon::parse($payload['expired_at'])->toIso8601String(),
             'data_test' => (bool) ($payload['data_test'] ?? false),
+            'admin_fee_bearer' => in_array(
+                $payload['admin_fee_bearer'] ?? null,
+                ['institution', 'payer'],
+                true
+            ) ? $payload['admin_fee_bearer'] : 'institution',
+            'admin_fee_amount' => round(max(0, (float) ($payload['admin_fee_amount'] ?? 0)), 2),
             'items' => $normalizedItems,
         ];
-        // data_test ditentukan oleh konfigurasi internal dan bukan bagian payload
-        // idempotensi dari pemanggil. Dengan begitu replay tetap valid walaupun
-        // mode uji sudah diaktifkan atau dinonaktifkan setelah order pertama dibuat.
+        // Penanda uji dan konfigurasi biaya ditentukan secara internal, bukan bagian
+        // payload idempotensi pemanggil. Order lama tetap memakai snapshot awalnya.
         $requestHash = hash('sha256', json_encode(
-            Arr::except($canonical, 'data_test'),
+            Arr::except($canonical, ['data_test', 'admin_fee_bearer', 'admin_fee_amount']),
             JSON_UNESCAPED_SLASHES
         ));
 
@@ -253,6 +258,8 @@ class BsiPaymentService
                     'jenis_pembayaran_id' => $jenisPembayaran->id,
                     'va_number' => $canonical['va_number'],
                     'total' => $total,
+                    'admin_fee_bearer' => $canonical['admin_fee_bearer'],
+                    'admin_fee_amount' => $canonical['admin_fee_amount'],
                     'status' => 'pending',
                     'data_test' => $canonical['data_test'],
                     'expired_at' => Carbon::parse($canonical['expired_at']),
@@ -477,6 +484,50 @@ class BsiPaymentService
         return $posted;
     }
 
+    public function deleteTestPayment(KeuanganPembayaranBsi $payment): void
+    {
+        [$nim, $tagihanIds] = DB::transaction(function () use ($payment) {
+            $locked = KeuanganPembayaranBsi::lockForUpdate()
+                ->with('details')
+                ->findOrFail($payment->id);
+
+            if (! $locked->data_test) {
+                throw ValidationException::withMessages([
+                    'payment' => 'Hanya transaksi dengan penanda data_test=true yang dapat dihapus.',
+                ]);
+            }
+
+            $paymentIds = $locked->details
+                ->pluck('pembayaran_id')
+                ->filter()
+                ->unique()
+                ->values();
+            $tagihanIds = $locked->details
+                ->pluck('tagihan_id')
+                ->filter()
+                ->unique()
+                ->values()
+                ->all();
+
+            if ($paymentIds->isNotEmpty()) {
+                $locked->details()
+                    ->whereIn('pembayaran_id', $paymentIds)
+                    ->update(['pembayaran_id' => null]);
+
+                KeuanganNota::whereIn('pembayaran_id', $paymentIds)->delete();
+                KeuanganJenisPembayaranDetail::whereIn('pembayaran_id', $paymentIds)->delete();
+                KeuanganPembayaran::whereIn('id', $paymentIds)->delete();
+            }
+
+            $locked->details()->delete();
+            $locked->delete();
+
+            return [$locked->nim, $tagihanIds];
+        });
+
+        SemesterPendek::syncTagihanIds($tagihanIds, $nim);
+    }
+
     public function rejectPayment(
         KeuanganPembayaranBsi $payment,
         int $userId,
@@ -526,7 +577,7 @@ class BsiPaymentService
 
         if (in_array($callback->bank_status, $successStatuses, true)) {
             $amountMatches = $callback->amount !== null
-                && abs((float) $callback->amount - (float) $payment->total) < 0.01;
+                && abs((float) $callback->amount - $payment->payableTotal()) < 0.01;
             $newStatus = $amountMatches ? 'paid' : 'needs_review';
             $message = $amountMatches
                 ? 'Pembayaran BSI berhasil dikonfirmasi.'
