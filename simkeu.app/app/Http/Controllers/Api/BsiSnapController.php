@@ -16,6 +16,8 @@ use Throwable;
 
 class BsiSnapController extends Controller
 {
+    private const TRANSACTION_OPERATIONS = ['inquiry', 'payment', 'advice'];
+
     public function __construct(
         private readonly BsiSettingsService $settingsService,
         private readonly BsiPaymentTransferService $transferService,
@@ -104,60 +106,96 @@ class BsiSnapController extends Controller
                     'responseCode' => $databaseErrorCode,
                     'responseMessage' => 'DB Error',
                 ];
-                $this->writeLog($operation, $request, $body, 500, 'failed', $startedAt, null);
+                $transportStatus = $this->transportStatus($operation, 500);
+                $this->writeLog(
+                    $operation,
+                    $request,
+                    $body,
+                    $transportStatus,
+                    'failed',
+                    $startedAt,
+                    null
+                );
 
-                return response()->json($body, 500, [], JSON_UNESCAPED_SLASHES);
+                return response()->json($body, $transportStatus, [], JSON_UNESCAPED_SLASHES);
             }
 
             [$body, $httpStatus, $payment] = $handler();
-            $this->writeLog($operation, $request, $body, $httpStatus, 'success', $startedAt, $payment);
+            $transportStatus = $this->transportStatus($operation, $httpStatus);
+            $this->writeLog(
+                $operation,
+                $request,
+                $body,
+                $transportStatus,
+                'success',
+                $startedAt,
+                $payment
+            );
 
             if (in_array($operation, ['payment', 'advice'], true)
                 && $payment?->status === 'success') {
                 $this->transferService->attemptAutomatic($payment);
             }
 
-            return response()->json($body, $httpStatus, [], JSON_UNESCAPED_SLASHES);
+            return response()->json($body, $transportStatus, [], JSON_UNESCAPED_SLASHES);
         } catch (BsiSnapException $exception) {
             $body = $exception->responseBody();
+            $transportStatus = $this->transportStatus($operation, $exception->httpStatus);
             $this->writeLog(
                 $operation,
                 $request,
                 $body,
-                $exception->httpStatus,
+                $transportStatus,
                 'rejected',
                 $startedAt,
                 $payment
             );
 
-            return response()->json($body, $exception->httpStatus, [], JSON_UNESCAPED_SLASHES);
+            return response()->json($body, $transportStatus, [], JSON_UNESCAPED_SLASHES);
         } catch (QueryException $exception) {
             report($exception);
             $body = [
                 'responseCode' => $databaseErrorCode,
                 'responseMessage' => 'DB Error',
             ];
-            $this->writeLog($operation, $request, $body, 500, 'failed', $startedAt, $payment);
+            $transportStatus = $this->transportStatus($operation, 500);
+            $this->writeLog(
+                $operation,
+                $request,
+                $body,
+                $transportStatus,
+                'failed',
+                $startedAt,
+                $payment
+            );
 
-            return response()->json($body, 500, [], JSON_UNESCAPED_SLASHES);
+            return response()->json($body, $transportStatus, [], JSON_UNESCAPED_SLASHES);
         } catch (Throwable $exception) {
             report($exception);
             $body = [
                 'responseCode' => $generalErrorCode,
                 'responseMessage' => $generalMessage,
             ];
+            $transportStatus = $this->transportStatus($operation, $generalHttpStatus);
             $this->writeLog(
                 $operation,
                 $request,
                 $body,
-                $generalHttpStatus,
+                $transportStatus,
                 'failed',
                 $startedAt,
                 $payment
             );
 
-            return response()->json($body, $generalHttpStatus, [], JSON_UNESCAPED_SLASHES);
+            return response()->json($body, $transportStatus, [], JSON_UNESCAPED_SLASHES);
         }
+    }
+
+    private function transportStatus(string $operation, int $logicalStatus): int
+    {
+        return in_array($operation, self::TRANSACTION_OPERATIONS, true)
+            ? 200
+            : $logicalStatus;
     }
 
     private function writeLog(

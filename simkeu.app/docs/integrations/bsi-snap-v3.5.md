@@ -73,7 +73,7 @@ GET /api/v1/integrations/siakad/bsi/bills/{nim}
 
 ```bash
 curl --request GET \
-  --url 'https://simkeuv2.uiidalwa.web.id/api/v1/integrations/siakad/bsi/bills/20240001' \
+  --url 'https://simkeuapp.uiidalwa.web.id/api/v1/integrations/siakad/bsi/bills/20240001' \
   --header 'Accept: application/json' \
   --header 'X-SIAKAD-API-KEY: GANTI_DENGAN_API_KEY'
 ```
@@ -199,6 +199,11 @@ Webservice rekonsiliasi tersedia di `POST /api/bpi-bi-snap/reconciliation`. Requ
 ## Kode respons BI-SNAP v3.5
 
 Semua `responseCode` dikirim sebagai string. Advice menggunakan kode dan bentuk respons Payment.
+
+Untuk kompatibilitas SmartBilling BSI, endpoint Inquiry, Payment, dan Advice mengirim seluruh
+respons yang berhasil diproses melalui HTTP `200`. Hasil bisnis tetap ditentukan oleh
+`responseCode` pada body JSON, misalnya `4042412` untuk Bill not found. Endpoint Auth tetap
+menggunakan HTTP status autentikasi sesuai tabel.
 
 ### Auth
 

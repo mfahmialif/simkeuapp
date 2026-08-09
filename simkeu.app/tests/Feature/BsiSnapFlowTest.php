@@ -344,9 +344,9 @@ PEM;
             $service
         );
 
-        $this->assertSame(500, $inquiry->getStatusCode());
+        $this->assertSame(200, $inquiry->getStatusCode());
         $this->assertSame('5002400', $inquiry->getData(true)['responseCode']);
-        $this->assertSame(500, $payment->getStatusCode());
+        $this->assertSame(200, $payment->getStatusCode());
         $this->assertSame('5002500', $payment->getData(true)['responseCode']);
 
         BsiIntegrationSetting::firstOrFail()->update(['database_failure_mode' => 'transactions']);
@@ -360,7 +360,48 @@ PEM;
         );
 
         $this->assertSame('5002499', $inquiryDb->getData(true)['responseCode']);
+        $this->assertSame(200, $inquiryDb->getStatusCode());
         $this->assertSame('5002599', $paymentDb->getData(true)['responseCode']);
+        $this->assertSame(200, $paymentDb->getStatusCode());
+    }
+
+    public function test_controller_returns_transaction_rejections_as_http_200_for_smartbilling(): void
+    {
+        $controller = app(BsiSnapController::class);
+        $service = $this->mock(BsiSnapService::class);
+        $service->shouldReceive('inquiry')->once()->andThrow(
+            new BsiSnapException('4042412', 404, 'Bill not found')
+        );
+        $service->shouldReceive('payment')->once()->andThrow(
+            new BsiSnapException('4042513', 404, 'Payment Amount not valid')
+        );
+        $service->shouldReceive('advice')->once()->andThrow(
+            new BsiSnapException('4042514', 404, 'Bill already paid')
+        );
+
+        foreach ([
+            'inquiry' => '4042412',
+            'payment' => '4042513',
+            'advice' => '4042514',
+        ] as $operation => $responseCode) {
+            $response = $controller->{$operation}(
+                Request::create("/api/bpi-bi-snap/{$operation}", 'POST'),
+                $service
+            );
+
+            $this->assertSame(200, $response->getStatusCode());
+            $this->assertSame($responseCode, $response->getData(true)['responseCode']);
+            $this->assertStringStartsWith(
+                'application/json',
+                (string) $response->headers->get('Content-Type')
+            );
+        }
+
+        $logs = BsiSnapLog::query()->latest('id')->limit(3)->get();
+        $this->assertCount(3, $logs);
+        $this->assertTrue($logs->every(
+            fn (BsiSnapLog $log) => $log->http_status === 200 && $log->outcome === 'rejected'
+        ));
     }
 
     public function test_test_mode_is_exposed_without_restricting_students(): void
@@ -419,7 +460,8 @@ PEM;
         );
         $this->assertFalse($invalidClient->attributes->get('bsi_client_key_matches'));
 
-        app(BsiSnapController::class)->auth($invalidClient, $service);
+        $authResponse = app(BsiSnapController::class)->auth($invalidClient, $service);
+        $this->assertSame(401, $authResponse->getStatusCode());
         $authLog = BsiSnapLog::latest('id')->firstOrFail();
         $this->assertFalse(data_get(
             $authLog->request_headers,

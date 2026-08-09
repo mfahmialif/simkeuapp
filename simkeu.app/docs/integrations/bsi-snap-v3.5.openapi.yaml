@@ -4,7 +4,7 @@ info:
   version: 3.5.0
   description: Kontrak API payment order SIAKAD dan endpoint callback BSI BI-SNAP v3.5.
 servers:
-  - url: https://simkeuv2.uiidalwa.web.id
+  - url: https://simkeuapp.uiidalwa.web.id
     description: Production
   - url: http://localhost
     description: Local
@@ -153,16 +153,11 @@ paths:
               $ref: "#/components/schemas/InquiryRequest"
       responses:
         "200":
-          description: Inquiry sukses
+          description: Respons Inquiry, termasuk hasil bisnis gagal pada responseCode JSON
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/InquiryResponse"
-        "400": { $ref: "#/components/responses/SnapError" }
-        "401": { $ref: "#/components/responses/SnapError" }
-        "404": { $ref: "#/components/responses/SnapError" }
-        "500": { $ref: "#/components/responses/SnapError" }
-        "504": { $ref: "#/components/responses/SnapError" }
   /api/bpi-bi-snap/payment:
     post:
       tags: [BSI BI-SNAP]
@@ -184,16 +179,11 @@ paths:
               $ref: "#/components/schemas/PaymentRequest"
       responses:
         "200":
-          description: Payment diterima dan diposting
+          description: Respons Payment, termasuk hasil bisnis gagal pada responseCode JSON
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/PaymentResponse"
-        "400": { $ref: "#/components/responses/SnapError" }
-        "401": { $ref: "#/components/responses/SnapError" }
-        "404": { $ref: "#/components/responses/SnapError" }
-        "500": { $ref: "#/components/responses/SnapError" }
-        "504": { $ref: "#/components/responses/SnapError" }
   /api/bpi-bi-snap/advice:
     post:
       tags: [BSI BI-SNAP]
@@ -215,16 +205,11 @@ paths:
               $ref: "#/components/schemas/PaymentRequest"
       responses:
         "200":
-          description: Respons sama persis dengan Payment sebelumnya
+          description: Respons Advice, termasuk hasil bisnis gagal pada responseCode JSON
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/PaymentResponse"
-        "400": { $ref: "#/components/responses/SnapError" }
-        "401": { $ref: "#/components/responses/SnapError" }
-        "404": { $ref: "#/components/responses/SnapError" }
-        "500": { $ref: "#/components/responses/SnapError" }
-        "504": { $ref: "#/components/responses/SnapError" }
   /api/bpi-bi-snap/reconciliation:
     post:
       tags: [BSI BI-SNAP]
