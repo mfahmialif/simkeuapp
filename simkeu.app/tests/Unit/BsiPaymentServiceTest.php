@@ -30,4 +30,12 @@ class BsiPaymentServiceTest extends TestCase
 
         $this->assertSame('BSI-20260611-00000042', $number);
     }
+
+    public function test_bsi_transactions_never_reserve_official_bills(): void
+    {
+        $service = new BsiPaymentService;
+
+        $this->assertSame(0.0, $service->reservedAmount('20240001', 10));
+        $this->assertSame(0.0, $service->reservedAmount('20240001', 10, 99));
+    }
 }

@@ -62,11 +62,9 @@ class BsiPaymentService
         $nim = strtoupper(trim($nim));
         $tagihanData = TagihanMahasiswa::tagihan($nim);
         $items = collect($tagihanData['list_tagihan'] ?? [])
-            ->map(function ($tagihan) use ($nim) {
+            ->map(function ($tagihan) {
                 $tagihanId = (int) data_get($tagihan, 'id');
                 $sisaResmi = max(0, (float) data_get($tagihan, 'sisa', 0));
-                $reserved = $this->reservedAmount($nim, $tagihanId);
-                $tersedia = max(0, $sisaResmi - $reserved);
 
                 return [
                     'id' => $tagihanId,
@@ -76,8 +74,10 @@ class BsiPaymentService
                     'tahun_akademik' => data_get($tagihan, 'tahun_akademik'),
                     'jumlah_tagihan' => (float) data_get($tagihan, 'jumlah', 0),
                     'sisa_resmi' => $sisaResmi,
-                    'reservasi_bsi' => $reserved,
-                    'tersedia' => $tersedia,
+                    // Transaksi BSI berdiri sendiri. Tagihan baru berubah setelah
+                    // transaksi sukses disinkronkan ke pembayaran resmi.
+                    'reservasi_bsi' => 0.0,
+                    'tersedia' => $sisaResmi,
                     'mata_uang_kode' => strtoupper((string) data_get($tagihan, 'mata_uang_kode', 'IDR')),
                     'tidak_bisa_dibayar' => (bool) data_get($tagihan, 'tidak_bisa_dibayar', false),
                     'keterangan_pembayaran' => data_get($tagihan, 'keterangan_pembayaran'),
@@ -360,19 +360,9 @@ class BsiPaymentService
 
     public function reservedAmount(string $nim, int $tagihanId, ?int $excludePaymentId = null): float
     {
-        return (float) DB::table('keuangan_pembayaran_bsi_detail as detail')
-            ->join('keuangan_pembayaran_bsi as pembayaran', 'pembayaran.id', '=', 'detail.pembayaran_bsi_id')
-            ->where('pembayaran.nim', strtoupper(trim($nim)))
-            ->where('detail.tagihan_id', $tagihanId)
-            ->where(function ($query) {
-                $query->whereIn('pembayaran.status', self::RESERVING_STATUSES)
-                    ->orWhere(function ($query) {
-                        $query->where('pembayaran.status', 'success')
-                            ->where('pembayaran.transferred', false);
-                    });
-            })
-            ->when($excludePaymentId, fn ($query) => $query->where('pembayaran.id', '!=', $excludePaymentId))
-            ->sum('detail.jumlah');
+        // Dipertahankan untuk kompatibilitas pemanggil lama. Baik transaksi BSI
+        // tes maupun production tidak boleh mereservasi saldo tagihan resmi.
+        return 0.0;
     }
 
     public function deleteTestPayment(KeuanganPembayaranBsi $payment): void
