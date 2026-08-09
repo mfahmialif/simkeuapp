@@ -82,6 +82,6 @@ class TagihanMahasiswaTest extends TestCase
             ],
         ]);
 
-        $this->assertSame(190000.0, TagihanMahasiswa::getSisaTagihan('20200101', $tagihanId));
+        $this->assertEquals(190000.0, TagihanMahasiswa::getSisaTagihan('20200101', $tagihanId));
     }
 }

@@ -68,7 +68,7 @@ class BsiSnapService
         $settings = $this->snapSettings('73');
         $this->assertSourceIp($request, $settings, '73');
 
-        $clientId = (string) $request->header('x-client-key', '');
+        $clientId = trim((string) $request->header('x-client-key', ''));
         $timestamp = (string) $request->header('x-timestamp', '');
         $signature = (string) $request->header('x-signature', '');
         $request->attributes->set(
@@ -88,8 +88,10 @@ class BsiSnapService
         }
 
         if (! hash_equals((string) $settings->client_id, $clientId)) {
+            $request->attributes->set('bsi_client_key_matches', false);
             throw new BsiSnapException('4017300', 401, 'Unauthorized Client');
         }
+        $request->attributes->set('bsi_client_key_matches', true);
 
         $this->assertTimestamp($timestamp, $settings, '73');
 
@@ -170,7 +172,7 @@ class BsiSnapService
             $latestStatus = KeuanganPembayaranBsi::where('customer_no', $customerNo)
                 ->latest('id')
                 ->value('status');
-            if ($latestStatus === 'success') {
+            if (in_array($latestStatus, ['success', 'posted'], true)) {
                 throw new BsiSnapException('4042414', 404, 'Bill already paid');
             }
 
@@ -265,7 +267,7 @@ class BsiSnapService
                 $latestStatus = KeuanganPembayaranBsi::where('customer_no', $customerNo)
                     ->latest('id')
                     ->value('status');
-                if ($latestStatus === 'success') {
+                if (in_array($latestStatus, ['success', 'posted'], true)) {
                     throw new BsiSnapException('4042514', 404, 'Bill already paid');
                 }
 

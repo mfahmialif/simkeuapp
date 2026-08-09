@@ -195,6 +195,9 @@ class BsiSnapController extends Controller
                     'endpoint-url' => $request->header('endpoint-url'),
                     'authorization' => $request->header('authorization') ? 'Bearer ***' : null,
                     'x-signature' => $request->header('x-signature') ? '***' : null,
+                    'x-client-key-matches-configured' => $request->attributes->get(
+                        'bsi_client_key_matches'
+                    ),
                 ],
                 'request_payload' => $logPayloads && is_array($payload) ? $payload : null,
                 'response_payload' => $logPayloads ? $this->redactResponse($response) : null,

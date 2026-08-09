@@ -3,16 +3,20 @@
 namespace Tests\Feature;
 
 use App\Exceptions\BsiSnapException;
+use App\Http\Controllers\Api\BsiSnapController;
 use App\Models\BsiIntegrationSetting;
 use App\Models\BsiReconciliation;
+use App\Models\BsiSnapLog;
 use App\Models\KeuanganPembayaranBsi;
 use App\Services\BsiPaymentOrderService;
+use App\Services\BsiPaymentService;
 use App\Services\BsiSettingsService;
 use App\Services\BsiSnapService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use RuntimeException;
 use Tests\TestCase;
 
 class BsiSnapFlowTest extends TestCase
@@ -243,6 +247,122 @@ PEM;
         $this->assertNotNull($payment->refresh()->cancelled_at);
     }
 
+    public function test_inquiry_returns_already_paid_until_a_new_pending_order_exists(): void
+    {
+        $paid = $this->createSnapPayment('success', 'PAID-1');
+        $service = new BsiSnapService(new BsiSettingsService);
+        [$authBody] = $service->authenticate($this->authRequest());
+        $token = $authBody['accessToken'];
+        $payload = $this->inquiryPayload('INQ-PAID-1');
+
+        $this->assertSnapException(
+            fn () => $service->inquiry($this->transactionRequest(
+                '/api/bpi-bi-snap/inquiry',
+                $payload,
+                $token,
+                'INQ-PAID-1'
+            )),
+            '4042414',
+            404,
+            'Bill already paid'
+        );
+
+        $paid->update(['status' => 'posted']);
+        $payload['inquiryRequestId'] = 'INQ-POSTED-1';
+        $this->assertSnapException(
+            fn () => $service->inquiry($this->transactionRequest(
+                '/api/bpi-bi-snap/inquiry',
+                $payload,
+                $token,
+                'INQ-POSTED-1'
+            )),
+            '4042414',
+            404,
+            'Bill already paid'
+        );
+
+        $this->createSnapPayment('pending', 'PENDING-NEW');
+        $payload['inquiryRequestId'] = 'INQ-PENDING-NEW';
+        [$body, $status] = $service->inquiry($this->transactionRequest(
+            '/api/bpi-bi-snap/inquiry',
+            $payload,
+            $token,
+            'INQ-PENDING-NEW'
+        ));
+
+        $this->assertSame(200, $status);
+        $this->assertSame('2002400', $body['responseCode']);
+    }
+
+    public function test_payment_wrong_amount_keeps_order_pending_and_correct_amount_can_succeed(): void
+    {
+        $payment = $this->createSnapPayment('pending', 'WRONG-AMOUNT');
+        $service = new BsiSnapService(new BsiSettingsService);
+        [$authBody] = $service->authenticate($this->authRequest());
+        $token = $authBody['accessToken'];
+        $payload = $this->paymentPayload('PAY-WRONG-AMOUNT', '349999.00');
+
+        $this->assertSnapException(
+            fn () => $service->payment($this->transactionRequest(
+                '/api/bpi-bi-snap/payment',
+                $payload,
+                $token,
+                'PAY-WRONG-AMOUNT'
+            )),
+            '4042513',
+            404,
+            'Payment Amount not valid'
+        );
+        $this->assertSame('pending', $payment->refresh()->status);
+
+        $payload = $this->paymentPayload('PAY-CORRECT-AMOUNT', '350000.00');
+        [$body, $status] = $service->payment($this->transactionRequest(
+            '/api/bpi-bi-snap/payment',
+            $payload,
+            $token,
+            'PAY-CORRECT-AMOUNT'
+        ));
+
+        $this->assertSame(200, $status);
+        $this->assertSame('2002500', $body['responseCode']);
+        $this->assertSame('success', $payment->refresh()->status);
+    }
+
+    public function test_controller_exposes_general_and_database_error_codes_for_sit(): void
+    {
+        $controller = app(BsiSnapController::class);
+        $service = $this->mock(BsiSnapService::class);
+        $service->shouldReceive('inquiry')->once()->andThrow(new RuntimeException('simulated'));
+        $service->shouldReceive('payment')->once()->andThrow(new RuntimeException('simulated'));
+
+        $inquiry = $controller->inquiry(
+            Request::create('/api/bpi-bi-snap/inquiry', 'POST'),
+            $service
+        );
+        $payment = $controller->payment(
+            Request::create('/api/bpi-bi-snap/payment', 'POST'),
+            $service
+        );
+
+        $this->assertSame(500, $inquiry->getStatusCode());
+        $this->assertSame('5002400', $inquiry->getData(true)['responseCode']);
+        $this->assertSame(500, $payment->getStatusCode());
+        $this->assertSame('5002500', $payment->getData(true)['responseCode']);
+
+        BsiIntegrationSetting::firstOrFail()->update(['database_failure_mode' => 'transactions']);
+        $inquiryDb = $controller->inquiry(
+            Request::create('/api/bpi-bi-snap/inquiry', 'POST'),
+            $service
+        );
+        $paymentDb = $controller->payment(
+            Request::create('/api/bpi-bi-snap/payment', 'POST'),
+            $service
+        );
+
+        $this->assertSame('5002499', $inquiryDb->getData(true)['responseCode']);
+        $this->assertSame('5002599', $paymentDb->getData(true)['responseCode']);
+    }
+
     public function test_test_mode_is_exposed_without_restricting_students(): void
     {
         $settings = BsiIntegrationSetting::firstOrFail();
@@ -297,6 +417,14 @@ PEM;
             401,
             'Unauthorized Client'
         );
+        $this->assertFalse($invalidClient->attributes->get('bsi_client_key_matches'));
+
+        app(BsiSnapController::class)->auth($invalidClient, $service);
+        $authLog = BsiSnapLog::latest('id')->firstOrFail();
+        $this->assertFalse(data_get(
+            $authLog->request_headers,
+            'x-client-key-matches-configured'
+        ));
 
         $invalidSignature = $this->authRequest();
         $invalidSignature->headers->set('x-signature', base64_encode('invalid'));
@@ -424,6 +552,63 @@ PEM;
             ],
             '{"grantType":"client_credentials"}'
         );
+    }
+
+    private function createSnapPayment(string $status, string $suffix): KeuanganPembayaranBsi
+    {
+        $payment = KeuanganPembayaranBsi::create([
+            'nomor' => 'BSI-'.$suffix,
+            'request_id' => 'REQUEST-'.$suffix,
+            'request_hash' => hash('sha256', $suffix),
+            'nim' => '20240001',
+            'nama_mahasiswa' => 'Mahasiswa Uji',
+            'jk_id' => 8,
+            'jenis_pembayaran_id' => 1,
+            'va_number' => '5090123456789012',
+            'customer_no' => '123456789012',
+            'bsi_payment_number' => '5090123456789012',
+            'reference_no' => 'BSI-'.$suffix,
+            'total' => 350000,
+            'admin_fee_bearer' => 'payer',
+            'admin_fee_amount' => 3000,
+            'status' => $status,
+            'expired_at' => now()->addDay(),
+            'paid_at' => in_array($status, ['success', 'posted'], true) ? now() : null,
+        ]);
+        $payment->details()->create([
+            'tagihan_id' => 10,
+            'tagihan_nama' => 'UKT',
+            'jumlah' => 350000,
+            'urutan' => 1,
+        ]);
+
+        return $payment;
+    }
+
+    private function inquiryPayload(string $inquiryId): array
+    {
+        return [
+            'partnerServiceId' => '    5090',
+            'customerNo' => '123456789012',
+            'trxDateInit' => now()->toIso8601String(),
+            'virtualAccountNo' => '    5090123456789012',
+            'inquiryRequestId' => $inquiryId,
+            'sourceBankCode' => '451',
+        ];
+    }
+
+    private function paymentPayload(string $paymentId, string $amount): array
+    {
+        return [
+            'partnerServiceId' => '    5090',
+            'customerNo' => '123456789012',
+            'virtualAccountNo' => '    5090123456789012',
+            'virtualAccountName' => 'Mahasiswa Uji',
+            'paidAmount' => ['value' => $amount, 'currency' => 'IDR'],
+            'trxDateTime' => now()->startOfSecond()->toIso8601String(),
+            'paymentRequestId' => $paymentId,
+            'sourceBankCode' => '451',
+        ];
     }
 
     private function assertSnapException(
@@ -569,6 +754,24 @@ PEM;
         });
         Schema::create('keuangan_pembayaran', function (Blueprint $table) {
             $table->id();
+        });
+
+        Schema::create('bsi_snap_logs', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('pembayaran_bsi_id')->nullable();
+            $table->string('operation', 30);
+            $table->string('external_id')->nullable();
+            $table->string('response_code', 10)->nullable();
+            $table->unsignedSmallInteger('http_status')->nullable();
+            $table->string('outcome', 30);
+            $table->boolean('signature_valid')->nullable();
+            $table->unsignedInteger('duration_ms')->default(0);
+            $table->string('source_ip', 64)->nullable();
+            $table->json('request_headers')->nullable();
+            $table->json('request_payload')->nullable();
+            $table->json('response_payload')->nullable();
+            $table->timestamp('requested_at')->nullable();
+            $table->timestamps();
         });
 
         Schema::create('bsi_reconciliations', function (Blueprint $table) {
