@@ -33,6 +33,7 @@ class BsiSettingsService
             'log_payloads' => true,
             'serve_test_va' => false,
             'database_failure_mode' => 'none',
+            'auto_transfer_enabled' => false,
         ]);
     }
 
@@ -94,6 +95,7 @@ class BsiSettingsService
             'log_payloads' => (bool) $settings->log_payloads,
             'serve_test_va' => (bool) $settings->serve_test_va,
             'database_failure_mode' => $settings->database_failure_mode ?: 'none',
+            'auto_transfer_enabled' => (bool) $settings->auto_transfer_enabled,
             'siakad_api_key_configured' => filled($settings->siakad_api_key_hash),
             'siakad_api_key_hint' => $settings->siakad_api_key_hint,
             'readiness' => $this->readiness($settings),

@@ -121,6 +121,7 @@ class BsiPaymentService
             'va_number' => trim($payload['va_number']),
             'expired_at' => Carbon::parse($payload['expired_at'])->toIso8601String(),
             'data_test' => (bool) ($payload['data_test'] ?? false),
+            'production' => (bool) ($payload['production'] ?? false),
             'admin_fee_bearer' => in_array(
                 $payload['admin_fee_bearer'] ?? null,
                 ['institution', 'payer'],
@@ -132,7 +133,7 @@ class BsiPaymentService
         // Penanda uji dan konfigurasi biaya ditentukan secara internal, bukan bagian
         // payload idempotensi pemanggil. Order lama tetap memakai snapshot awalnya.
         $requestHash = hash('sha256', json_encode(
-            Arr::except($canonical, ['data_test', 'admin_fee_bearer', 'admin_fee_amount']),
+            Arr::except($canonical, ['data_test', 'production', 'admin_fee_bearer', 'admin_fee_amount']),
             JSON_UNESCAPED_SLASHES
         ));
 
@@ -254,6 +255,7 @@ class BsiPaymentService
                     'admin_fee_amount' => $canonical['admin_fee_amount'],
                     'status' => 'pending',
                     'data_test' => $canonical['data_test'],
+                    'production' => $canonical['production'],
                     'expired_at' => Carbon::parse($canonical['expired_at']),
                     'raw_request' => $canonical,
                 ]);
@@ -362,7 +364,13 @@ class BsiPaymentService
             ->join('keuangan_pembayaran_bsi as pembayaran', 'pembayaran.id', '=', 'detail.pembayaran_bsi_id')
             ->where('pembayaran.nim', strtoupper(trim($nim)))
             ->where('detail.tagihan_id', $tagihanId)
-            ->whereIn('pembayaran.status', self::RESERVING_STATUSES)
+            ->where(function ($query) {
+                $query->whereIn('pembayaran.status', self::RESERVING_STATUSES)
+                    ->orWhere(function ($query) {
+                        $query->where('pembayaran.status', 'success')
+                            ->where('pembayaran.transferred', false);
+                    });
+            })
             ->when($excludePaymentId, fn ($query) => $query->where('pembayaran.id', '!=', $excludePaymentId))
             ->sum('detail.jumlah');
     }

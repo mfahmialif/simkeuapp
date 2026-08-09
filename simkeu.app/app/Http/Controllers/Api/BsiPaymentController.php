@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\KeuanganPembayaranBsi;
 use App\Services\BsiPaymentService;
+use App\Services\BsiPaymentTransferService;
 use App\Services\BsiSettingsService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -46,6 +47,7 @@ class BsiPaymentController extends Controller
         $settings = $settingsService->settings();
         $adminFee = $settingsService->adminFeeConfiguration($settings);
         $validated['data_test'] = (bool) $settings->test_mode;
+        $validated['production'] = strtolower((string) $settings->environment) === 'production';
         $validated['admin_fee_bearer'] = $adminFee['bearer'];
         $validated['admin_fee_amount'] = $adminFee['amount'];
         [$payment, $created] = $service->createPending($validated);
@@ -74,9 +76,17 @@ class BsiPaymentController extends Controller
         ]);
     }
 
-    public function callback(Request $request, BsiPaymentService $service): JsonResponse
-    {
+    public function callback(
+        Request $request,
+        BsiPaymentService $service,
+        BsiPaymentTransferService $transferService,
+    ): JsonResponse {
         $callback = $service->processCallback($request->all());
+        $payment = $callback->pembayaranBsi;
+
+        if ($payment?->status === 'success') {
+            $transferService->attemptAutomatic($payment);
+        }
 
         return response()->json([
             'status' => true,
@@ -107,6 +117,7 @@ class BsiPaymentController extends Controller
             'status' => $payment->status,
             'data_test' => (bool) $payment->data_test,
             'production' => (bool) $payment->production,
+            'transferred' => (bool) $payment->transferred,
             'expired_at' => $payment->expired_at,
             'paid_at' => $payment->paid_at,
             'posted_at' => $payment->posted_at,

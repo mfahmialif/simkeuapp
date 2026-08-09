@@ -22,8 +22,37 @@ class BsiPaymentOrderService
             ]);
         }
 
+        $customerNo = self::customerNumberFromNim($payload['nim']);
+        $lockName = 'bsi-order-'.substr(hash('sha256', $customerNo), 0, 48);
+        $usesNamedLock = DB::connection()->getDriverName() === 'mysql';
+
+        if ($usesNamedLock) {
+            $result = DB::selectOne('SELECT GET_LOCK(?, 10) AS acquired', [$lockName]);
+            if ((int) ($result->acquired ?? 0) !== 1) {
+                throw ValidationException::withMessages([
+                    'nim' => 'Transaksi mahasiswa sedang diproses. Silakan coba kembali.',
+                ]);
+            }
+        }
+
+        try {
+            return $this->createWhileLocked($payload, $settings, $customerNo);
+        } finally {
+            if ($usesNamedLock) {
+                try {
+                    DB::selectOne('SELECT RELEASE_LOCK(?) AS released', [$lockName]);
+                } catch (\Throwable $exception) {
+                    report($exception);
+                }
+            }
+        }
+    }
+
+    private function createWhileLocked(array $payload, $settings, string $customerNo): array
+    {
+
         $existing = KeuanganPembayaranBsi::where('request_id', $payload['request_id'])->first();
-        $customerNo = $existing?->customer_no ?: self::customerNumberFromNim($payload['nim']);
+        $customerNo = $existing?->customer_no ?: $customerNo;
 
         if (! $existing) {
             BsiPaymentService::expirePending();
@@ -86,8 +115,10 @@ class BsiPaymentOrderService
             'status' => $payment->status,
             'data_test' => (bool) $payment->data_test,
             'production' => (bool) $payment->production,
+            'transferred' => (bool) $payment->transferred,
             'expired_at' => $payment->expired_at,
             'paid_at' => $payment->paid_at,
+            'posted_at' => $payment->posted_at,
             'details' => $payment->details->map(fn ($detail) => [
                 'tagihan_id' => $detail->tagihan_id,
                 'tagihan_nama' => $detail->tagihan_nama,

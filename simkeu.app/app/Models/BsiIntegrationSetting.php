@@ -23,5 +23,6 @@ class BsiIntegrationSetting extends Model
         'verify_signatures' => 'boolean',
         'log_payloads' => 'boolean',
         'serve_test_va' => 'boolean',
+        'auto_transfer_enabled' => 'boolean',
     ];
 }

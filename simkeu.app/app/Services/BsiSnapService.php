@@ -158,30 +158,23 @@ class BsiSnapService
 
         $customerNo = $this->normalizeCustomerNo((string) $payload['customerNo'], $settings, '24');
         $this->assertTestVirtualAccountAllowed($customerNo, $settings, '24');
+        BsiPaymentService::expirePending();
         $payment = KeuanganPembayaranBsi::with('details')
             ->where('customer_no', $customerNo)
-            ->orderByRaw("CASE WHEN status = 'pending' THEN 0 ELSE 1 END")
+            ->where('status', 'pending')
+            ->where('expired_at', '>', now())
             ->latest('id')
             ->first();
 
         if (! $payment) {
+            $latestStatus = KeuanganPembayaranBsi::where('customer_no', $customerNo)
+                ->latest('id')
+                ->value('status');
+            if ($latestStatus === 'success') {
+                throw new BsiSnapException('4042414', 404, 'Bill already paid');
+            }
+
             throw new BsiSnapException('4042412', 404, 'Bill not found');
-        }
-
-        if ($payment->status === 'pending' && $payment->expired_at?->isPast()) {
-            $payment->update(['status' => 'expired']);
-        }
-
-        if ($payment->status === 'expired') {
-            throw new BsiSnapException('4042420', 404, 'Bill Expired');
-        }
-
-        if (in_array($payment->status, ['success', 'posted'], true)) {
-            throw new BsiSnapException('4042414', 404, 'Bill already paid');
-        }
-
-        if ($payment->status !== 'pending') {
-            throw new BsiSnapException('4042411', 404, 'Invalid data');
         }
 
         $this->assertPartnerAndVirtualAccount($payload, $settings, $customerNo, '24');
@@ -249,6 +242,8 @@ class BsiSnapService
             }
         }
 
+        BsiPaymentService::expirePending();
+
         return DB::transaction(function () use (
             $customerNo,
             $payload,
@@ -260,12 +255,20 @@ class BsiSnapService
         ) {
             $payment = KeuanganPembayaranBsi::where('customer_no', $customerNo)
                 ->with(['details.tahunAkademik', 'details.pembayaran'])
-                ->orderByRaw("CASE WHEN status = 'pending' THEN 0 ELSE 1 END")
+                ->where('status', 'pending')
+                ->where('expired_at', '>', now())
                 ->latest('id')
                 ->lockForUpdate()
                 ->first();
 
             if (! $payment) {
+                $latestStatus = KeuanganPembayaranBsi::where('customer_no', $customerNo)
+                    ->latest('id')
+                    ->value('status');
+                if ($latestStatus === 'success') {
+                    throw new BsiSnapException('4042514', 404, 'Bill already paid');
+                }
+
                 throw new BsiSnapException('4042512', 404, 'Bill not found');
             }
 
@@ -276,22 +279,6 @@ class BsiSnapService
                 }
 
                 return [$payment->payment_response, 200, $payment];
-            }
-
-            if ($payment->status === 'pending' && $payment->expired_at?->isPast()) {
-                $payment->update(['status' => 'expired']);
-            }
-
-            if ($payment->status === 'expired') {
-                throw new BsiSnapException('4042511', 404, 'Invalid data');
-            }
-
-            if (in_array($payment->status, ['success', 'posted'], true)) {
-                throw new BsiSnapException('4042514', 404, 'Bill already paid');
-            }
-
-            if ($payment->status !== 'pending') {
-                throw new BsiSnapException('4042511', 404, 'Invalid data');
             }
 
             $this->assertPartnerAndVirtualAccount($payload, $settings, $customerNo, '25');

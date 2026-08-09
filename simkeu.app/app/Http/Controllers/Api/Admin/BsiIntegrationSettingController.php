@@ -60,6 +60,14 @@ class BsiIntegrationSettingController extends Controller
             $query->where('match_status', $request->status);
         }
 
+        if ($request->filled('tanggal_mulai')) {
+            $query->whereDate('reconciled_at', '>=', $request->tanggal_mulai);
+        }
+
+        if ($request->filled('tanggal_akhir')) {
+            $query->whereDate('reconciled_at', '<=', $request->tanggal_akhir);
+        }
+
         if ($request->filled('search')) {
             $search = trim((string) $request->search);
             $query->where(function ($query) use ($search) {
@@ -209,6 +217,7 @@ class BsiIntegrationSettingController extends Controller
             'log_payloads' => 'required|boolean',
             'serve_test_va' => 'required|boolean',
             'database_failure_mode' => ['required', Rule::in(['none', 'transactions', 'all'])],
+            'auto_transfer_enabled' => 'required|boolean',
         ]);
 
         if (filled($validated['bpi_public_key'] ?? null)

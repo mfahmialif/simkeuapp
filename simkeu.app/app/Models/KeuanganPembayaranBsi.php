@@ -20,6 +20,7 @@ class KeuanganPembayaranBsi extends Model
         'admin_fee_amount' => 'decimal:2',
         'data_test' => 'boolean',
         'production' => 'boolean',
+        'transferred' => 'boolean',
         'expired_at' => 'datetime',
         'paid_at' => 'datetime',
         'posted_at' => 'datetime',

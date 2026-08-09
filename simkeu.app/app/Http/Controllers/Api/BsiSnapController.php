@@ -6,6 +6,7 @@ use App\Exceptions\BsiSnapException;
 use App\Http\Controllers\Controller;
 use App\Models\BsiSnapLog;
 use App\Models\KeuanganPembayaranBsi;
+use App\Services\BsiPaymentTransferService;
 use App\Services\BsiSettingsService;
 use App\Services\BsiSnapService;
 use Illuminate\Database\QueryException;
@@ -15,7 +16,10 @@ use Throwable;
 
 class BsiSnapController extends Controller
 {
-    public function __construct(private readonly BsiSettingsService $settingsService) {}
+    public function __construct(
+        private readonly BsiSettingsService $settingsService,
+        private readonly BsiPaymentTransferService $transferService,
+    ) {}
 
     public function unauthorized(): JsonResponse
     {
@@ -107,6 +111,11 @@ class BsiSnapController extends Controller
 
             [$body, $httpStatus, $payment] = $handler();
             $this->writeLog($operation, $request, $body, $httpStatus, 'success', $startedAt, $payment);
+
+            if (in_array($operation, ['payment', 'advice'], true)
+                && $payment?->status === 'success') {
+                $this->transferService->attemptAutomatic($payment);
+            }
 
             return response()->json($body, $httpStatus, [], JSON_UNESCAPED_SLASHES);
         } catch (BsiSnapException $exception) {
