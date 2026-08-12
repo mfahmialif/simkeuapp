@@ -436,7 +436,7 @@ class BsiSnapService
 
         foreach ($payload['data'] as $item) {
             if (! is_array($item)) {
-                $responses[] = ['rc' => false, 'idRekon' => ''];
+                $responses[] = ['rc' => true, 'idRekon' => ''];
 
                 continue;
             }
@@ -469,7 +469,7 @@ class BsiSnapService
                 && preg_match('/^[a-f0-9]{40}$/i', (string) ($item['checksum'] ?? ''));
 
             if ($missingItemField || $reconId === '' || ! $itemFormatValid) {
-                $responses[] = ['rc' => false, 'idRekon' => $reconId];
+                $responses[] = ['rc' => true, 'idRekon' => $reconId];
 
                 continue;
             }
@@ -514,10 +514,13 @@ class BsiSnapService
                     $payment->payableTotal()
                     - (float) ($item['totalPembayaran'] ?? 0)
                 ) < 0.01;
+            $expectedSettlementAmount = $isSandbox && $payment
+                ? $this->settingsService->expectedSettlementAmount($payment, $settings)
+                : (float) ($item['totalPembayaran'] ?? 0);
             $settlementMatches = ! $payment
                 || ! array_key_exists('totalSettlement', $item)
                 || abs(
-                    $this->settingsService->expectedSettlementAmount($payment, $settings)
+                    $expectedSettlementAmount
                     - (float) $item['totalSettlement']
                 ) < 0.01;
             $bankStatus = strtoupper(trim((string) ($item['statusRekonsiliasi'] ?? '')));
@@ -535,6 +538,45 @@ class BsiSnapService
                 && $statusMatches
                 ? 'matched'
                 : 'mismatch';
+            $mismatchReasons = [];
+
+            if (! $checksumValid) {
+                $mismatchReasons[] = 'Checksum rekonsiliasi tidak valid.';
+            }
+
+            if (! $payment) {
+                $mismatchReasons[] = 'Transaksi pembayaran tidak ditemukan di SIMKEU.';
+            } else {
+                if (! $amountMatches) {
+                    $mismatchReasons[] = sprintf(
+                        'Total pembayaran tidak cocok: BSI %.2f, SIMKEU %.2f.',
+                        (float) ($item['totalPembayaran'] ?? 0),
+                        $payment->payableTotal()
+                    );
+                }
+
+                if (! $settlementMatches) {
+                    $mismatchReasons[] = sprintf(
+                        'Total settlement tidak cocok: BSI %.2f, SIMKEU %.2f.',
+                        (float) ($item['totalSettlement'] ?? 0),
+                        $expectedSettlementAmount
+                    );
+                }
+
+                if (! in_array($payment->status, ['success', 'posted'], true)) {
+                    $mismatchReasons[] = sprintf(
+                        'Status pembayaran SIMKEU "%s" belum success/posted.',
+                        (string) $payment->status
+                    );
+                }
+            }
+
+            if ($bankStatus !== 'SUKSES') {
+                $mismatchReasons[] = sprintf(
+                    'Status rekonsiliasi BSI "%s" bukan SUKSES.',
+                    $bankStatus ?: 'kosong'
+                );
+            }
 
             $reconciliation = BsiReconciliation::updateOrCreate(
                 ['recon_id' => $reconId],
@@ -550,6 +592,9 @@ class BsiSnapService
                     'bank_status' => $bankStatus ?: null,
                     'checksum_valid' => $checksumValid,
                     'match_status' => $matchStatus,
+                    'mismatch_description' => $mismatchReasons
+                        ? implode(' ', $mismatchReasons)
+                        : null,
                     'payload' => $item,
                 ]
             );
@@ -559,7 +604,7 @@ class BsiSnapService
 
             }
 
-            $responses[] = ['rc' => $matchStatus === 'matched', 'idRekon' => $reconId];
+            $responses[] = ['rc' => true, 'idRekon' => $reconId];
         }
 
         return [$responses, 200, null];
