@@ -206,6 +206,7 @@ class BsiIntegrationSettingController extends Controller
             'reconciliation_secret' => 'nullable|string|min:8|max:2000',
             'reconciliation_email' => 'nullable|email:rfc|max:255',
             'payment_expiry_minutes' => 'required|integer|min:5|max:10080',
+            'payment_mode' => ['required', Rule::in(['open', 'close'])],
             'admin_fee_bearer' => ['required', Rule::in(['institution', 'payer'])],
             'admin_fee_amount' => 'required|numeric|min:0|max:1000000',
             'sandbox_admin_fee_amount' => 'required|numeric|min:0|max:1000000',

@@ -66,6 +66,7 @@ PEM;
             'bpi_public_key' => $publicKey,
             'reconciliation_secret' => 'recon-secret',
             'payment_expiry_minutes' => 1440,
+            'payment_mode' => 'open',
             'timestamp_tolerance' => 300,
             'allowed_ips' => [],
             'enforce_ip_allowlist' => false,
@@ -296,6 +297,7 @@ PEM;
 
     public function test_payment_wrong_amount_keeps_order_pending_and_correct_amount_can_succeed(): void
     {
+        BsiIntegrationSetting::firstOrFail()->update(['payment_mode' => 'close']);
         $payment = $this->createSnapPayment('pending', 'WRONG-AMOUNT');
         $service = new BsiSnapService(new BsiSettingsService);
         [$authBody] = $service->authenticate($this->authRequest());
@@ -326,6 +328,78 @@ PEM;
         $this->assertSame(200, $status);
         $this->assertSame('2002500', $body['responseCode']);
         $this->assertSame('success', $payment->refresh()->status);
+    }
+
+    public function test_open_payment_allocates_paid_amount_from_the_first_detail(): void
+    {
+        $payment = $this->createSnapPayment('pending', 'OPEN-PARTIAL');
+        $payment->update(['total' => 1000000]);
+        $payment->details()->firstOrFail()->update(['jumlah' => 900000, 'urutan' => 1]);
+        $payment->details()->create([
+            'tagihan_id' => 11,
+            'tagihan_nama' => 'UAS',
+            'jumlah' => 100000,
+            'urutan' => 2,
+        ]);
+
+        $service = new BsiSnapService(new BsiSettingsService);
+        [$authBody] = $service->authenticate($this->authRequest());
+        [$body, $status] = $service->payment($this->transactionRequest(
+            '/api/bpi-bi-snap/payment',
+            $this->paymentPayload('PAY-OPEN-PARTIAL', '900000.00'),
+            $authBody['accessToken'],
+            'PAY-OPEN-PARTIAL'
+        ));
+
+        $this->assertSame(200, $status);
+        $this->assertSame('2002500', $body['responseCode']);
+        $this->assertSame(900000.0, (float) $payment->refresh()->total);
+        $this->assertSame(
+            [900000.0, 0.0],
+            $payment->details()->orderBy('urutan')->get()->map(fn ($detail) => (float) $detail->jumlah)->all()
+        );
+    }
+
+    public function test_open_payment_credits_overpayment_to_deposit_once(): void
+    {
+        $payment = $this->createSnapPayment('pending', 'OPEN-DEPOSIT');
+        $payment->update([
+            'total' => 1000000,
+            'production' => true,
+            'admin_fee_bearer' => 'institution',
+            'admin_fee_amount' => 0,
+        ]);
+        $payment->details()->firstOrFail()->update(['jumlah' => 900000, 'urutan' => 1]);
+        $payment->details()->create([
+            'tagihan_id' => 11,
+            'tagihan_nama' => 'UAS',
+            'jumlah' => 100000,
+            'urutan' => 2,
+        ]);
+
+        $service = new BsiSnapService(new BsiSettingsService);
+        [$authBody] = $service->authenticate($this->authRequest());
+        $payload = $this->paymentPayload('PAY-OPEN-DEPOSIT', '1200000.00');
+
+        $service->payment($this->transactionRequest(
+            '/api/bpi-bi-snap/payment',
+            $payload,
+            $authBody['accessToken'],
+            'PAY-OPEN-DEPOSIT'
+        ));
+        $service->payment($this->transactionRequest(
+            '/api/bpi-bi-snap/payment',
+            $payload,
+            $authBody['accessToken'],
+            'PAY-OPEN-DEPOSIT'
+        ));
+
+        $this->assertSame(1200000.0, (float) $payment->refresh()->total);
+        $this->assertDatabaseHas('keuangan_deposit', [
+            'nim' => '20240001',
+            'jumlah' => 200000,
+        ]);
+        $this->assertDatabaseCount('keuangan_deposit', 1);
     }
 
     public function test_controller_exposes_general_and_database_error_codes_for_sit(): void
@@ -724,6 +798,7 @@ PEM;
             $table->text('reconciliation_secret')->nullable();
             $table->string('reconciliation_email')->nullable();
             $table->unsignedInteger('payment_expiry_minutes');
+            $table->string('payment_mode', 10)->default('open');
             $table->string('admin_fee_bearer', 20)->default('institution');
             $table->decimal('admin_fee_amount', 15, 2)->default(2500);
             $table->decimal('sandbox_admin_fee_amount', 15, 2)->default(3000);
@@ -796,6 +871,14 @@ PEM;
         });
         Schema::create('keuangan_pembayaran', function (Blueprint $table) {
             $table->id();
+        });
+
+        Schema::create('keuangan_deposit', function (Blueprint $table) {
+            $table->id();
+            $table->string('nim');
+            $table->decimal('jumlah', 15, 2);
+            $table->text('keterangan')->nullable();
+            $table->timestamps();
         });
 
         Schema::create('bsi_snap_logs', function (Blueprint $table) {

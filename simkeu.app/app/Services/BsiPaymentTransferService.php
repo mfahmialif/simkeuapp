@@ -70,6 +70,10 @@ class BsiPaymentTransferService
                     continue;
                 }
 
+                if ((float) $detail->jumlah <= 0) {
+                    continue;
+                }
+
                 $semester = $this->resolveSemester(
                     $locked->nim,
                     (string) $detail->tahunAkademik?->kode

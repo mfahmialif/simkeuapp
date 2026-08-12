@@ -24,6 +24,7 @@ class BsiSettingsService
         return BsiIntegrationSetting::query()->firstOrCreate([], [
             'environment' => 'sandbox',
             'payment_expiry_minutes' => 1440,
+            'payment_mode' => 'open',
             'admin_fee_bearer' => self::SANDBOX_ADMIN_FEE_BEARER,
             'admin_fee_amount' => 2500,
             'sandbox_admin_fee_amount' => self::DEFAULT_SANDBOX_ADMIN_FEE_AMOUNT,
@@ -81,6 +82,7 @@ class BsiSettingsService
             'reconciliation_secret_configured' => filled($settings->reconciliation_secret),
             'reconciliation_email' => $settings->reconciliation_email,
             'payment_expiry_minutes' => (int) $settings->payment_expiry_minutes,
+            'payment_mode' => $this->paymentMode($settings),
             'admin_fee_bearer' => $adminFee['bearer'],
             'admin_fee_amount' => $adminFee['amount'],
             'admin_fee_locked' => $adminFee['locked'],
@@ -121,6 +123,13 @@ class BsiSettingsService
             'amount' => (float) ($settings->admin_fee_amount ?? 2500),
             'locked' => false,
         ];
+    }
+
+    public function paymentMode(BsiIntegrationSetting $settings): string
+    {
+        return in_array($settings->payment_mode, ['open', 'close'], true)
+            ? $settings->payment_mode
+            : 'open';
     }
 
     public function snapTransactionAmount(

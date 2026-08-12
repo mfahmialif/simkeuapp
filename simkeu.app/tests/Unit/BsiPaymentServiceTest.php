@@ -38,4 +38,28 @@ class BsiPaymentServiceTest extends TestCase
         $this->assertSame(0.0, $service->reservedAmount('20240001', 10));
         $this->assertSame(0.0, $service->reservedAmount('20240001', 10, 99));
     }
+
+    public function test_open_payment_is_allocated_from_the_first_detail(): void
+    {
+        $service = new BsiPaymentService;
+
+        $this->assertSame(
+            ['amounts' => [900000.0, 0.0], 'remainder' => 0.0],
+            $service->allocateFromTop([900000, 100000], 900000)
+        );
+        $this->assertSame(
+            ['amounts' => [900000.0, 50000.0], 'remainder' => 0.0],
+            $service->allocateFromTop([900000, 100000], 950000)
+        );
+    }
+
+    public function test_open_payment_returns_overpayment_as_remainder(): void
+    {
+        $service = new BsiPaymentService;
+
+        $this->assertSame(
+            ['amounts' => [900000.0, 100000.0], 'remainder' => 200000.0],
+            $service->allocateFromTop([900000, 100000], 1200000)
+        );
+    }
 }

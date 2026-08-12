@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\KeuanganDeposit;
 use App\Models\KeuanganJenisPembayaran;
 use App\Models\KeuanganPembayaranBsi;
 use App\Models\KeuanganPembayaranBsiCallback;
@@ -358,6 +359,83 @@ class BsiPaymentService
         }
     }
 
+    public function principalAmountFromPaid(
+        KeuanganPembayaranBsi $payment,
+        float $paidAmount
+    ): float {
+        $payerFee = $payment->production && $payment->admin_fee_bearer === 'payer'
+            ? max(0, (float) $payment->admin_fee_amount)
+            : 0;
+
+        return round($paidAmount - $payerFee, 2);
+    }
+
+    /**
+     * Membagi nominal pokok pembayaran ke detail sesuai urutan yang tersimpan.
+     * Nilai jumlah sebelum pembayaran menjadi batas maksimum setiap detail.
+     */
+    public function applyOpenPaymentAmount(
+        KeuanganPembayaranBsi $payment,
+        float $paidAmount
+    ): array {
+        $principalAmount = $this->principalAmountFromPaid($payment, $paidAmount);
+        $payment->load('details');
+        $allocation = $this->allocateFromTop(
+            $payment->details->map(fn ($detail) => (float) $detail->jumlah)->all(),
+            $principalAmount
+        );
+
+        foreach ($payment->details as $index => $detail) {
+            $allocated = $allocation['amounts'][$index];
+
+            $detail->update(['jumlah' => $allocated]);
+        }
+
+        $depositAmount = $allocation['remainder'];
+        $payment->update(['total' => $principalAmount]);
+
+        if ($depositAmount > 0 && $payment->production && ! $payment->data_test) {
+            $deposit = KeuanganDeposit::query()
+                ->where('nim', $payment->nim)
+                ->lockForUpdate()
+                ->first();
+
+            if ($deposit) {
+                $deposit->update([
+                    'jumlah' => round((float) $deposit->jumlah + $depositAmount, 2),
+                ]);
+            } else {
+                KeuanganDeposit::create([
+                    'nim' => $payment->nim,
+                    'jumlah' => $depositAmount,
+                    'keterangan' => 'Kelebihan pembayaran BSI '.$payment->nomor,
+                ]);
+            }
+        }
+
+        return [
+            'principal_amount' => $principalAmount,
+            'deposit_amount' => $depositAmount,
+        ];
+    }
+
+    public function allocateFromTop(array $maximums, float $amount): array
+    {
+        $remaining = round(max(0, $amount), 2);
+        $amounts = [];
+
+        foreach ($maximums as $maximum) {
+            $allocated = round(min(max(0, (float) $maximum), $remaining), 2);
+            $amounts[] = $allocated;
+            $remaining = round(max(0, $remaining - $allocated), 2);
+        }
+
+        return [
+            'amounts' => $amounts,
+            'remainder' => $remaining,
+        ];
+    }
+
     public function reservedAmount(string $nim, int $tagihanId, ?int $excludePaymentId = null): float
     {
         // Dipertahankan untuk kompatibilitas pemanggil lama. Baik transaksi BSI
@@ -431,8 +509,20 @@ class BsiPaymentService
         $failedStatuses = ['failed', 'failure', 'expired'];
 
         if (in_array($callback->bank_status, $successStatuses, true)) {
+            $settings = app(BsiSettingsService::class)->settings();
+            $openPayment = app(BsiSettingsService::class)->paymentMode($settings) === 'open';
+            $principalAmount = $callback->amount !== null
+                ? $this->principalAmountFromPaid($payment, (float) $callback->amount)
+                : 0;
             $amountMatches = $callback->amount !== null
-                && abs((float) $callback->amount - $payment->snapTransactionAmount()) < 0.01;
+                && ($openPayment
+                    ? $principalAmount > 0
+                    : abs((float) $callback->amount - $payment->snapTransactionAmount()) < 0.01);
+
+            if ($amountMatches && $openPayment) {
+                $this->applyOpenPaymentAmount($payment, (float) $callback->amount);
+            }
+
             $newStatus = $amountMatches ? 'success' : 'needs_review';
             $message = $amountMatches
                 ? 'Pembayaran BSI berhasil dikonfirmasi.'

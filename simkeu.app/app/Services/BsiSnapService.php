@@ -13,6 +13,8 @@ use Illuminate\Support\Facades\DB;
 
 class BsiSnapService
 {
+    private readonly BsiPaymentService $paymentService;
+
     private const CHANNEL_IDS = ['6011', '6014', '6017', '6027', '6099', '6199'];
 
     public const RESPONSE_CODE_CATALOG = [
@@ -60,8 +62,11 @@ class BsiSnapService
     ];
 
     public function __construct(
-        private readonly BsiSettingsService $settingsService
-    ) {}
+        private readonly BsiSettingsService $settingsService,
+        ?BsiPaymentService $paymentService = null,
+    ) {
+        $this->paymentService = $paymentService ?? app(BsiPaymentService::class);
+    }
 
     public function authenticate(Request $request): array
     {
@@ -287,8 +292,15 @@ class BsiSnapService
 
             $paidAmount = round((float) $payload['paidAmount']['value'], 2);
             $expectedAmount = $this->settingsService->snapTransactionAmount($payment, $settings);
-            if (abs($paidAmount - $expectedAmount) >= 0.01) {
+            $openPayment = $this->settingsService->paymentMode($settings) === 'open';
+            $principalAmount = $this->paymentService->principalAmountFromPaid($payment, $paidAmount);
+            if ((! $openPayment && abs($paidAmount - $expectedAmount) >= 0.01)
+                || ($openPayment && ($paidAmount <= 0 || $principalAmount <= 0))) {
                 throw new BsiSnapException('4042513', 404, 'Payment Amount not valid');
+            }
+
+            if ($openPayment) {
+                $this->paymentService->applyOpenPaymentAmount($payment, $paidAmount);
             }
 
             $payment->update([
