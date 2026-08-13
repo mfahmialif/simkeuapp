@@ -81,6 +81,7 @@ Route::prefix('bpi-bi-snap')->group(function () {
 
 Route::prefix('v1/integrations/siakad/bsi')->middleware('bsi.siakad')->group(function () {
     Route::get('bills/{nim}', [SiakadBsiPaymentController::class, 'bills']);
+    Route::get('payment-history/{nim}', [SiakadBsiPaymentController::class, 'paymentHistory']);
     Route::post('payment-orders', [SiakadBsiPaymentController::class, 'store']);
     Route::get('payment-orders/{requestId}', [SiakadBsiPaymentController::class, 'show']);
     Route::post('payment-orders/{requestId}/cancel', [SiakadBsiPaymentController::class, 'cancel']);

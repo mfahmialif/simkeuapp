@@ -40,6 +40,32 @@ paths:
                     description: Profil mahasiswa, list_tagihan, dan total_tersedia.
         "401": { $ref: "#/components/responses/SiakadUnauthorized" }
         "503": { $ref: "#/components/responses/IntegrationDisabled" }
+  /api/v1/integrations/siakad/bsi/payment-history/{nim}:
+    get:
+      tags: [SIAKAD]
+      summary: Ambil riwayat pembayaran resmi mahasiswa yang dibundel per nota
+      description: >-
+        Sumber transaksi hanya keuangan_pembayaran. Beberapa baris dengan
+        keuangan_nota.nota yang sama dikembalikan sebagai satu transaksi.
+      security:
+        - SiakadApiKey: []
+      parameters:
+        - name: nim
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "20240001"
+      responses:
+        "200":
+          description: Riwayat pembayaran resmi yang telah dibundel per nota
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentHistoryResponse"
+        "401": { $ref: "#/components/responses/SiakadUnauthorized" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+        "503": { $ref: "#/components/responses/IntegrationDisabled" }
   /api/v1/integrations/siakad/bsi/payment-orders:
     post:
       tags: [SIAKAD]
@@ -348,6 +374,44 @@ components:
         message: { type: string }
         data:
           $ref: "#/components/schemas/PaymentOrder"
+    PaymentHistoryResponse:
+      type: object
+      required: [status, data]
+      properties:
+        status: { type: boolean, example: true }
+        data:
+          type: object
+          required: [nim, total_transaksi, total_pembayaran, riwayat]
+          properties:
+            nim: { type: string, example: "20240001" }
+            total_transaksi: { type: integer, example: 2 }
+            total_pembayaran: { type: number, format: double, example: 425000 }
+            riwayat:
+              type: array
+              items:
+                $ref: "#/components/schemas/PaymentHistoryBundle"
+    PaymentHistoryBundle:
+      type: object
+      required: [nota, tanggal, nim, total, jumlah_item, items]
+      properties:
+        nota: { type: string, example: 130826-00001-L-123 }
+        tanggal: { type: string, format: date-time }
+        nim: { type: string, example: "2024.0001" }
+        total: { type: number, format: double, example: 350000 }
+        jumlah_item: { type: integer, example: 2 }
+        items:
+          type: array
+          items:
+            type: object
+            required: [pembayaran_id, nomor, th_akademik_id, tagihan_id, semester, jumlah_sks, jumlah]
+            properties:
+              pembayaran_id: { type: integer, example: 101 }
+              nomor: { type: string, example: PAY-001 }
+              th_akademik_id: { type: integer, example: 25 }
+              tagihan_id: { type: integer, example: 10 }
+              semester: { type: integer, example: 5 }
+              jumlah_sks: { type: integer, example: 1 }
+              jumlah: { type: number, format: double, example: 250000 }
     PaymentOrder:
       type: object
       properties:

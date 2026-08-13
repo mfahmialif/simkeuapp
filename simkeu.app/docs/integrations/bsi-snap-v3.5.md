@@ -95,6 +95,56 @@ curl --request GET \
   --header 'X-SIAKAD-API-KEY: GANTI_DENGAN_API_KEY'
 ```
 
+### Ambil riwayat pembayaran
+
+```http
+GET /api/v1/integrations/siakad/bsi/payment-history/{nim}
+```
+
+Parameter path `nim` wajib. Endpoint ini hanya membaca ledger resmi
+`keuangan_pembayaran`; payment order dari tabel standalone BSI tidak ikut ditampilkan.
+Karena satu transaksi dapat tersimpan sebagai beberapa baris pembayaran, baris dengan
+`keuangan_nota.nota` yang sama dibundel menjadi satu riwayat. Baris lama tanpa nota
+menjadi bundel tersendiri dengan `nomor` pembayaran sebagai pengganti nota.
+
+```bash
+curl --request GET \
+  --url 'https://simkeuapp.uiidalwa.web.id/api/v1/integrations/siakad/bsi/payment-history/20240001' \
+  --header 'Accept: application/json' \
+  --header 'X-SIAKAD-API-KEY: GANTI_DENGAN_API_KEY'
+```
+
+```json
+{
+  "status": true,
+  "data": {
+    "nim": "20240001",
+    "total_transaksi": 1,
+    "total_pembayaran": 350000,
+    "riwayat": [
+      {
+        "nota": "130826-00001-L-123",
+        "tanggal": "2026-08-13 09:00:00",
+        "nim": "2024.0001",
+        "total": 350000,
+        "jumlah_item": 2,
+        "items": [
+          {
+            "pembayaran_id": 101,
+            "nomor": "PAY-001",
+            "th_akademik_id": 25,
+            "tagihan_id": 10,
+            "semester": 5,
+            "jumlah_sks": 1,
+            "jumlah": 250000
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
 ### Buat payment order
 
 `request_id` harus unik dan stabil. Pengiriman ulang payload yang sama bersifat idempoten. Pengiriman ulang `request_id` yang sama dengan isi berbeda ditolak.

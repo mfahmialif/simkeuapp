@@ -20,6 +20,17 @@
           }
         },
         {
+          "name": "Ambil Riwayat Pembayaran",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "X-SIAKAD-API-KEY", "value": "{{siakad_api_key}}", "type": "text" }
+            ],
+            "url": "{{base_url}}/api/v1/integrations/siakad/bsi/payment-history/{{nim}}"
+          }
+        },
+        {
           "name": "Buat Payment Order",
           "request": {
             "method": "POST",

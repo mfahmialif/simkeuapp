@@ -5,12 +5,34 @@ namespace Tests\Feature;
 use App\Http\Controllers\Api\SiakadBsiPaymentController;
 use App\Models\KeuanganPembayaranBsi;
 use App\Services\BsiPaymentOrderService;
+use App\Services\SiakadPaymentHistoryService;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
 
 class SiakadBsiPaymentControllerTest extends TestCase
 {
+    public function test_payment_history_returns_bundled_official_payments(): void
+    {
+        $history = [
+            'nim' => '20240001',
+            'total_transaksi' => 1,
+            'total_pembayaran' => 350000,
+            'riwayat' => [['nota' => '130826-00001-L-123']],
+        ];
+        $service = $this->createMock(SiakadPaymentHistoryService::class);
+        $service->expects($this->once())
+            ->method('forStudent')
+            ->with('20240001')
+            ->willReturn($history);
+
+        $response = (new SiakadBsiPaymentController)->paymentHistory('20240001', $service);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertTrue($response->getData(true)['status']);
+        $this->assertSame($history, $response->getData(true)['data']);
+    }
+
     public function test_create_order_accepts_only_the_simple_siakad_payload(): void
     {
         $payload = [

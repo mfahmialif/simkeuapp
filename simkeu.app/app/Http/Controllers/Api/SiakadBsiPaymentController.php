@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\KeuanganPembayaranBsi;
 use App\Services\BsiPaymentOrderService;
 use App\Services\BsiPaymentService;
+use App\Services\SiakadPaymentHistoryService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -21,6 +22,16 @@ class SiakadBsiPaymentController extends Controller
         return response()->json([
             'status' => true,
             'data' => $service->availableTagihan($nim),
+        ]);
+    }
+
+    public function paymentHistory(
+        string $nim,
+        SiakadPaymentHistoryService $service,
+    ): JsonResponse {
+        return response()->json([
+            'status' => true,
+            'data' => $service->forStudent($nim),
         ]);
     }
 
