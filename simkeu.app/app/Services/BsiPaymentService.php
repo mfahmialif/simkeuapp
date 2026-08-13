@@ -62,7 +62,9 @@ class BsiPaymentService
 
         $nim = strtoupper(trim($nim));
         $tagihanData = TagihanMahasiswa::tagihan($nim);
-        $items = collect($tagihanData['list_tagihan'] ?? [])
+        // SIAKAD hanya boleh menawarkan tagihan sampai semester mahasiswa saat ini.
+        // Tagihan semester depan tetap tersimpan di SIMKEU, tetapi tidak dikirim ke VA.
+        $items = collect($tagihanData['list_tagihan_semester_ini'] ?? [])
             ->map(function ($tagihan) {
                 $tagihanId = (int) data_get($tagihan, 'id');
                 $sisaResmi = max(0, (float) data_get($tagihan, 'sisa', 0));

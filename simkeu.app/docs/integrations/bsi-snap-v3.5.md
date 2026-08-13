@@ -87,6 +87,8 @@ GET /api/v1/integrations/siakad/bsi/bills/{nim}
 ```
 
 Parameter path `nim` wajib. Endpoint ini tidak menerima query parameter maupun body.
+Respons hanya memuat tagihan sampai semester mahasiswa saat ini. Tagihan semester
+depan tetap tersimpan di SIMKEU, tetapi tidak dikembalikan oleh endpoint ini.
 
 ```bash
 curl --request GET \

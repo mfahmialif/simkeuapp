@@ -16,6 +16,9 @@ paths:
     get:
       tags: [SIAKAD]
       summary: Ambil tagihan mahasiswa yang dapat dibayar
+      description: >-
+        Hanya mengembalikan tagihan sampai semester mahasiswa saat ini.
+        Tagihan semester depan tidak disertakan dalam respons.
       security:
         - SiakadApiKey: []
       parameters:
