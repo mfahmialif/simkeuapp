@@ -35,9 +35,9 @@ paths:
                 properties:
                   status: { type: boolean, example: true }
                   data:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/Bill"
+                    type: object
+                    additionalProperties: true
+                    description: Profil mahasiswa, list_tagihan, dan total_tersedia.
         "401": { $ref: "#/components/responses/SiakadUnauthorized" }
         "503": { $ref: "#/components/responses/IntegrationDisabled" }
   /api/v1/integrations/siakad/bsi/payment-orders:
@@ -320,6 +320,11 @@ components:
       description: Bentuk tagihan mengikuti hasil BsiPaymentService::availableTagihan.
     CreatePaymentOrder:
       type: object
+      additionalProperties: false
+      description: >-
+        Seluruh field wajib. Tidak ada field opsional; environment, data_test,
+        mode pembayaran, expiry, biaya admin, nomor pembayaran, dan status
+        ditentukan oleh Konfig BSI SIMKEU.
       required: [request_id, nim, items]
       properties:
         request_id: { type: string, maxLength: 255, example: SIAKAD-20260808-000001 }
@@ -330,6 +335,7 @@ components:
           maxItems: 100
           items:
             type: object
+            additionalProperties: false
             required: [tagihan_id, jumlah]
             properties:
               tagihan_id: { type: integer, example: 10 }
@@ -353,12 +359,20 @@ components:
         bsi_payment_number: { type: string, example: "5090123456789012" }
         interbank_va_number: { type: string, example: "9005090123456789012" }
         total: { type: string, example: "350000.00" }
+        admin_fee_bearer: { type: string, enum: [institution, payer] }
+        admin_fee_amount: { type: number, format: double }
+        payable_total: { type: number, format: double }
+        expected_settlement_total: { type: number, format: double }
         currency: { type: string, enum: [IDR] }
         status:
           type: string
-          enum: [pending, paid, success, needs_review, expired, cancelled, rejected]
+          enum: [pending, paid, success, posted, needs_review, expired, cancelled, failed, rejected]
+        data_test: { type: boolean, description: Berasal dari test_mode Konfig BSI SIMKEU. }
+        production: { type: boolean, description: Berasal dari environment Konfig BSI SIMKEU. }
+        transferred: { type: boolean, description: Sudah disinkronkan ke ledger resmi SIMKEU. }
         expired_at: { type: string, format: date-time }
         paid_at: { type: string, format: date-time, nullable: true }
+        posted_at: { type: string, format: date-time, nullable: true }
         details:
           type: array
           items:

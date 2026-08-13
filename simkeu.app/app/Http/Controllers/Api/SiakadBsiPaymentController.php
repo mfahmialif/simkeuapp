@@ -8,9 +8,14 @@ use App\Services\BsiPaymentOrderService;
 use App\Services\BsiPaymentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 
 class SiakadBsiPaymentController extends Controller
 {
+    private const CREATE_ORDER_FIELDS = ['request_id', 'nim', 'items'];
+
+    private const CREATE_ORDER_ITEM_FIELDS = ['tagihan_id', 'jumlah'];
+
     public function bills(string $nim, BsiPaymentService $service): JsonResponse
     {
         return response()->json([
@@ -23,6 +28,8 @@ class SiakadBsiPaymentController extends Controller
         Request $request,
         BsiPaymentOrderService $orderService,
     ): JsonResponse {
+        $this->assertSupportedCreateOrderFields($request);
+
         $validated = $request->validate([
             'request_id' => 'required|string|max:255',
             'nim' => 'required|string|max:255',
@@ -41,6 +48,40 @@ class SiakadBsiPaymentController extends Controller
                 : 'Payment order dengan request_id tersebut sudah ada.',
             'data' => $orderService->data($payment),
         ], $created ? 201 : 200);
+    }
+
+    private function assertSupportedCreateOrderFields(Request $request): void
+    {
+        $unexpectedFields = array_values(array_diff(
+            array_keys($request->all()),
+            self::CREATE_ORDER_FIELDS
+        ));
+        $unexpectedItemFields = collect($request->input('items', []))
+            ->filter(fn ($item) => is_array($item))
+            ->flatMap(fn (array $item) => array_diff(
+                array_keys($item),
+                self::CREATE_ORDER_ITEM_FIELDS
+            ))
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($unexpectedFields === [] && $unexpectedItemFields === []) {
+            return;
+        }
+
+        $messages = [];
+        if ($unexpectedFields !== []) {
+            $messages[] = 'Field body tidak didukung: '.implode(', ', $unexpectedFields).'.';
+        }
+        if ($unexpectedItemFields !== []) {
+            $messages[] = 'Field item tidak didukung: '.implode(', ', $unexpectedItemFields).'.';
+        }
+
+        throw ValidationException::withMessages([
+            'body' => implode(' ', $messages).
+                ' Konfigurasi environment, data test, mode pembayaran, expiry, dan biaya admin dikelola oleh SIMKEU.',
+        ]);
     }
 
     public function show(string $requestId, BsiPaymentOrderService $orderService): JsonResponse

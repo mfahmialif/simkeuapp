@@ -58,7 +58,22 @@ Admin dapat menguji pembuatan payment order melalui tab **Simulasi Pembayaran** 
 
 ## API SIAKAD
 
-Semua endpoint berikut membutuhkan header:
+Payment order SIAKAD disimpan sebagai transaksi BSI standalone. Status `success` berarti pembayaran sudah dikonfirmasi BSI; `transferred=true` berarti transaksi sudah disinkronkan ke ledger pembayaran resmi SIMKEU.
+
+SIAKAD hanya mengirim `request_id`, `nim`, dan `items`. Nilai `production`, `data_test`, KODE BPI/nomor pembayaran, expiry, mode Open/Close Payment, biaya admin, dan transfer otomatis selalu berasal dari **Konfig BSI SIMKEU**. Field tambahan pada body atau item ditolak dengan HTTP 422.
+
+Header request:
+
+| Header | Endpoint | Status | Nilai |
+|---|---|---|---|
+| `X-SIAKAD-API-KEY` | Semua | Wajib | API key dari Konfig BSI |
+| `Accept` | Semua | Wajib | `application/json` |
+| `Content-Type` | POST payment order | Wajib | `application/json` |
+| `User-Agent` | Semua | Opsional | Identitas aplikasi/versi SIAKAD |
+
+API SIAKAD tidak memakai Bearer token maupun header signature BI-SNAP.
+
+Contoh header umum:
 
 ```http
 Accept: application/json
@@ -71,6 +86,8 @@ X-SIAKAD-API-KEY: <api-key-yang-dibuat-di-Konfig-BSI>
 GET /api/v1/integrations/siakad/bsi/bills/{nim}
 ```
 
+Parameter path `nim` wajib. Endpoint ini tidak menerima query parameter maupun body.
+
 ```bash
 curl --request GET \
   --url 'https://simkeuapp.uiidalwa.web.id/api/v1/integrations/siakad/bsi/bills/20240001' \
@@ -81,6 +98,16 @@ curl --request GET \
 ### Buat payment order
 
 `request_id` harus unik dan stabil. Pengiriman ulang payload yang sama bersifat idempoten. Pengiriman ulang `request_id` yang sama dengan isi berbeda ditolak.
+
+| Field body | Tipe | Status | Aturan |
+|---|---|---|---|
+| `request_id` | string | Wajib | Maksimal 255 karakter, unik, dan stabil |
+| `nim` | string | Wajib | Setelah titik/spasi dihapus harus 5–12 digit |
+| `items` | array | Wajib | 1–100 item |
+| `items[].tagihan_id` | integer | Wajib | Unik dan berasal dari endpoint bills |
+| `items[].jumlah` | number | Wajib | Minimal 0,01 dan maksimal nilai `tersedia` |
+
+Tidak ada field body opsional. Field konfigurasi seperti `data_test`, `production`, `payment_mode`, expiry, biaya admin, status, nomor VA, dan `cara_bayar` tidak boleh dikirim SIAKAD.
 
 ```http
 POST /api/v1/integrations/siakad/bsi/payment-orders
@@ -111,8 +138,15 @@ Respons sukses berisi:
     "bsi_payment_number": "5090123456789012",
     "interbank_va_number": "9005090123456789012",
     "total": "350000.00",
+    "admin_fee_bearer": "institution",
+    "admin_fee_amount": 2500,
+    "payable_total": 350000,
+    "expected_settlement_total": 347500,
     "currency": "IDR",
     "status": "pending",
+    "data_test": false,
+    "production": true,
+    "transferred": false,
     "expired_at": "2026-08-09T10:00:00+07:00"
   }
 }
@@ -124,6 +158,8 @@ Respons sukses berisi:
 GET /api/v1/integrations/siakad/bsi/payment-orders/{request_id}
 ```
 
+Parameter path `request_id` wajib. Endpoint ini tidak menerima query parameter maupun body.
+
 Status penting:
 
 - `pending`: menunggu pembayaran.
@@ -133,13 +169,15 @@ Status penting:
 - `needs_review`: perlu pemeriksaan staf keuangan.
 - `rejected`: ditolak staf keuangan.
 
+Gunakan `status=success` bersama `transferred=true` jika SIAKAD perlu memastikan transaksi sudah masuk ke ledger resmi SIMKEU.
+
 ### Batalkan payment order
 
 ```http
 POST /api/v1/integrations/siakad/bsi/payment-orders/{request_id}/cancel
 ```
 
-Hanya transaksi `pending` yang dapat dibatalkan.
+Parameter path `request_id` wajib dan endpoint ini tidak menerima body. Hanya transaksi `pending` yang dapat dibatalkan. Pembatalan ulang transaksi `cancelled` bersifat idempoten.
 
 ## Endpoint BSI BI-SNAP
 
