@@ -22,6 +22,21 @@ class SiakadPaymentHistoryService
                 "REPLACE(REPLACE(TRIM(keuangan_pembayaran.nim), '.', ''), ' ', '') = ?",
                 [$normalizedNim]
             )
+            ->whereNotExists(function ($query) {
+                $query->selectRaw('1')
+                    ->from('keuangan_pembayaran_bsi_detail as bsi_detail')
+                    ->join(
+                        'keuangan_pembayaran_bsi as bsi_payment',
+                        'bsi_payment.id',
+                        '=',
+                        'bsi_detail.pembayaran_bsi_id'
+                    )
+                    ->whereColumn(
+                        'bsi_detail.pembayaran_id',
+                        'keuangan_pembayaran.id'
+                    )
+                    ->where('bsi_payment.data_test', true);
+            })
             ->select([
                 'keuangan_pembayaran.id',
                 'keuangan_pembayaran.nomor',
