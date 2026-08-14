@@ -49,6 +49,11 @@ class KeuanganPembayaranBsi extends Model
         return $this->belongsTo(KeuanganJenisPembayaran::class, 'jenis_pembayaran_id');
     }
 
+    public function metodeVa()
+    {
+        return $this->belongsTo(KeuanganMetodeVa::class, 'metode_va_id');
+    }
+
     public function postedBy()
     {
         return $this->belongsTo(User::class, 'posted_by');

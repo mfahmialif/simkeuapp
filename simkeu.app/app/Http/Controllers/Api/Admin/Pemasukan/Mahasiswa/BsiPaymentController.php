@@ -20,6 +20,7 @@ class BsiPaymentController extends Controller
         $query = KeuanganPembayaranBsi::with([
             'details',
             'jenisPembayaran',
+            'metodeVa',
             'postedBy',
             'rejectedBy',
         ])->where(function ($query) {
@@ -69,6 +70,7 @@ class BsiPaymentController extends Controller
                 'snapLogs',
                 'reconciliations',
                 'jenisPembayaran',
+                'metodeVa',
                 'postedBy',
                 'rejectedBy',
             ]),

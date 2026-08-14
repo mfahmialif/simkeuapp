@@ -218,6 +218,54 @@ PEM;
         $this->assertNull(BsiReconciliation::first()->mismatch_description);
     }
 
+    public function test_interbank_payment_is_recorded_as_atm_lain(): void
+    {
+        $payment = KeuanganPembayaranBsi::create([
+            'nomor' => 'BSI-INTERBANK-1',
+            'request_id' => 'SIAKAD-INTERBANK-1',
+            'request_hash' => str_repeat('d', 64),
+            'nim' => '20240099',
+            'nama_mahasiswa' => 'Mahasiswa Antarbank',
+            'jk_id' => 8,
+            'jenis_pembayaran_id' => 1,
+            'va_number' => '5090123456789099',
+            'customer_no' => '123456789099',
+            'bsi_payment_number' => '5090123456789099',
+            'interbank_va_number' => '9005090123456789099',
+            'reference_no' => 'BSI-INTERBANK-1',
+            'total' => 100000,
+            'admin_fee_bearer' => 'payer',
+            'admin_fee_amount' => 3000,
+            'status' => 'pending',
+            'expired_at' => now()->addDay(),
+        ]);
+
+        $service = new BsiSnapService(new BsiSettingsService);
+        [$authBody] = $service->authenticate($this->authRequest());
+        $paymentId = 'PAY-INTERBANK-1';
+        $payload = [
+            'partnerServiceId' => '    5090',
+            'customerNo' => '9005090123456789099',
+            'virtualAccountNo' => '9005090123456789099',
+            'virtualAccountName' => 'Mahasiswa Antarbank',
+            'paidAmount' => ['value' => '100000.00', 'currency' => 'IDR'],
+            'trxDateTime' => now()->startOfSecond()->toIso8601String(),
+            'paymentRequestId' => $paymentId,
+            'sourceBankCode' => '451',
+        ];
+
+        [$body] = $service->payment($this->transactionRequest(
+            '/api/bpi-bi-snap/payment',
+            $payload,
+            $authBody['accessToken'],
+            $paymentId,
+            '6011'
+        ));
+
+        $this->assertSame('2002500', $body['responseCode']);
+        $this->assertSame('atm_lain', $payment->refresh()->metodeVa?->kode);
+    }
+
     public function test_production_reconciliation_matches_when_payment_and_settlement_are_equal(): void
     {
         BsiIntegrationSetting::query()->update(['environment' => 'production']);
@@ -821,7 +869,8 @@ PEM;
         string $endpoint,
         array $payload,
         string $token,
-        string $externalId
+        string $externalId,
+        string $channelId = '6099'
     ): Request {
         $timestamp = now()->toIso8601String();
         $body = json_encode($payload, JSON_UNESCAPED_SLASHES);
@@ -848,7 +897,7 @@ PEM;
                 'HTTP_X_PARTNER_ID' => '5090',
                 'HTTP_X_EXTERNAL_ID' => $externalId,
                 'HTTP_ENDPOINT_URL' => $endpoint,
-                'HTTP_CHANNEL_ID' => '6099',
+                'HTTP_CHANNEL_ID' => $channelId,
             ],
             $body
         );
@@ -888,6 +937,21 @@ PEM;
             $table->timestamps();
         });
 
+        Schema::create('keuangan_metode_va', function (Blueprint $table) {
+            $table->id();
+            $table->string('kode')->unique();
+            $table->string('nama')->unique();
+            $table->text('keterangan')->nullable();
+            $table->boolean('aktif')->default(true);
+            $table->timestamps();
+        });
+
+        DB::table('keuangan_metode_va')->insert([
+            ['kode' => 'byond_bsi', 'nama' => 'Byond BSI', 'aktif' => true],
+            ['kode' => 'atm_bsi', 'nama' => 'ATM BSI', 'aktif' => true],
+            ['kode' => 'atm_lain', 'nama' => 'ATM LAIN', 'aktif' => true],
+        ]);
+
         Schema::create('keuangan_pembayaran_bsi', function (Blueprint $table) {
             $table->id();
             $table->string('nomor');
@@ -907,6 +971,7 @@ PEM;
             $table->string('inquiry_request_id')->nullable();
             $table->string('channel_id')->nullable();
             $table->string('source_bank_code')->nullable();
+            $table->unsignedBigInteger('metode_va_id')->nullable();
             $table->dateTime('trx_date_time')->nullable();
             $table->string('reference_no')->nullable();
             $table->decimal('total', 15, 2);

@@ -15,6 +15,8 @@ class BsiSnapService
 {
     private readonly BsiPaymentService $paymentService;
 
+    private readonly BsiVaPaymentMethodService $vaPaymentMethodService;
+
     private const CHANNEL_IDS = ['6011', '6014', '6017', '6027', '6099', '6199'];
 
     public const RESPONSE_CODE_CATALOG = [
@@ -64,8 +66,11 @@ class BsiSnapService
     public function __construct(
         private readonly BsiSettingsService $settingsService,
         ?BsiPaymentService $paymentService = null,
+        ?BsiVaPaymentMethodService $vaPaymentMethodService = null,
     ) {
         $this->paymentService = $paymentService ?? app(BsiPaymentService::class);
+        $this->vaPaymentMethodService = $vaPaymentMethodService
+            ?? app(BsiVaPaymentMethodService::class);
     }
 
     public function authenticate(Request $request): array
@@ -309,6 +314,11 @@ class BsiSnapService
                 'payment_request_hash' => $requestHash,
                 'channel_id' => $request->header('channel-id'),
                 'source_bank_code' => $payload['sourceBankCode'],
+                'metode_va_id' => $this->vaPaymentMethodService->resolveId(
+                    (string) $request->header('channel-id'),
+                    (string) $payload['virtualAccountNo'],
+                    (string) $settings->kode_bpi
+                ),
                 'trx_date_time' => $trxDateTime,
                 'paid_at' => $trxDateTime,
                 'bank_reference' => $paymentRequestId,
@@ -772,6 +782,7 @@ class BsiSnapService
         $acceptedVirtualAccounts = array_unique([
             trim($partner.$customerNo),
             trim($partner.$rawCustomerNo),
+            '900'.$settings->kode_bpi.$customerNo,
         ]);
 
         if ((string) $payload['partnerServiceId'] !== $partner

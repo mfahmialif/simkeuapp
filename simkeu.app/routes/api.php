@@ -27,6 +27,7 @@ use App\Http\Controllers\Api\Admin\HutangController;
 use App\Http\Controllers\Api\Admin\PiutangController;
 use App\Http\Controllers\Api\Admin\SaldoController;
 use App\Http\Controllers\Api\Admin\BsiIntegrationSettingController;
+use App\Http\Controllers\Api\Admin\KeuanganMetodeVaController;
 
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\LaporanController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\SetoranController;
@@ -108,6 +109,8 @@ Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
         Route::get('summary', [BsiIntegrationSettingController::class, 'summary']);
         Route::get('messaging-logs', [BsiIntegrationSettingController::class, 'messagingLogs']);
         Route::get('reconciliations', [BsiIntegrationSettingController::class, 'reconciliations']);
+        Route::get('payment-methods', [KeuanganMetodeVaController::class, 'index']);
+        Route::put('payment-methods/{paymentMethod}', [KeuanganMetodeVaController::class, 'update']);
         Route::get('simulation/bills/{nim}', [BsiIntegrationSettingController::class, 'simulationBills']);
         Route::get('simulation/payments', [BsiIntegrationSettingController::class, 'simulationPayments']);
         Route::post('simulation/payment-orders', [BsiIntegrationSettingController::class, 'simulationStore']);
