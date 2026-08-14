@@ -122,6 +122,9 @@ class BsiPaymentService
             'request_id' => trim($payload['request_id']),
             'nim' => $nim,
             'va_number' => trim($payload['va_number']),
+            'metode_va_id' => isset($payload['metode_va_id'])
+                ? (int) $payload['metode_va_id']
+                : null,
             'expired_at' => Carbon::parse($payload['expired_at'])->toIso8601String(),
             'data_test' => (bool) ($payload['data_test'] ?? false),
             'production' => (bool) ($payload['production'] ?? false),
@@ -253,6 +256,7 @@ class BsiPaymentService
                     'jk_id' => $gender['id'],
                     'jenis_pembayaran_id' => $jenisPembayaran->id,
                     'va_number' => $canonical['va_number'],
+                    'metode_va_id' => $canonical['metode_va_id'],
                     'total' => $total,
                     'admin_fee_bearer' => $canonical['admin_fee_bearer'],
                     'admin_fee_amount' => $canonical['admin_fee_amount'],

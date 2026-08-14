@@ -314,11 +314,12 @@ class BsiSnapService
                 'payment_request_hash' => $requestHash,
                 'channel_id' => $request->header('channel-id'),
                 'source_bank_code' => $payload['sourceBankCode'],
-                'metode_va_id' => $this->vaPaymentMethodService->resolveId(
-                    (string) $request->header('channel-id'),
-                    (string) $payload['virtualAccountNo'],
-                    (string) $settings->kode_bpi
-                ),
+                'metode_va_id' => $payment->metode_va_id
+                    ?: $this->vaPaymentMethodService->resolveId(
+                        (string) $request->header('channel-id'),
+                        (string) $payload['virtualAccountNo'],
+                        (string) $settings->kode_bpi
+                    ),
                 'trx_date_time' => $trxDateTime,
                 'paid_at' => $trxDateTime,
                 'bank_reference' => $paymentRequestId,

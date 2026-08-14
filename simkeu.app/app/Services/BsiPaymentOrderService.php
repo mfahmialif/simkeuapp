@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\KeuanganPembayaranBsi;
+use App\Models\KeuanganMetodeVa;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -98,6 +99,8 @@ class BsiPaymentOrderService
 
     public function data(KeuanganPembayaranBsi $payment): array
     {
+        $payment->loadMissing(['details', 'metodeVa']);
+
         return [
             'request_id' => $payment->request_id,
             'reference_no' => $payment->reference_no ?: $payment->nomor,
@@ -106,6 +109,11 @@ class BsiPaymentOrderService
             'customer_no' => $payment->customer_no,
             'bsi_payment_number' => $payment->bsi_payment_number ?: $payment->va_number,
             'interbank_va_number' => $payment->interbank_va_number,
+            'metode_va_id' => $payment->metode_va_id,
+            'metode_pembayaran' => $payment->metodeVa?->nama,
+            'va_number' => $payment->metodeVa?->kode === KeuanganMetodeVa::ATM_LAIN
+                ? $payment->interbank_va_number
+                : ($payment->bsi_payment_number ?: $payment->va_number),
             'total' => $payment->total,
             'admin_fee_bearer' => $payment->admin_fee_bearer ?: 'institution',
             'admin_fee_amount' => (float) $payment->admin_fee_amount,
@@ -151,6 +159,38 @@ class BsiPaymentOrderService
             ]);
 
             return $payment->refresh()->load('details');
+        });
+    }
+
+    public function updatePaymentMethod(string $requestId, int $methodId): KeuanganPembayaranBsi
+    {
+        BsiPaymentService::expirePending();
+
+        return DB::transaction(function () use ($requestId, $methodId) {
+            $payment = KeuanganPembayaranBsi::where('request_id', $requestId)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if ($payment->status !== 'pending') {
+                throw ValidationException::withMessages([
+                    'status' => 'Metode pembayaran hanya dapat diubah saat payment order masih pending.',
+                ]);
+            }
+
+            $method = KeuanganMetodeVa::query()
+                ->whereKey($methodId)
+                ->where('aktif', true)
+                ->first();
+
+            if (! $method) {
+                throw ValidationException::withMessages([
+                    'metode_va_id' => 'Metode pembayaran tidak aktif atau tidak ditemukan.',
+                ]);
+            }
+
+            $payment->update(['metode_va_id' => $method->id]);
+
+            return $payment->refresh()->load(['details', 'metodeVa']);
         });
     }
 

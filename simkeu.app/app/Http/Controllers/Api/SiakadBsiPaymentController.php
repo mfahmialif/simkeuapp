@@ -3,19 +3,33 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\KeuanganMetodeVa;
 use App\Models\KeuanganPembayaranBsi;
 use App\Services\BsiPaymentOrderService;
 use App\Services\BsiPaymentService;
 use App\Services\SiakadPaymentHistoryService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 class SiakadBsiPaymentController extends Controller
 {
-    private const CREATE_ORDER_FIELDS = ['request_id', 'nim', 'items'];
+    private const CREATE_ORDER_FIELDS = ['request_id', 'nim', 'items', 'metode_va_id'];
 
     private const CREATE_ORDER_ITEM_FIELDS = ['tagihan_id', 'jumlah'];
+
+    public function paymentMethods(): JsonResponse
+    {
+        return response()->json([
+            'status' => true,
+            'data' => KeuanganMetodeVa::query()
+                ->where('aktif', true)
+                ->orderBy('id')
+                ->get(['id', 'kode', 'nama', 'keterangan'])
+                ->values(),
+        ]);
+    }
 
     public function bills(string $nim, BsiPaymentService $service): JsonResponse
     {
@@ -44,6 +58,12 @@ class SiakadBsiPaymentController extends Controller
         $validated = $request->validate([
             'request_id' => 'required|string|max:255',
             'nim' => 'required|string|max:255',
+            'metode_va_id' => [
+                'nullable',
+                'integer',
+                Rule::exists('keuangan_metode_va', 'id')
+                    ->where(fn ($query) => $query->where('aktif', true)),
+            ],
             'items' => 'required|array|min:1|max:100',
             'items.*.tagihan_id' => 'required|integer|distinct',
             'items.*.jumlah' => 'required|numeric|min:0.01',
@@ -92,6 +112,43 @@ class SiakadBsiPaymentController extends Controller
         throw ValidationException::withMessages([
             'body' => implode(' ', $messages).
                 ' Konfigurasi environment, data test, mode pembayaran, expiry, dan biaya admin dikelola oleh SIMKEU.',
+        ]);
+    }
+
+    public function updatePaymentMethod(
+        string $requestId,
+        Request $request,
+        BsiPaymentOrderService $orderService,
+    ): JsonResponse {
+        $unexpectedFields = array_values(array_diff(
+            array_keys($request->all()),
+            ['metode_va_id']
+        ));
+
+        if ($unexpectedFields !== []) {
+            throw ValidationException::withMessages([
+                'body' => 'Field body tidak didukung: '.implode(', ', $unexpectedFields).'.',
+            ]);
+        }
+
+        $validated = $request->validate([
+            'metode_va_id' => [
+                'required',
+                'integer',
+                Rule::exists('keuangan_metode_va', 'id')
+                    ->where(fn ($query) => $query->where('aktif', true)),
+            ],
+        ]);
+
+        $payment = $orderService->updatePaymentMethod(
+            $requestId,
+            (int) $validated['metode_va_id']
+        );
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Metode pembayaran payment order berhasil diperbarui.',
+            'data' => $orderService->data($payment),
         ]);
     }
 

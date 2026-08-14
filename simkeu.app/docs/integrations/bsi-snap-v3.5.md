@@ -5,8 +5,8 @@ Dokumen ini menjelaskan implementasi BSI pada SIMKEU dan kontrak server-to-serve
 ## Alur
 
 1. SIAKAD mengambil tagihan mahasiswa dari SIMKEU.
-2. Mahasiswa memilih tagihan dan nominal per tagihan di SIAKAD.
-3. SIAKAD membuat payment order di SIMKEU dengan `request_id` unik.
+2. SIAKAD mengambil metode pembayaran VA aktif dan mahasiswa memilih metode, tagihan, serta nominal per tagihan.
+3. SIAKAD membuat payment order di SIMKEU dengan `request_id` unik dan `metode_va_id` pilihan.
 4. SIMKEU mengembalikan nomor pembayaran BSI dan nomor VA antarbank.
 5. BSI melakukan Auth, Inquiry, lalu Payment ke endpoint BI-SNAP SIMKEU.
 6. Payment valid disimpan sebagai transaksi BSI berstatus `success` tanpa menulis ledger SIMKEU.
@@ -16,7 +16,7 @@ Dokumen ini menjelaskan implementasi BSI pada SIMKEU dan kontrak server-to-serve
 
 Konfigurasi dilakukan melalui menu **Pengaturan > Konfig BSI** oleh admin.
 
-Halaman dibagi menjadi tab **Ringkasan**, **Konfigurasi H2H**, **Docs API**, dan **Simulasi Pembayaran**. Konfigurasi H2H memiliki subtab Identitas Biller, Kredensial Host-to-Host, Keamanan & Operasional, serta Data Portal BSI. API key SIAKAD dan seluruh endpoint integrasi dikelola dari tab Docs API.
+Halaman dibagi menjadi tab **Ringkasan**, **Konfigurasi H2H**, **Metode Pembayaran**, **Docs API**, dan **Simulasi Pembayaran**. Konfigurasi H2H memiliki subtab Identitas Biller, Kredensial Host-to-Host, Keamanan & Operasional, serta Data Portal BSI. Master metode pembayaran VA dikelola dari tab Metode Pembayaran, sedangkan API key SIAKAD dan seluruh endpoint integrasi dikelola dari tab Docs API.
 
 - `KODE BPI`: 4 digit dari BSI.
 - `Client ID` dan `Client Secret`: kredensial BI-SNAP.
@@ -60,7 +60,7 @@ Admin dapat menguji pembuatan payment order melalui tab **Simulasi Pembayaran** 
 
 Payment order SIAKAD disimpan sebagai transaksi BSI standalone. Status `success` berarti pembayaran sudah dikonfirmasi BSI; `transferred=true` berarti transaksi sudah disinkronkan ke ledger pembayaran resmi SIMKEU.
 
-SIAKAD hanya mengirim `request_id`, `nim`, dan `items`. Nilai `production`, `data_test`, KODE BPI/nomor pembayaran, expiry, mode Open/Close Payment, biaya admin, dan transfer otomatis selalu berasal dari **Konfig BSI SIMKEU**. Field tambahan pada body atau item ditolak dengan HTTP 422.
+SIAKAD mengirim `request_id`, `nim`, `items`, dan `metode_va_id` pilihan (opsional untuk kompatibilitas order lama). Nilai `production`, `data_test`, KODE BPI/nomor pembayaran, expiry, mode Open/Close Payment, biaya admin, dan transfer otomatis selalu berasal dari **Konfig BSI SIMKEU**. Field tambahan pada body atau item ditolak dengan HTTP 422.
 
 Header request:
 
@@ -78,6 +78,51 @@ Contoh header umum:
 ```http
 Accept: application/json
 X-SIAKAD-API-KEY: <api-key-yang-dibuat-di-Konfig-BSI>
+```
+
+### Ambil metode pembayaran VA
+
+```http
+GET /api/v1/integrations/siakad/bsi/payment-methods
+```
+
+Endpoint ini hanya mengembalikan metode dengan status `aktif=true`. SIAKAD menampilkan
+`nama` dan `keterangan` kepada mahasiswa, kemudian mengirim `id` yang dipilih sebagai
+`metode_va_id` saat membuat payment order.
+
+```bash
+curl --request GET \
+  --url 'https://simkeuapp.uiidalwa.web.id/api/v1/integrations/siakad/bsi/payment-methods' \
+  --header 'Accept: application/json' \
+  --header 'X-SIAKAD-API-KEY: GANTI_DENGAN_API_KEY'
+```
+
+Contoh respons:
+
+```json
+{
+  "status": true,
+  "data": [
+    {
+      "id": 1,
+      "kode": "byond_bsi",
+      "nama": "Byond BSI",
+      "keterangan": "Pembayaran melalui aplikasi BYOND by BSI."
+    },
+    {
+      "id": 2,
+      "kode": "atm_bsi",
+      "nama": "ATM BSI",
+      "keterangan": "Pembayaran melalui ATM Bank Syariah Indonesia."
+    },
+    {
+      "id": 3,
+      "kode": "atm_lain",
+      "nama": "ATM LAIN",
+      "keterangan": "Pembayaran dari bank lain menggunakan nomor VA antarbank."
+    }
+  ]
+}
 ```
 
 ### Ambil tagihan
@@ -155,11 +200,12 @@ curl --request GET \
 |---|---|---|---|
 | `request_id` | string | Wajib | Maksimal 255 karakter, unik, dan stabil |
 | `nim` | string | Wajib | Setelah titik/spasi dihapus harus 5–12 digit |
+| `metode_va_id` | integer/null | Opsional* | ID metode aktif dari endpoint `payment-methods`; disimpan pada transaksi BSI |
 | `items` | array | Wajib | 1–100 item |
 | `items[].tagihan_id` | integer | Wajib | Unik dan berasal dari endpoint bills |
 | `items[].jumlah` | number | Wajib | Minimal 0,01 dan maksimal nilai `tersedia` |
 
-Tidak ada field body opsional. Field konfigurasi seperti `data_test`, `production`, `payment_mode`, expiry, biaya admin, status, nomor VA, dan `cara_bayar` tidak boleh dikirim SIAKAD.
+Field body opsional yang didukung hanya `metode_va_id`. Jika dikirim, ID harus berasal dari daftar metode aktif. Field konfigurasi seperti `data_test`, `production`, `payment_mode`, expiry, biaya admin, status, nomor VA, dan `cara_bayar` tidak boleh dikirim SIAKAD.
 
 ```http
 POST /api/v1/integrations/siakad/bsi/payment-orders
@@ -170,6 +216,7 @@ Content-Type: application/json
 {
   "request_id": "SIAKAD-20260808-000001",
   "nim": "20240001",
+  "metode_va_id": 1,
   "items": [
     { "tagihan_id": 10, "jumlah": 250000 },
     { "tagihan_id": 12, "jumlah": 100000 }
@@ -189,6 +236,9 @@ Respons sukses berisi:
     "customer_no": "123456789012",
     "bsi_payment_number": "5090123456789012",
     "interbank_va_number": "9005090123456789012",
+    "metode_va_id": 1,
+    "metode_pembayaran": "Byond BSI",
+    "va_number": "5090123456789012",
     "total": "350000.00",
     "admin_fee_bearer": "institution",
     "admin_fee_amount": 2500,
@@ -203,6 +253,33 @@ Respons sukses berisi:
   }
 }
 ```
+
+`metode_va_id` adalah pilihan yang disimpan SIMKEU pada
+`keuangan_pembayaran_bsi.metode_va_id`. `metode_pembayaran` berisi nama master metode.
+`va_number` adalah nomor yang perlu ditampilkan kepada mahasiswa: `bsi_payment_number`
+untuk Byond BSI/ATM BSI atau `interbank_va_number` untuk ATM LAIN. Jika field pilihan
+tidak dikirim, order tetap diterima untuk kompatibilitas dan metode dapat diisi otomatis
+dari callback pembayaran BSI.
+
+### Edit metode pembayaran payment order
+
+```http
+PUT /api/v1/integrations/siakad/bsi/payment-orders/{request_id}/payment-method
+Content-Type: application/json
+```
+
+Endpoint ini hanya dapat digunakan saat payment order masih `pending`. Metode tujuan
+harus aktif; order yang sudah dibayar, kedaluwarsa, dibatalkan, atau diproses staf
+ditolak dengan HTTP 422.
+
+```json
+{
+  "metode_va_id": 2
+}
+```
+
+Respons memakai struktur `data` yang sama dengan create/status dan mengembalikan
+`metode_va_id`, `metode_pembayaran`, serta `va_number` terbaru.
 
 ### Cek status
 

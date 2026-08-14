@@ -12,6 +12,24 @@ tags:
   - name: SIAKAD
   - name: BSI BI-SNAP
 paths:
+  /api/v1/integrations/siakad/bsi/payment-methods:
+    get:
+      tags: [SIAKAD]
+      summary: Ambil metode pembayaran VA yang aktif
+      description: >-
+        Mengembalikan metode pembayaran VA aktif yang dapat dipilih SIAKAD.
+        ID yang dipilih dikirim sebagai metode_va_id pada payment order.
+      security:
+        - SiakadApiKey: []
+      responses:
+        "200":
+          description: Daftar metode pembayaran VA aktif
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentMethodsResponse"
+        "401": { $ref: "#/components/responses/SiakadUnauthorized" }
+        "503": { $ref: "#/components/responses/IntegrationDisabled" }
   /api/v1/integrations/siakad/bsi/bills/{nim}:
     get:
       tags: [SIAKAD]
@@ -114,6 +132,34 @@ paths:
                 $ref: "#/components/schemas/PaymentOrderResponse"
         "401": { $ref: "#/components/responses/SiakadUnauthorized" }
         "404": { description: Payment order tidak ditemukan }
+  /api/v1/integrations/siakad/bsi/payment-orders/{requestId}/payment-method:
+    put:
+      tags: [SIAKAD]
+      summary: Ubah metode pembayaran payment order yang masih pending
+      description: >-
+        Mengganti metode_va_id pada payment order pending. Metode tujuan harus
+        aktif; order yang sudah dibayar, kedaluwarsa, dibatalkan, atau diproses
+        staf tidak dapat diubah.
+      security:
+        - SiakadApiKey: []
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdatePaymentMethod"
+      responses:
+        "200":
+          description: Metode pembayaran berhasil diperbarui
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentOrderResponse"
+        "401": { $ref: "#/components/responses/SiakadUnauthorized" }
+        "404": { description: Payment order tidak ditemukan }
+        "422": { $ref: "#/components/responses/ValidationError" }
   /api/v1/integrations/siakad/bsi/payment-orders/{requestId}/cancel:
     post:
       tags: [SIAKAD]
@@ -351,13 +397,19 @@ components:
       type: object
       additionalProperties: false
       description: >-
-        Seluruh field wajib. Tidak ada field opsional; environment, data_test,
-        mode pembayaran, expiry, biaya admin, nomor pembayaran, dan status
-        ditentukan oleh Konfig BSI SIMKEU.
+        request_id, nim, dan items wajib. metode_va_id bersifat opsional untuk
+        kompatibilitas order lama; environment, data_test, mode pembayaran,
+        expiry, biaya admin, nomor pembayaran, dan status ditentukan oleh
+        Konfig BSI SIMKEU.
       required: [request_id, nim, items]
       properties:
         request_id: { type: string, maxLength: 255, example: SIAKAD-20260808-000001 }
         nim: { type: string, maxLength: 255, example: "20240001" }
+        metode_va_id:
+          type: integer
+          nullable: true
+          description: ID metode pembayaran VA aktif dari endpoint payment-methods.
+          example: 1
         items:
           type: array
           minItems: 1
@@ -369,6 +421,15 @@ components:
             properties:
               tagihan_id: { type: integer, example: 10 }
               jumlah: { type: number, format: double, minimum: 0.01, example: 250000 }
+    UpdatePaymentMethod:
+      type: object
+      additionalProperties: false
+      required: [metode_va_id]
+      properties:
+        metode_va_id:
+          type: integer
+          description: ID metode pembayaran VA aktif dari endpoint payment-methods.
+          example: 2
     PaymentOrderResponse:
       type: object
       properties:
@@ -377,6 +438,23 @@ components:
         message: { type: string }
         data:
           $ref: "#/components/schemas/PaymentOrder"
+    PaymentMethodsResponse:
+      type: object
+      required: [status, data]
+      properties:
+        status: { type: boolean, example: true }
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/PaymentMethod"
+    PaymentMethod:
+      type: object
+      required: [id, kode, nama, keterangan]
+      properties:
+        id: { type: integer, example: 1 }
+        kode: { type: string, example: byond_bsi }
+        nama: { type: string, example: Byond BSI }
+        keterangan: { type: string, nullable: true, example: Pembayaran melalui aplikasi BYOND by BSI. }
     PaymentHistoryResponse:
       type: object
       required: [status, data]
@@ -425,6 +503,9 @@ components:
         customer_no: { type: string, example: "123456789012" }
         bsi_payment_number: { type: string, example: "5090123456789012" }
         interbank_va_number: { type: string, example: "9005090123456789012" }
+        metode_va_id: { type: integer, nullable: true, description: ID metode yang dipilih SIAKAD atau dideteksi dari callback BSI. }
+        metode_pembayaran: { type: string, nullable: true, description: Nama metode pembayaran VA. }
+        va_number: { type: string, description: Nomor VA yang perlu ditampilkan sesuai metode pembayaran. }
         total: { type: string, example: "350000.00" }
         admin_fee_bearer: { type: string, enum: [institution, payer] }
         admin_fee_amount: { type: number, format: double }

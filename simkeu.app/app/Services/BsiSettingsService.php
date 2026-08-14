@@ -169,6 +169,7 @@ class BsiSettingsService
             'payment' => $base.'/api/bpi-bi-snap/payment',
             'advice' => $base.'/api/bpi-bi-snap/advice',
             'reconciliation' => $base.'/api/bpi-bi-snap/reconciliation',
+            'siakad_payment_methods' => $base.'/api/v1/integrations/siakad/bsi/payment-methods',
             'siakad_bills' => $base.'/api/v1/integrations/siakad/bsi/bills/{nim}',
             'siakad_payment_history' => $base.'/api/v1/integrations/siakad/bsi/payment-history/{nim}',
             'siakad_payment_orders' => $base.'/api/v1/integrations/siakad/bsi/payment-orders',
