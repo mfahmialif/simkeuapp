@@ -337,6 +337,60 @@ PEM;
         $this->assertNull($reconciliation->mismatch_description);
     }
 
+    public function test_production_reconciliation_persists_invalid_item_returned_with_rc_true(): void
+    {
+        BsiIntegrationSetting::query()->update(['environment' => 'production']);
+
+        $reconId = 'INVALID-PRODUCTION-ITEM';
+        $reconciledAt = '2026-08-12 10:00:00';
+        $settlementCode = 'FT-INVALID-PRODUCTION';
+        $reportedAmount = '100000.00';
+        $checksum = sha1(
+            '123456789099'.
+            'recon-secret'.
+            $reconciledAt.
+            $reportedAmount.
+            $reconId.
+            $settlementCode
+        );
+        $service = new BsiSnapService(new BsiSettingsService);
+
+        [$response] = $service->reconciliation(Request::create(
+            '/api/bpi-bi-snap/reconciliation',
+            'POST',
+            [],
+            [],
+            [],
+            ['CONTENT_TYPE' => 'application/json'],
+            json_encode([
+                'action' => 'recon',
+                'kodeBankBI' => '451',
+                'kodeBPI' => '5090',
+                'allChecksum' => str_repeat('0', 40),
+                'data' => [[
+                    'idRekon' => $reconId,
+                    'wktRekonsiliasi' => $reconciledAt,
+                    'wktTransaksi' => '2026-08-12 09:00:00',
+                    'nomorPembayaran' => '123456789099',
+                    'totalPembayaran' => $reportedAmount,
+                    'totalSettlement' => $reportedAmount,
+                    'kodeFT' => $settlementCode,
+                    'checksum' => $checksum,
+                ]],
+            ], JSON_UNESCAPED_SLASHES)
+        ));
+
+        $reconciliation = BsiReconciliation::firstOrFail();
+
+        $this->assertSame([['rc' => true, 'idRekon' => $reconId]], $response);
+        $this->assertSame('mismatch', $reconciliation->match_status);
+        $this->assertTrue($reconciliation->checksum_valid);
+        $this->assertStringContainsString(
+            'statusRekonsiliasi',
+            $reconciliation->mismatch_description
+        );
+    }
+
     public function test_simulation_pending_order_can_be_cancelled_idempotently(): void
     {
         $payment = KeuanganPembayaranBsi::create([

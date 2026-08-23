@@ -445,14 +445,17 @@ class BsiSnapService
         $secret = (string) ($settings->reconciliation_secret ?: $settings->client_secret);
         $responses = [];
 
-        foreach ($payload['data'] as $item) {
-            if (! is_array($item)) {
-                $responses[] = ['rc' => true, 'idRekon' => ''];
+        foreach ($payload['data'] as $itemIndex => $item) {
+            $rawItem = $item;
+            $item = is_array($item) ? $item : ['raw_item' => $item];
+            $rawReconId = $item['idRekon'] ?? null;
+            $reconId = is_scalar($rawReconId) ? trim((string) $rawReconId) : '';
+            $validationReasons = [];
 
-                continue;
+            if (! is_array($rawItem)) {
+                $validationReasons[] = 'Item rekonsiliasi bukan objek JSON.';
             }
 
-            $reconId = (string) ($item['idRekon'] ?? '');
             $requiredItemFields = [
                 'idRekon',
                 'wktRekonsiliasi',
@@ -467,37 +470,72 @@ class BsiSnapService
                 $requiredItemFields[] = 'statusRekonsiliasi';
             }
 
-            $missingItemField = collect($requiredItemFields)->contains(
+            $missingItemFields = collect($requiredItemFields)->filter(
                 fn (string $field) => ! array_key_exists($field, $item)
                     || $item[$field] === ''
                     || $item[$field] === null
-            );
+            )->values()->all();
 
-            $itemFormatValid = $this->isReconciliationDate($item['wktRekonsiliasi'] ?? null)
-                && $this->isReconciliationDate($item['wktTransaksi'] ?? null)
-                && is_numeric($item['totalPembayaran'] ?? null)
-                && (! array_key_exists('totalSettlement', $item) || is_numeric($item['totalSettlement']))
-                && preg_match('/^[a-f0-9]{40}$/i', (string) ($item['checksum'] ?? ''));
-
-            if ($missingItemField || $reconId === '' || ! $itemFormatValid) {
-                $responses[] = ['rc' => true, 'idRekon' => $reconId];
-
-                continue;
+            if ($missingItemFields) {
+                $validationReasons[] = 'Field wajib rekonsiliasi tidak tersedia: '.
+                    implode(', ', $missingItemFields).'.';
             }
 
+            $reconciledAtValid = $this->isReconciliationDate($item['wktRekonsiliasi'] ?? null);
+            $transactionAtValid = $this->isReconciliationDate($item['wktTransaksi'] ?? null);
+            $paymentAmountValid = is_numeric($item['totalPembayaran'] ?? null);
+            $settlementAmountValid = ! array_key_exists('totalSettlement', $item)
+                || is_numeric($item['totalSettlement']);
+            $rawChecksum = $item['checksum'] ?? null;
+            $checksumFormatValid = is_scalar($rawChecksum)
+                && preg_match('/^[a-f0-9]{40}$/i', (string) $rawChecksum);
+
+            if (! $reconciledAtValid && array_key_exists('wktRekonsiliasi', $item)) {
+                $validationReasons[] = 'Format wktRekonsiliasi tidak valid.';
+            }
+
+            if (! $transactionAtValid && array_key_exists('wktTransaksi', $item)) {
+                $validationReasons[] = 'Format wktTransaksi tidak valid.';
+            }
+
+            if (! $paymentAmountValid && array_key_exists('totalPembayaran', $item)) {
+                $validationReasons[] = 'Format totalPembayaran tidak valid.';
+            }
+
+            if (! $settlementAmountValid) {
+                $validationReasons[] = 'Format totalSettlement tidak valid.';
+            }
+
+            if (! $checksumFormatValid && array_key_exists('checksum', $item)) {
+                $validationReasons[] = 'Format checksum rekonsiliasi tidak valid.';
+            }
+
+            if ($reconId !== '' && strlen($reconId) > 255) {
+                $validationReasons[] = 'idRekon melebihi 255 karakter.';
+            }
+
+            $storageReconId = $reconId !== '' && strlen($reconId) <= 255
+                ? $reconId
+                : 'INVALID-'.strtoupper(hash('sha256', json_encode([
+                    'allChecksum' => $payload['allChecksum'] ?? null,
+                    'index' => $itemIndex,
+                    'item' => $rawItem,
+                ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)));
+
             $expected = sha1(
-                (string) ($item['nomorPembayaran'] ?? '').
+                $this->reconciliationString($item['nomorPembayaran'] ?? null).
                 $secret.
-                (string) ($item['wktRekonsiliasi'] ?? '').
-                (string) ($item['totalPembayaran'] ?? '').
+                $this->reconciliationString($item['wktRekonsiliasi'] ?? null).
+                $this->reconciliationString($item['totalPembayaran'] ?? null).
                 $reconId.
-                (string) ($item['kodeFT'] ?? '')
+                $this->reconciliationString($item['kodeFT'] ?? null)
             );
-            $checksumValid = $reconId !== ''
-                && hash_equals(strtolower($expected), strtolower((string) ($item['checksum'] ?? '')));
+            $checksumValid = $checksumFormatValid
+                && $reconId !== ''
+                && hash_equals(strtolower($expected), strtolower((string) $rawChecksum));
 
             $payment = null;
-            $invoiceNumber = trim((string) ($item['nomorInvoice'] ?? ''));
+            $invoiceNumber = trim($this->reconciliationString($item['nomorInvoice'] ?? null));
 
             if ($invoiceNumber !== '') {
                 $payment = KeuanganPembayaranBsi::where('nomor', $invoiceNumber)
@@ -506,21 +544,26 @@ class BsiSnapService
                     ->first();
             }
 
-            $journalNumber = trim((string) ($item['nomorJurnalPembukuan'] ?? ''));
+            $journalNumber = trim($this->reconciliationString(
+                $item['nomorJurnalPembukuan'] ?? null
+            ));
             if (! $payment && $journalNumber !== '') {
                 $payment = KeuanganPembayaranBsi::where('payment_request_id', $journalNumber)
                     ->orWhere('bank_reference', $journalNumber)
                     ->first();
             }
 
-            if (! $payment && filled($item['nomorPembayaran'] ?? null)) {
-                $payment = KeuanganPembayaranBsi::where('customer_no', $item['nomorPembayaran'])
-                    ->orWhere('bsi_payment_number', $item['nomorPembayaran'])
+            $paymentNumber = trim($this->reconciliationString(
+                $item['nomorPembayaran'] ?? null
+            ));
+            if (! $payment && $paymentNumber !== '') {
+                $payment = KeuanganPembayaranBsi::where('customer_no', $paymentNumber)
+                    ->orWhere('bsi_payment_number', $paymentNumber)
                     ->latest('id')
                     ->first();
             }
 
-            $amountMatches = $payment
+            $amountMatches = $payment && $paymentAmountValid
                 && abs(
                     $payment->payableTotal()
                     - (float) ($item['totalPembayaran'] ?? 0)
@@ -528,13 +571,15 @@ class BsiSnapService
             $expectedSettlementAmount = $isSandbox && $payment
                 ? $this->settingsService->expectedSettlementAmount($payment, $settings)
                 : (float) ($item['totalPembayaran'] ?? 0);
-            $settlementMatches = ! $payment
+            $settlementMatches = $settlementAmountValid && (! $payment
                 || ! array_key_exists('totalSettlement', $item)
                 || abs(
                     $expectedSettlementAmount
                     - (float) $item['totalSettlement']
-                ) < 0.01;
-            $bankStatus = strtoupper(trim((string) ($item['statusRekonsiliasi'] ?? '')));
+                ) < 0.01);
+            $bankStatus = strtoupper(trim($this->reconciliationString(
+                $item['statusRekonsiliasi'] ?? null
+            )));
             if ($isSandbox && $bankStatus === '') {
                 $bankStatus = 'SUKSES';
             }
@@ -542,16 +587,17 @@ class BsiSnapService
             $statusMatches = $payment
                 && in_array($payment->status, ['success', 'posted'], true)
                 && $bankStatus === 'SUKSES';
-            $matchStatus = $checksumValid
+            $matchStatus = ! $validationReasons
+                && $checksumValid
                 && $payment
                 && $amountMatches
                 && $settlementMatches
                 && $statusMatches
                 ? 'matched'
                 : 'mismatch';
-            $mismatchReasons = [];
+            $mismatchReasons = $validationReasons;
 
-            if (! $checksumValid) {
+            if (! $checksumValid && $checksumFormatValid) {
                 $mismatchReasons[] = 'Checksum rekonsiliasi tidak valid.';
             }
 
@@ -590,16 +636,27 @@ class BsiSnapService
             }
 
             $reconciliation = BsiReconciliation::updateOrCreate(
-                ['recon_id' => $reconId],
+                ['recon_id' => $storageReconId],
                 [
                     'pembayaran_bsi_id' => $payment?->id,
-                    'journal_number' => $item['nomorJurnalPembukuan'] ?? null,
-                    'payment_number' => $item['nomorPembayaran'] ?? null,
-                    'transaction_at' => $this->safeDate($item['wktTransaksi'] ?? null),
-                    'reconciled_at' => $this->safeDate($item['wktRekonsiliasi'] ?? null),
-                    'payment_amount' => $item['totalPembayaran'] ?? null,
-                    'settlement_amount' => $item['totalSettlement'] ?? null,
-                    'settlement_code' => $item['kodeFT'] ?? null,
+                    'journal_number' => $journalNumber ?: null,
+                    'payment_number' => $paymentNumber ?: null,
+                    'transaction_at' => $transactionAtValid
+                        ? $this->safeDate($item['wktTransaksi'])
+                        : null,
+                    'reconciled_at' => $reconciledAtValid
+                        ? $this->safeDate($item['wktRekonsiliasi'])
+                        : null,
+                    'payment_amount' => $paymentAmountValid
+                        ? $item['totalPembayaran']
+                        : null,
+                    'settlement_amount' => $settlementAmountValid
+                        && array_key_exists('totalSettlement', $item)
+                            ? $item['totalSettlement']
+                            : null,
+                    'settlement_code' => ($settlementCode = trim(
+                        $this->reconciliationString($item['kodeFT'] ?? null)
+                    )) !== '' ? $settlementCode : null,
                     'bank_status' => $bankStatus ?: null,
                     'checksum_valid' => $checksumValid,
                     'match_status' => $matchStatus,
@@ -998,5 +1055,10 @@ class BsiSnapService
         } catch (\Throwable) {
             return null;
         }
+    }
+
+    private function reconciliationString(mixed $value): string
+    {
+        return is_scalar($value) ? (string) $value : '';
     }
 }
