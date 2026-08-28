@@ -849,11 +849,10 @@ trait ManagesPengeluaranRekap
     public function rekapStore(Request $request)
     {
         $modelClass = $this->rekapModelClass();
-        $rekapTable = (new $modelClass)->getTable();
         $input = $this->rekapInput($request);
 
         $validator = Validator::make($input, [
-            'nama' => ['required', 'string', 'max:255', Rule::unique($rekapTable, 'nama')],
+            'nama' => ['required', 'string', 'max:255'],
             'bulan_tahun' => ['required', 'date_format:Y-m'],
             'tanggal_rekap' => ['required', 'date_format:Y-m-d'],
             'tanggal_pencairan' => ['nullable', 'date_format:Y-m-d'],
@@ -892,7 +891,6 @@ trait ManagesPengeluaranRekap
     public function rekapUpdate(Request $request, $id)
     {
         $modelClass = $this->rekapModelClass();
-        $rekapTable = (new $modelClass)->getTable();
         $data = $this->findScopedRekapModel($modelClass, $id);
 
         if (! $data) {
@@ -911,7 +909,6 @@ trait ManagesPengeluaranRekap
                 'required',
                 'string',
                 'max:255',
-                Rule::unique($rekapTable, 'nama')->ignore($data->id),
             ],
             'bulan_tahun' => ['required', 'date_format:Y-m'],
             'tanggal_rekap' => ['required', 'date_format:Y-m-d'],

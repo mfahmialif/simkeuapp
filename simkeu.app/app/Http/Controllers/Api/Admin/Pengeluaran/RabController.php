@@ -200,19 +200,6 @@ class RabController extends Controller
         $source = self::SOURCES[$validated['module_key']];
         $rekapTable = $source['rekap_table'];
 
-        $nameExists = DB::table($rekapTable)
-            ->where('nama', $validated['nama'])
-            ->exists();
-
-        if ($nameExists) {
-            return response()->json([
-                'status' => false,
-                'message' => [
-                    'nama' => ['Nama rekap sudah digunakan pada jenis rekap ini.'],
-                ],
-            ], 422);
-        }
-
         $id = DB::table($rekapTable)->insertGetId([
             'nama' => $validated['nama'],
             'bulan_tahun' => $validated['bulan_tahun'].'-01',
@@ -303,23 +290,6 @@ class RabController extends Controller
                     'module_key' => [
                         'Jenis rekap hanya bisa diubah jika rekap belum memiliki data RAB, LPJ, atau proses RAB.',
                     ],
-                ],
-            ], 422);
-        }
-
-        $nameExists = DB::table($targetSource['rekap_table'])
-            ->where('nama', $validated['nama'])
-            ->when(
-                ! $isMovingModule,
-                fn ($query) => $query->where('id', '<>', $id)
-            )
-            ->exists();
-
-        if ($nameExists) {
-            return response()->json([
-                'status' => false,
-                'message' => [
-                    'nama' => ['Nama rekap sudah digunakan pada jenis rekap ini.'],
                 ],
             ], 422);
         }
@@ -511,20 +481,6 @@ class RabController extends Controller
         $rekapTable = $source['rekap_table'];
         $detailTable = $source['detail_table'];
         $lpjTable = $source['lpj_table'];
-
-        $nameExists = DB::table($rekapTable)
-            ->where('nama', $validated['nama'])
-            ->whereNotIn('id', $oldIds->all())
-            ->exists();
-
-        if ($nameExists) {
-            return response()->json([
-                'status' => false,
-                'message' => [
-                    'nama' => ['Nama rekap sudah digunakan pada jenis rekap ini.'],
-                ],
-            ], 422);
-        }
 
         $newId = null;
 
