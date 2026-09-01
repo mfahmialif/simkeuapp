@@ -36,6 +36,11 @@ class SiakadPaymentHistoryFilterTest extends TestCase
             $table->string('nota');
         });
 
+        Schema::create('keuangan_tagihan', function (Blueprint $table) {
+            $table->id();
+            $table->string('nama');
+        });
+
         Schema::create('keuangan_pembayaran_bsi', function (Blueprint $table) {
             $table->id();
             $table->boolean('data_test')->default(false);
@@ -53,6 +58,12 @@ class SiakadPaymentHistoryFilterTest extends TestCase
         $productionPaymentId = $this->insertPayment('PAY-PRODUCTION', 10, 250000);
         $testPaymentId = $this->insertPayment('PAY-TEST', 11, 100000);
         $manualPaymentId = $this->insertPayment('PAY-MANUAL', 12, 50000);
+
+        DB::table('keuangan_tagihan')->insert([
+            ['id' => 10, 'nama' => 'SPP'],
+            ['id' => 11, 'nama' => 'Praktikum'],
+            ['id' => 12, 'nama' => 'Ujian'],
+        ]);
 
         $productionBsiId = DB::table('keuangan_pembayaran_bsi')->insertGetId([
             'data_test' => false,
@@ -89,6 +100,15 @@ class SiakadPaymentHistoryFilterTest extends TestCase
         $this->assertContains('PAY-PRODUCTION', $paymentNumbers);
         $this->assertContains('PAY-MANUAL', $paymentNumbers);
         $this->assertNotContains('PAY-TEST', $paymentNumbers);
+        $this->assertSame(
+            ['SPP', 'Ujian'],
+            collect($result['riwayat'])
+                ->flatMap(fn (array $history) => $history['items'])
+                ->pluck('nama_tagihan')
+                ->sort()
+                ->values()
+                ->all()
+        );
     }
 
     private function insertPayment(string $nomor, int $tagihanId, float $jumlah): int

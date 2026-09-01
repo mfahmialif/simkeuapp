@@ -24,6 +24,7 @@ class SiakadPaymentHistoryServiceTest extends TestCase
         $this->assertSame('130826-00001-L-123', $result['riwayat'][0]['nota']);
         $this->assertSame(350000.0, $result['riwayat'][0]['total']);
         $this->assertSame(2, $result['riwayat'][0]['jumlah_item']);
+        $this->assertSame('SPP', $result['riwayat'][0]['items'][0]['nama_tagihan']);
         $this->assertSame([2, 1], array_column(
             $result['riwayat'][0]['items'],
             'pembayaran_id'
@@ -59,6 +60,7 @@ class SiakadPaymentHistoryServiceTest extends TestCase
             'tanggal' => $tanggal,
             'th_akademik_id' => 25,
             'tagihan_id' => $tagihanId,
+            'nama_tagihan' => 'SPP',
             'nim' => '2024.0001',
             'smt' => 5,
             'jml_sks' => 1,

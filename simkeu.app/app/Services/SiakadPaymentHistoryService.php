@@ -18,6 +18,12 @@ class SiakadPaymentHistoryService
                 '=',
                 'keuangan_pembayaran.id'
             )
+            ->leftJoin(
+                'keuangan_tagihan',
+                'keuangan_tagihan.id',
+                '=',
+                'keuangan_pembayaran.tagihan_id'
+            )
             ->whereRaw(
                 "REPLACE(REPLACE(TRIM(keuangan_pembayaran.nim), '.', ''), ' ', '') = ?",
                 [$normalizedNim]
@@ -43,6 +49,7 @@ class SiakadPaymentHistoryService
                 'keuangan_pembayaran.tanggal',
                 'keuangan_pembayaran.th_akademik_id',
                 'keuangan_pembayaran.tagihan_id',
+                'keuangan_tagihan.nama as nama_tagihan',
                 'keuangan_pembayaran.nim',
                 'keuangan_pembayaran.smt',
                 'keuangan_pembayaran.jml_sks',
@@ -74,6 +81,7 @@ class SiakadPaymentHistoryService
                         'nomor' => $payment->nomor,
                         'th_akademik_id' => (int) $payment->th_akademik_id,
                         'tagihan_id' => (int) $payment->tagihan_id,
+                        'nama_tagihan' => $payment->nama_tagihan,
                         'semester' => (int) $payment->smt,
                         'jumlah_sks' => (int) $payment->jml_sks,
                         'jumlah' => round((float) $payment->jumlah, 2),

@@ -129,6 +129,7 @@ class BsiPaymentOrderService
             'posted_at' => $payment->posted_at,
             'details' => $payment->details->map(fn ($detail) => [
                 'tagihan_id' => $detail->tagihan_id,
+                'nama_tagihan' => $detail->tagihan_nama,
                 'tagihan_nama' => $detail->tagihan_nama,
                 'jumlah' => $detail->jumlah,
                 'cara_bayar' => $detail->cara_bayar,
