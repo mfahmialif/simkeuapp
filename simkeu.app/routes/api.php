@@ -27,7 +27,9 @@ use App\Http\Controllers\Api\Admin\HutangController;
 use App\Http\Controllers\Api\Admin\PiutangController;
 use App\Http\Controllers\Api\Admin\SaldoController;
 use App\Http\Controllers\Api\Admin\BsiIntegrationSettingController;
+use App\Http\Controllers\Api\Admin\ApiSettingController;
 use App\Http\Controllers\Api\Admin\KeuanganMetodeVaController;
+use App\Http\Controllers\Api\SiakadUasSusulanController;
 
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\LaporanController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\SetoranController;
@@ -90,6 +92,16 @@ Route::prefix('v1/integrations/siakad/bsi')->middleware('bsi.siakad')->group(fun
     Route::post('payment-orders/{requestId}/cancel', [SiakadBsiPaymentController::class, 'cancel']);
 });
 
+Route::prefix('v1/integrations/siakad')->middleware('siakad.apikey')->group(function () {
+    Route::get('uas-susulan', [SiakadUasSusulanController::class, 'index']);
+    Route::get('uas-susulan/{nim}', [SiakadUasSusulanController::class, 'index']);
+});
+
+Route::prefix('siakad')->middleware('siakad.apikey')->group(function () {
+    Route::get('uas-susulan', [SiakadUasSusulanController::class, 'index']);
+    Route::get('uas-susulan/{nim}', [SiakadUasSusulanController::class, 'index']);
+});
+
 Route::prefix('auth')->group(function () {
     Route::post('/login', [AuthController::class, 'login']);
     Route::post('/register', [AuthController::class, 'register']);
@@ -118,6 +130,12 @@ Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
         Route::post('simulation/payment-orders', [BsiIntegrationSettingController::class, 'simulationStore']);
         Route::post('simulation/payment-orders/{requestId}/cancel', [BsiIntegrationSettingController::class, 'simulationCancel']);
         Route::delete('simulation/payments/{paymentId}', [BsiIntegrationSettingController::class, 'simulationDestroy']);
+    });
+
+    Route::prefix('setting/api')->middleware('role:admin')->group(function () {
+        Route::get('/', [ApiSettingController::class, 'index']);
+        Route::post('siakad-key/rotate', [ApiSettingController::class, 'rotateSiakadKey']);
+        Route::get('uas-susulan-preview', [ApiSettingController::class, 'uasSusulanPreview']);
     });
 
     Route::get('pegawai', [PegawaiController::class, 'index']);
@@ -204,6 +222,8 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
                 ->name('admin.pemasukan.mahasiswa.uas-susulan.updateFull');
             Route::delete('uas-susulan/full/{id}', [UasSusulanController::class, 'destroyFull'])
                 ->name('admin.pemasukan.mahasiswa.uas-susulan.destroyFull');
+            Route::get('uas-susulan/check-registered', [UasSusulanController::class, 'checkRegistered'])
+                ->name('admin.pemasukan.mahasiswa.uas-susulan.checkRegistered');
             Route::get('uas-susulan/jadwal-kuliah', [UasSusulanController::class, 'getJadwalKuliah'])
                 ->name('admin.pemasukan.mahasiswa.uas-susulan.getJadwalKuliah');
             Route::get('uas-susulan/excel', [UasSusulanController::class, 'excel'])

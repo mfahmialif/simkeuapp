@@ -22,6 +22,9 @@ use App\Models\KeuanganJenisPembayaran;
 use App\Models\KeuanganDispensasiTagihan;
 use Illuminate\Support\Facades\Validator;
 use App\Models\KeuanganJenisPembayaranDetail;
+use App\Models\KeuanganUasSusulan;
+use App\Models\KeuanganUasSusulanMk;
+use App\Models\ThAkademik;
 
 class PembayaranController extends Controller
 {
@@ -577,6 +580,17 @@ class PembayaranController extends Controller
             $nim = strtoupper($dataValidated['nim']);
             $this->ensureManualJenisPembayaran($dataValidated['jenis_pembayaran']);
             $this->ensureTagihanCanBePaid($nim, $dataValidated['list_tagihan_id']);
+            if ($request->boolean('is_uas_susulan')) {
+                $alreadyExistsUas = KeuanganUasSusulan::where('nim', $nim)
+                    ->where('th_akademik_id', $dataValidated['tahun_akademik'])
+                    ->exists();
+
+                if ($alreadyExistsUas) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'is_uas_susulan' => "Mahasiswa dengan NIM {$nim} sudah terdaftar UAS Susulan pada tahun akademik ini.",
+                    ]);
+                }
+            }
 
             DB::beginTransaction();
 
@@ -585,13 +599,79 @@ class PembayaranController extends Controller
             $nota = Helper::generateNota($dataValidated['tanggal'], $request->jk_id);
             $pembayaran = null;
             $totalDepositDipakai = 0;
+            $uasSusulanCreated = false;
 
             for ($i = 0; $i < count($dataValidated['list_tagihan']); $i++) {
                 $tagihanId = $dataValidated['list_tagihan_id'][$i];
-                $tagihanPembayaran = KeuanganTagihan::with('mata_uang')->findOrFail($tagihanId);
                 $dibayar = $this->normalizeNumber($dataValidated['list_dibayar'][$i] ?? 0);
                 $depositDibayar = $this->normalizeNumber($dataValidated['list_deposit'][$i] ?? 0);
                 $keringananJenis = $this->normalizeKeringananJenis($dataValidated['list_keringanan_jenis'][$i] ?? null);
+
+                if ($tagihanId === 'uas_susulan' || !is_numeric($tagihanId)) {
+                    $uasThAkademikId = $request->input('uas_susulan_th_akademik_id');
+                    $uasSemesterMhs = $request->input('uas_susulan_semester_mhs', $dataValidated['semester']);
+                    $uasJadwalKuliahIds = (array) $request->input('uas_susulan_jadwal_kuliah_id', []);
+                    $uasKeterangan = $request->input('uas_susulan_keterangan', '');
+
+                    $thAkademikBayar = ThAkademik::find($dataValidated['tahun_akademik']);
+                    $thAkademikBayarKode = $thAkademikBayar ? $thAkademikBayar->kode : '';
+
+                    $frontendNama = trim((string) ($dataValidated['list_tagihan'][$i] ?? ''));
+                    if ($frontendNama && $frontendNama !== 'uas_susulan') {
+                        $namaTagihan = $frontendNama;
+                    } else {
+                        $namaTagihan = "UAS SUSULAN SEMESTER " . $uasSemesterMhs . " " . $thAkademikBayarKode;
+                    }
+
+                    $mhsData = Mahasiswa::nim($nim);
+                    $prodiId = $mhsData->prodi_id ?? 1;
+                    $kelasId = $mhsData->kelas_id ?? 6;
+                    $thAngkatanId = $mhsData->th_akademik_id ?? $dataValidated['tahun_akademik'];
+                    $nominalTagihan = $dibayar + $depositDibayar;
+
+                    $kodeTagihan = $dataValidated['tahun_akademik'] . $thAngkatanId . $prodiId . $kelasId . '1';
+
+                    $tagihanPembayaran = KeuanganTagihan::create([
+                        'nim' => $nim,
+                        'th_akademik_id' => $dataValidated['tahun_akademik'],
+                        'th_angkatan_id' => $thAngkatanId,
+                        'prodi_id' => $prodiId,
+                        'double_degree' => null,
+                        'kelas_id' => $kelasId,
+                        'form_schadule_id' => 1,
+                        'kode' => $kodeTagihan,
+                        'nama' => $namaTagihan,
+                        'jumlah' => $nominalTagihan,
+                        'mata_uang_id' => 1,
+                        'x_sks' => 'Y',
+                        'user_id' => Auth::user()->id,
+                    ]);
+                    $tagihanPembayaran->load('mata_uang');
+                    $tagihanId = $tagihanPembayaran->id;
+
+                    // Save to keuangan_uas_susulan (menggunakan tahun akademik dari section akademik)
+                    $uasSusulan = KeuanganUasSusulan::create([
+                        'th_akademik_id' => $dataValidated['tahun_akademik'],
+                        'tanggal' => $dataValidated['tanggal'],
+                        'nim' => $nim,
+                        'keterangan' => $uasKeterangan,
+                        'user_id' => Auth::user()->id,
+                    ]);
+                    $uasSusulanCreated = true;
+
+                    // Save to keuangan_uas_susulan_mk
+                    foreach ($uasJadwalKuliahIds as $jadwalId) {
+                        if ($jadwalId) {
+                            KeuanganUasSusulanMk::create([
+                                'uas_susulan_id' => $uasSusulan->id,
+                                'jadwal_kuliah_id' => $jadwalId,
+                                'user_id' => Auth::user()->id,
+                            ]);
+                        }
+                    }
+                } else {
+                    $tagihanPembayaran = KeuanganTagihan::with('mata_uang')->findOrFail($tagihanId);
+                }
 
                 if ($depositDibayar > 0 && strtoupper((string) ($tagihanPembayaran->mata_uang?->kode ?? 'IDR')) !== 'IDR') {
                     throw \Illuminate\Validation\ValidationException::withMessages([
@@ -705,6 +785,30 @@ class PembayaranController extends Controller
                         }
 
                         $totalDepositDipakai += $depositDibayar;
+                    }
+                }
+            }
+
+            // Save to keuangan_uas_susulan if active but not created from custom tagihan row
+            if ($request->boolean('is_uas_susulan') && !$uasSusulanCreated) {
+                $uasJadwalKuliahIds = (array) $request->input('uas_susulan_jadwal_kuliah_id', []);
+                $uasKeterangan = $request->input('uas_susulan_keterangan', '');
+
+                $uasSusulan = KeuanganUasSusulan::create([
+                    'th_akademik_id' => $dataValidated['tahun_akademik'],
+                    'tanggal' => $dataValidated['tanggal'],
+                    'nim' => $nim,
+                    'keterangan' => $uasKeterangan,
+                    'user_id' => Auth::user()->id,
+                ]);
+
+                foreach ($uasJadwalKuliahIds as $jadwalId) {
+                    if ($jadwalId) {
+                        KeuanganUasSusulanMk::create([
+                            'uas_susulan_id' => $uasSusulan->id,
+                            'jadwal_kuliah_id' => $jadwalId,
+                            'user_id' => Auth::user()->id,
+                        ]);
                     }
                 }
             }
@@ -985,7 +1089,7 @@ class PembayaranController extends Controller
     private function ensureTagihanCanBePaid(string $nim, $tagihanIds): void
     {
         $ids = array_values(array_filter((array) $tagihanIds, function ($id) {
-            return $id !== null && $id !== '';
+            return $id !== null && $id !== '' && is_numeric($id);
         }));
 
         if (empty($ids)) {

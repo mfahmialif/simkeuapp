@@ -72,6 +72,16 @@ class UasSusulanController extends Controller
             return response()->json(['status' => false, 'message' => $v->errors()], 422);
         }
 
+        $existing = KeuanganUasSusulan::where('nim', $request->nim)
+            ->where('th_akademik_id', $request->th_akademik_id)
+            ->first();
+        if ($existing) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'Mahasiswa sudah terdaftar UAS Susulan pada tahun akademik ini.',
+            ], 422);
+        }
+
         $data = KeuanganUasSusulan::create([
             'tanggal'      => $request->tanggal,
             'nim'          => $request->nim,
@@ -101,6 +111,16 @@ class UasSusulanController extends Controller
 
         if ($v->fails()) {
             return response()->json(['status' => false, 'message' => $v->errors()], 422);
+        }
+
+        $existing = KeuanganUasSusulan::where('nim', $request->nim)
+            ->where('th_akademik_id', $request->th_akademik_id)
+            ->first();
+        if ($existing) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'Mahasiswa sudah terdaftar UAS Susulan pada tahun akademik ini.',
+            ], 422);
         }
 
         $data = KeuanganUasSusulan::create([
@@ -251,9 +271,45 @@ class UasSusulanController extends Controller
         ]);
     }
 
+    public function checkRegistered(Request $request)
+    {
+        $v = Validator::make($request->all(), [
+            'nim'            => 'required|string',
+            'th_akademik_id' => 'required|numeric',
+        ]);
+
+        if ($v->fails()) {
+            return response()->json(['status' => false, 'message' => $v->errors()], 422);
+        }
+
+        $existing = KeuanganUasSusulan::with(['th_akademik'])
+            ->where('nim', $request->nim)
+            ->where('th_akademik_id', $request->th_akademik_id)
+            ->first();
+
+        return response()->json([
+            'status'        => true,
+            'is_registered' => (bool) $existing,
+            'data'          => $existing,
+            'message'       => $existing
+                ? 'Mahasiswa sudah terdaftar UAS Susulan pada tahun akademik ini.'
+                : 'Mahasiswa belum terdaftar UAS Susulan pada tahun akademik ini.',
+        ]);
+    }
+
     public function getJadwalKuliah(Request $request)
     {
         $data = Jadwal::mahasiswa($request->nim, $request->th_akademik_id);
+        if (isset($data->data->krs_detail) && is_array($data->data->krs_detail)) {
+            $dosenIds = collect($data->data->krs_detail)->pluck('dosen_id')->filter()->unique()->values();
+            $dosenMap = \App\Models\Dosen::with('pegawai')->whereIn('id', $dosenIds)->get()->keyBy('id');
+            foreach ($data->data->krs_detail as $item) {
+                $d = $dosenMap->get($item->dosen_id);
+                $item->dosen_nama = $d && $d->pegawai
+                    ? trim(($d->gelar_depan ? $d->gelar_depan . ' ' : '') . $d->pegawai->nama . ($d->gelar_belakang ? ', ' . $d->gelar_belakang : ''))
+                    : '-';
+            }
+        }
         return response()->json($data);
     }
 
