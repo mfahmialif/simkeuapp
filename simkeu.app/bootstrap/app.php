@@ -27,7 +27,12 @@ $app = Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        //
+        $exceptions->render(function (\Illuminate\Auth\AuthenticationException $e, \Illuminate\Http\Request $request) {
+            return response()->json([
+                'message' => 'Unauthenticated.',
+                'status' => false,
+            ], 401);
+        });
     })->create();
 
 $app->usePublicPath(dirname(__DIR__, 2).'/public_html');

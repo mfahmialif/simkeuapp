@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa;
 
+use App\Exports\pdf\PengembalianDanaBundlingPdf;
+use App\Exports\pdf\PengembalianDanaPdf;
 use App\Http\Controllers\Controller;
 use App\Models\KeuanganPengembalianDana;
 use Carbon\Carbon;
@@ -13,18 +15,50 @@ use Illuminate\Support\Facades\Validator;
 class PengembalianDanaController extends Controller
 {
     /**
-     * Cek apakah user saat ini berhak (Admin atau Kabag)
+     * Ambil nama role user dengan aman (termasuk fallback via role_id)
      */
-    private function canManage(): bool
+    private function getRoleName(): string
     {
         $user = Auth::user();
         if (!$user) {
-            return false;
+            return '';
         }
 
-        $roleName = strtolower($user->role->name ?? '');
+        if ($user->role && !empty($user->role->name)) {
+            return strtolower(trim($user->role->name));
+        }
 
-        return in_array($roleName, ['admin', 'kabag', 'kabag_pemasukan'], true);
+        $roleMap = [
+            1  => 'admin',
+            2  => 'pimpinan',
+            3  => 'keuangan',
+            4  => 'kabag',
+            5  => 'staff',
+            13 => 'kabag_pemasukan',
+            14 => 'kabag_pengeluaran',
+        ];
+
+        return $roleMap[$user->role_id] ?? '';
+    }
+
+    /**
+     * Cek apakah user berhak mengakses modul pengembalian dana
+     * Role yang diizinkan: admin, kabag, kabag_pemasukan, staff, keuangan
+     */
+    private function canAccess(): bool
+    {
+        $role = $this->getRoleName();
+
+        return in_array($role, ['admin', 'kabag', 'kabag_pemasukan', 'staff', 'keuangan'], true);
+    }
+
+    /**
+     * Cek apakah user berhak mengelola data pengembalian dana (tambah, edit, hapus)
+     * Role yang diizinkan: admin, kabag, kabag_pemasukan, staff, keuangan
+     */
+    private function canManage(): bool
+    {
+        return $this->canAccess();
     }
 
     /**
@@ -32,23 +66,14 @@ class PengembalianDanaController extends Controller
      */
     public function stats(Request $request)
     {
-        $query = KeuanganPengembalianDana::query();
-
-        // Optional filter tanggal untuk stat jika diinginkan
-        $startDate = $request->input('start_date');
-        $endDate = $request->input('end_date');
-
-        if (!empty($startDate) && $startDate !== 'undefined' && $startDate !== 'null' &&
-            !empty($endDate) && $endDate !== 'undefined' && $endDate !== 'null') {
-            try {
-                $query->whereBetween('tanggal', [
-                    Carbon::parse($startDate)->startOfDay(),
-                    Carbon::parse($endDate)->endOfDay(),
-                ]);
-            } catch (\Throwable $e) {
-                // Ignore invalid date strings
-            }
+        if (!$this->canAccess()) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'Anda tidak memiliki hak akses ke modul pengembalian dana.',
+            ], 403);
         }
+
+        $query = $this->buildFilteredQuery($request);
 
         $now = Carbon::now();
         $totalNominal = (double) (clone $query)->sum('nominal');
@@ -75,20 +100,57 @@ class PengembalianDanaController extends Controller
     }
 
     /**
-     * GET /admin/pemasukan/mahasiswa/pengembalian
+     * Helper untuk filter query index dan PDF bundling
      */
-    public function index(Request $request)
+    private function buildFilteredQuery(Request $request)
     {
-        $query = KeuanganPengembalianDana::with('petugas:id,name,email');
+        $query = KeuanganPengembalianDana::with(['petugas:id,name,email', 'jenisPembayaran:id,nama,kategori']);
+
+        // Filter Jenis Pembayaran
+        if ($request->filled('jenis_pembayaran_id') && $request->jenis_pembayaran_id !== 'all' && $request->jenis_pembayaran_id !== '') {
+            $query->where('jenis_pembayaran_id', $request->jenis_pembayaran_id);
+        }
+
+        // Filter Metode Pembayaran Group / Type (e.g. 'tunai', 'transfer', 'yayasan')
+        if ($request->filled('payment_type') && $request->payment_type !== 'all' && $request->payment_type !== '') {
+            $pt = strtolower($request->payment_type);
+            if ($pt === 'tunai' || $pt === 'cash') {
+                $query->whereHas('jenisPembayaran', function ($q) {
+                    $q->where(function ($sub) {
+                        $sub->where('nama', 'like', '%cash%')
+                            ->orWhere('nama', 'like', '%tunai%');
+                    });
+                });
+            } elseif ($pt === 'transfer' || $pt === 'tf') {
+                $query->whereHas('jenisPembayaran', function ($q) {
+                    $q->where(function ($sub) {
+                        $sub->where('nama', 'like', '%transfer%')
+                            ->orWhere('nama', 'like', '%tf%');
+                    });
+                });
+            } elseif ($pt === 'yayasan' || $pt === 'yys') {
+                $query->whereHas('jenisPembayaran', function ($q) {
+                    $q->where(function ($sub) {
+                        $sub->where('nama', 'like', '%yayasan%')
+                            ->orWhere('nama', 'like', '%yys%');
+                    });
+                });
+            }
+        }
 
         // Pencarian umum
         if ($request->filled('search')) {
             $s = trim($request->search);
             $query->where(function ($q) use ($s) {
-                $q->where('keterangan', 'like', "%{$s}%")
+                $q->where('no_transaksi', 'like', "%{$s}%")
+                    ->orWhere('keterangan', 'like', "%{$s}%")
                     ->orWhere('nominal', 'like', "%{$s}%")
+                    ->orWhere('id', 'like', "%{$s}%")
                     ->orWhereHas('petugas', function ($qp) use ($s) {
                         $qp->where('name', 'like', "%{$s}%");
+                    })
+                    ->orWhereHas('jenisPembayaran', function ($qjp) use ($s) {
+                        $qjp->where('nama', 'like', "%{$s}%");
                     });
             });
         }
@@ -132,13 +194,39 @@ class PengembalianDanaController extends Controller
         }
 
         // Filter Petugas
-        if ($request->filled('petugas_id') && is_numeric($request->petugas_id)) {
-            $query->where('petugas_id', $request->petugas_id);
+        $petugasId = $request->input('petugas_id') ?: $request->input('user_id');
+        if (!empty($petugasId) && is_numeric($petugasId)) {
+            $query->where('petugas_id', $petugasId);
         }
+
+        // Filter Jenis Kelamin Petugas
+        if ($request->filled('jenis_kelamin') && $request->jenis_kelamin !== '%' && $request->jenis_kelamin !== 'Semua') {
+            $jk = $request->jenis_kelamin;
+            $query->whereHas('petugas', function ($q) use ($jk) {
+                $q->whereIn('jenis_kelamin', [$jk, '*']);
+            });
+        }
+
+        return $query;
+    }
+
+    /**
+     * GET /admin/pemasukan/mahasiswa/pengembalian
+     */
+    public function index(Request $request)
+    {
+        if (!$this->canAccess()) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'Anda tidak memiliki hak akses ke modul pengembalian dana.',
+            ], 403);
+        }
+
+        $query = $this->buildFilteredQuery($request);
 
         // Sorting
         $sortKey = $request->input('sort_key', 'id');
-        $allowedSort = ['id', 'nominal', 'tanggal', 'created_at', 'updated_at'];
+        $allowedSort = ['id', 'no_transaksi', 'nominal', 'tanggal', 'created_at', 'updated_at'];
         if (!in_array($sortKey, $allowedSort, true)) {
             $sortKey = 'id';
         }
@@ -165,28 +253,31 @@ class PengembalianDanaController extends Controller
         if (!$this->canManage()) {
             return response()->json([
                 'status'  => false,
-                'message' => 'Hanya role Admin dan Kabag yang diizinkan untuk menambah pengembalian dana.',
+                'message' => 'Hanya role Admin, Kabag, Staff, dan Keuangan yang diizinkan untuk menambah pengembalian dana.',
             ], 403);
         }
 
         $validator = Validator::make($request->all(), [
-            'nominal'           => 'required|numeric|min:1',
-            'tanggal'           => 'required|date',
-            'file_bukti_masuk'  => 'required|file|max:10240|mimes:jpg,jpeg,png,pdf,webp',
-            'file_bukti_keluar' => 'nullable|file|max:10240|mimes:jpg,jpeg,png,pdf,webp',
-            'keterangan'        => 'nullable|string|max:1000',
+            'nominal'             => 'required|numeric|min:1',
+            'tanggal'             => 'required|date',
+            'jenis_pembayaran_id' => 'required|exists:keuangan_jenis_pembayaran,id',
+            'file_bukti_masuk'    => 'required|file|max:10240|mimes:jpg,jpeg,png,pdf,webp',
+            'file_bukti_keluar'   => 'nullable|file|max:10240|mimes:jpg,jpeg,png,pdf,webp',
+            'keterangan'          => 'nullable|string|max:1000',
         ], [
-            'nominal.required'          => 'Nominal wajib diisi.',
-            'nominal.min'               => 'Nominal minimal Rp 1.',
-            'tanggal.required'          => 'Tanggal dan waktu wajib diisi.',
-            'tanggal.date'              => 'Format tanggal dan waktu tidak valid.',
-            'file_bukti_masuk.required' => 'File bukti dana masuk wajib diunggah.',
-            'file_bukti_masuk.file'     => 'File bukti dana masuk harus berupa file yang valid.',
-            'file_bukti_masuk.mimes'    => 'Format file bukti dana masuk harus berupa PDF atau Gambar (JPG, JPEG, PNG, WEBP).',
-            'file_bukti_masuk.max'      => 'Ukuran file bukti dana masuk maksimal 10MB.',
-            'file_bukti_keluar.file'    => 'File bukti dana dikeluarkan harus berupa file yang valid.',
-            'file_bukti_keluar.mimes'   => 'Format file bukti dana dikeluarkan harus berupa PDF atau Gambar (JPG, JPEG, PNG, WEBP).',
-            'file_bukti_keluar.max'     => 'Ukuran file bukti dana dikeluarkan maksimal 10MB.',
+            'nominal.required'             => 'Nominal wajib diisi.',
+            'nominal.min'                  => 'Nominal minimal Rp 1.',
+            'tanggal.required'             => 'Tanggal dan waktu wajib diisi.',
+            'tanggal.date'                 => 'Format tanggal dan waktu tidak valid.',
+            'jenis_pembayaran_id.required' => 'Jenis pembayaran wajib dipilih.',
+            'jenis_pembayaran_id.exists'   => 'Jenis pembayaran yang dipilih tidak valid.',
+            'file_bukti_masuk.required'    => 'File bukti dana masuk wajib diunggah.',
+            'file_bukti_masuk.file'        => 'File bukti dana masuk harus berupa file yang valid.',
+            'file_bukti_masuk.mimes'       => 'Format file bukti dana masuk harus berupa PDF atau Gambar (JPG, JPEG, PNG, WEBP).',
+            'file_bukti_masuk.max'         => 'Ukuran file bukti dana masuk maksimal 10MB.',
+            'file_bukti_keluar.file'       => 'File bukti dana dikeluarkan harus berupa file yang valid.',
+            'file_bukti_keluar.mimes'      => 'Format file bukti dana dikeluarkan harus berupa PDF atau Gambar (JPG, JPEG, PNG, WEBP).',
+            'file_bukti_keluar.max'        => 'Ukuran file bukti dana dikeluarkan maksimal 10MB.',
         ]);
 
         if ($validator->fails()) {
@@ -206,18 +297,23 @@ class PengembalianDanaController extends Controller
             $pathKeluar = $request->file('file_bukti_keluar')->store('pengembalian-dana/keluar', 'public');
         }
 
+        $parsedDate = Carbon::parse($request->tanggal);
+        $noTransaksi = KeuanganPengembalianDana::generateNoTransaksi($parsedDate);
+
         $record = KeuanganPengembalianDana::create([
-            'nominal'           => $request->nominal,
-            'tanggal'           => Carbon::parse($request->tanggal),
-            'petugas_id'        => Auth::id(),
-            'file_bukti_masuk'  => $pathMasuk,
-            'file_bukti_keluar' => $pathKeluar,
-            'keterangan'        => $request->keterangan,
+            'no_transaksi'        => $noTransaksi,
+            'nominal'             => $request->nominal,
+            'tanggal'             => $parsedDate,
+            'petugas_id'          => Auth::id(),
+            'jenis_pembayaran_id' => $request->jenis_pembayaran_id,
+            'file_bukti_masuk'    => $pathMasuk,
+            'file_bukti_keluar'   => $pathKeluar,
+            'keterangan'          => $request->keterangan,
         ]);
 
         return response()->json([
             'status'  => true,
-            'data'    => $record->load('petugas:id,name,email'),
+            'data'    => $record->load(['petugas:id,name,email', 'jenisPembayaran:id,nama,kategori']),
             'message' => 'Data pengembalian dana berhasil disimpan.',
         ], 201);
     }
@@ -227,7 +323,14 @@ class PengembalianDanaController extends Controller
      */
     public function show($id)
     {
-        $data = KeuanganPengembalianDana::with('petugas:id,name,email')->find($id);
+        if (!$this->canAccess()) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'Anda tidak memiliki hak akses ke modul pengembalian dana.',
+            ], 403);
+        }
+
+        $data = KeuanganPengembalianDana::with(['petugas:id,name,email', 'jenisPembayaran:id,nama,kategori'])->find($id);
         if (!$data) {
             return response()->json([
                 'status'  => false,
@@ -250,7 +353,7 @@ class PengembalianDanaController extends Controller
         if (!$this->canManage()) {
             return response()->json([
                 'status'  => false,
-                'message' => 'Hanya role Admin dan Kabag yang diizinkan untuk mengedit pengembalian dana.',
+                'message' => 'Hanya role Admin, Kabag, Staff, dan Keuangan yang diizinkan untuk mengedit pengembalian dana.',
             ], 403);
         }
 
@@ -263,22 +366,25 @@ class PengembalianDanaController extends Controller
         }
 
         $validator = Validator::make($request->all(), [
-            'nominal'           => 'required|numeric|min:1',
-            'tanggal'           => 'required|date',
-            'file_bukti_masuk'  => 'nullable|file|max:10240|mimes:jpg,jpeg,png,pdf,webp',
-            'file_bukti_keluar' => 'nullable|file|max:10240|mimes:jpg,jpeg,png,pdf,webp',
-            'keterangan'        => 'nullable|string|max:1000',
+            'nominal'             => 'required|numeric|min:1',
+            'tanggal'             => 'required|date',
+            'jenis_pembayaran_id' => 'required|exists:keuangan_jenis_pembayaran,id',
+            'file_bukti_masuk'    => 'nullable|file|max:10240|mimes:jpg,jpeg,png,pdf,webp',
+            'file_bukti_keluar'   => 'nullable|file|max:10240|mimes:jpg,jpeg,png,pdf,webp',
+            'keterangan'          => 'nullable|string|max:1000',
         ], [
-            'nominal.required'        => 'Nominal wajib diisi.',
-            'nominal.min'             => 'Nominal minimal Rp 1.',
-            'tanggal.required'        => 'Tanggal dan waktu wajib diisi.',
-            'tanggal.date'            => 'Format tanggal dan waktu tidak valid.',
-            'file_bukti_masuk.file'   => 'File bukti dana masuk harus berupa file yang valid.',
-            'file_bukti_masuk.mimes'  => 'Format file bukti dana masuk harus berupa PDF atau Gambar (JPG, JPEG, PNG, WEBP).',
-            'file_bukti_masuk.max'    => 'Ukuran file bukti dana masuk maksimal 10MB.',
-            'file_bukti_keluar.file'  => 'File bukti dana dikeluarkan harus berupa file yang valid.',
-            'file_bukti_keluar.mimes' => 'Format file bukti dana dikeluarkan harus berupa PDF atau Gambar (JPG, JPEG, PNG, WEBP).',
-            'file_bukti_keluar.max'   => 'Ukuran file bukti dana dikeluarkan maksimal 10MB.',
+            'nominal.required'             => 'Nominal wajib diisi.',
+            'nominal.min'                  => 'Nominal minimal Rp 1.',
+            'tanggal.required'             => 'Tanggal dan waktu wajib diisi.',
+            'tanggal.date'                 => 'Format tanggal dan waktu tidak valid.',
+            'jenis_pembayaran_id.required' => 'Jenis pembayaran wajib dipilih.',
+            'jenis_pembayaran_id.exists'   => 'Jenis pembayaran yang dipilih tidak valid.',
+            'file_bukti_masuk.file'        => 'File bukti dana masuk harus berupa file yang valid.',
+            'file_bukti_masuk.mimes'       => 'Format file bukti dana masuk harus berupa PDF atau Gambar (JPG, JPEG, PNG, WEBP).',
+            'file_bukti_masuk.max'         => 'Ukuran file bukti dana masuk maksimal 10MB.',
+            'file_bukti_keluar.file'       => 'File bukti dana dikeluarkan harus berupa file yang valid.',
+            'file_bukti_keluar.mimes'      => 'Format file bukti dana dikeluarkan harus berupa PDF atau Gambar (JPG, JPEG, PNG, WEBP).',
+            'file_bukti_keluar.max'        => 'Ukuran file bukti dana dikeluarkan maksimal 10MB.',
         ]);
 
         if ($validator->fails()) {
@@ -305,14 +411,15 @@ class PengembalianDanaController extends Controller
             $record->file_bukti_keluar = $request->file('file_bukti_keluar')->store('pengembalian-dana/keluar', 'public');
         }
 
-        $record->nominal    = $request->nominal;
-        $record->tanggal    = Carbon::parse($request->tanggal);
-        $record->keterangan = $request->keterangan;
+        $record->nominal             = $request->nominal;
+        $record->tanggal             = Carbon::parse($request->tanggal);
+        $record->jenis_pembayaran_id = $request->jenis_pembayaran_id;
+        $record->keterangan          = $request->keterangan;
         $record->save();
 
         return response()->json([
             'status'  => true,
-            'data'    => $record->load('petugas:id,name,email'),
+            'data'    => $record->load(['petugas:id,name,email', 'jenisPembayaran:id,nama,kategori']),
             'message' => 'Data pengembalian dana berhasil diperbarui.',
         ]);
     }
@@ -325,7 +432,7 @@ class PengembalianDanaController extends Controller
         if (!$this->canManage()) {
             return response()->json([
                 'status'  => false,
-                'message' => 'Hanya role Admin dan Kabag yang diizinkan untuk menghapus pengembalian dana.',
+                'message' => 'Hanya role Admin, Kabag, Staff, dan Keuangan yang diizinkan untuk menghapus pengembalian dana.',
             ], 403);
         }
 
@@ -376,5 +483,53 @@ class PengembalianDanaController extends Controller
             'Content-Type'        => $mime,
             'Content-Disposition' => 'inline; filename="' . basename($path) . '"',
         ]);
+    }
+
+    /**
+     * GET /admin/pemasukan/mahasiswa/pengembalian/{id}/pdf
+     * Cetak dokumen bukti pengembalian dana resmi satuan
+     */
+    public function cetakPdf($id)
+    {
+        if (!$this->canAccess()) {
+            abort(403, 'Anda tidak memiliki hak akses ke dokumen pengembalian dana.');
+        }
+
+        $item = KeuanganPengembalianDana::with(['petugas:id,name,email', 'jenisPembayaran:id,nama,kategori'])->find($id);
+        if (!$item) {
+            abort(404, 'Data pengembalian dana tidak ditemukan.');
+        }
+
+        return PengembalianDanaPdf::generate($item);
+    }
+
+    /**
+     * GET /admin/pemasukan/mahasiswa/pengembalian/pdf-bundling
+     * Cetak rekap dan bundling berkas pengembalian dana berdasarkan filter aktif
+     */
+    public function pdfBundling(Request $request)
+    {
+        if (!$this->canAccess()) {
+            abort(403, 'Anda tidak memiliki hak akses ke dokumen rekap pengembalian dana.');
+        }
+
+        $query = $this->buildFilteredQuery($request);
+
+        $sortKey = $request->input('sort_key', 'tanggal');
+        $allowedSort = ['id', 'no_transaksi', 'nominal', 'tanggal', 'created_at', 'updated_at'];
+        if (!in_array($sortKey, $allowedSort, true)) {
+            $sortKey = 'tanggal';
+        }
+        $sortOrder = strtolower($request->input('sort_order', 'desc')) === 'asc' ? 'asc' : 'desc';
+        $query->orderBy($sortKey, $sortOrder);
+
+        $items = $query->get();
+
+        $filterInfo = [
+            'start_date' => $request->input('start_date'),
+            'end_date'   => $request->input('end_date'),
+        ];
+
+        return PengembalianDanaBundlingPdf::generate($items, $filterInfo);
     }
 }

@@ -6,22 +6,22 @@ use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-class KeuanganPengembalianDana extends Model
+class KeuanganPemasukanUmum extends Model
 {
     use HasFactory;
 
-    protected $table = 'keuangan_pengembalian_dana';
+    protected $table = 'keuangan_pemasukan_umum';
 
     protected $guarded = [];
 
     protected $casts = [
-        'tanggal' => 'datetime',
-        'nominal' => 'double',
+        'tanggal'  => 'datetime',
+        'nominal'  => 'double',
+        'lampiran' => 'array',
     ];
 
     protected $appends = [
-        'file_bukti_masuk_url',
-        'file_bukti_keluar_url',
+        'lampiran_list',
     ];
 
     public static function generateNoTransaksi(?Carbon $date = null): string
@@ -30,7 +30,7 @@ class KeuanganPengembalianDana extends Model
         $month = $date->format('m');
         $year = $date->format('Y');
 
-        $pattern = "%/PD/{$month}/{$year}";
+        $pattern = "%/PU/{$month}/{$year}";
 
         // Cari transaksi dengan no_transaksi tertinggi di bulan dan tahun ini
         $lastRecord = self::where('no_transaksi', 'like', $pattern)
@@ -48,7 +48,7 @@ class KeuanganPengembalianDana extends Model
             }
         }
 
-        return sprintf('%04d/PD/%s/%s', $nextNumber, $month, $year);
+        return sprintf('%04d/PU/%s/%s', $nextNumber, $month, $year);
     }
 
     protected static function booted()
@@ -81,21 +81,41 @@ class KeuanganPengembalianDana extends Model
         return $this->getAttributes()['no_transaksi'] ?? null;
     }
 
-    public function getFileBuktiMasukUrlAttribute(): ?string
+    public function getLampiranListAttribute(): array
     {
-        if (empty($this->file_bukti_masuk)) {
-            return null;
+        $lampiran = $this->lampiran;
+        if (is_string($lampiran)) {
+            $decoded = json_decode($lampiran, true);
+            $lampiran = is_array($decoded) ? $decoded : [];
         }
 
-        return url('/api/admin/pemasukan/mahasiswa/pengembalian/file/' . $this->id . '/masuk');
-    }
-
-    public function getFileBuktiKeluarUrlAttribute(): ?string
-    {
-        if (empty($this->file_bukti_keluar)) {
-            return null;
+        if (!is_array($lampiran)) {
+            return [];
         }
 
-        return url('/api/admin/pemasukan/mahasiswa/pengembalian/file/' . $this->id . '/keluar');
+        $list = [];
+        foreach ($lampiran as $index => $item) {
+            if (is_string($item)) {
+                $item = [
+                    'name' => basename($item),
+                    'path' => $item,
+                ];
+            }
+
+            if (!is_array($item) || empty($item['path'])) {
+                continue;
+            }
+
+            $list[] = [
+                'index' => $index,
+                'name'  => $item['name'] ?? basename($item['path']),
+                'path'  => $item['path'],
+                'size'  => $item['size'] ?? 0,
+                'mime'  => $item['mime'] ?? '',
+                'url'   => url('/api/admin/pemasukan/mahasiswa/pemasukan-umum/file/' . $this->id . '/' . $index),
+            ];
+        }
+
+        return $list;
     }
 }

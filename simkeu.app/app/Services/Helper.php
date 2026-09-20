@@ -24,21 +24,21 @@ class Helper
         } else if ($nilai < 20) {
             $temp = Helper::penyebut($nilai - 10) . " belas";
         } else if ($nilai < 100) {
-            $temp = Helper::penyebut($nilai / 10) . " puluh" . Helper::penyebut($nilai % 10);
+            $temp = Helper::penyebut((int) ($nilai / 10)) . " puluh" . Helper::penyebut($nilai % 10);
         } else if ($nilai < 200) {
             $temp = " seratus" . Helper::penyebut($nilai - 100);
         } else if ($nilai < 1000) {
-            $temp = Helper::penyebut($nilai / 100) . " ratus" . Helper::penyebut($nilai % 100);
+            $temp = Helper::penyebut((int) ($nilai / 100)) . " ratus" . Helper::penyebut($nilai % 100);
         } else if ($nilai < 2000) {
             $temp = " seribu" . Helper::penyebut($nilai - 1000);
         } else if ($nilai < 1000000) {
-            $temp = Helper::penyebut($nilai / 1000) . "ribu" . Helper::penyebut($nilai % 1000);
+            $temp = Helper::penyebut((int) ($nilai / 1000)) . "ribu" . Helper::penyebut($nilai % 1000);
         } else if ($nilai < 1000000000) {
-            $temp = Helper::penyebut($nilai / 1000000) . " juta" . Helper::penyebut($nilai % 1000000);
+            $temp = Helper::penyebut((int) ($nilai / 1000000)) . " juta" . Helper::penyebut($nilai % 1000000);
         } else if ($nilai < 1000000000000) {
-            $temp = Helper::penyebut($nilai / 1000000000) . " milyar" . Helper::penyebut(fmod($nilai, 1000000000));
+            $temp = Helper::penyebut((int) ($nilai / 1000000000)) . " milyar" . Helper::penyebut(fmod($nilai, 1000000000));
         } else if ($nilai < 1000000000000000) {
-            $temp = Helper::penyebut($nilai / 1000000000000) . " trilyun" . Helper::penyebut(fmod($nilai, 1000000000000));
+            $temp = Helper::penyebut((int) ($nilai / 1000000000000)) . " trilyun" . Helper::penyebut(fmod($nilai, 1000000000000));
         }
         return $temp;
     }

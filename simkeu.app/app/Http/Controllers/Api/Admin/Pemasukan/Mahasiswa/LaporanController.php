@@ -30,6 +30,8 @@ use App\Services\SemesterPendek;
 use App\Services\TagihanLaporanFilter;
 use App\Exports\PemasukanTunaiHarianBulananExport;
 use App\Exports\PemasukanTunaiHarianTahunanExport;
+use App\Models\KeuanganPemasukanUmum;
+use App\Models\KeuanganPengembalianDana;
 
 class LaporanController extends Controller
 {
@@ -797,6 +799,24 @@ class LaporanController extends Controller
             ];
         }
 
+        // d) Pemasukan Umum
+        if ($jenjang === "sarjana") {
+            $columns[] = [
+                "key" => "pemasukan_umum",
+                "label" => "PEMASUKAN UMUM",
+                "type" => "umum",
+            ];
+        }
+
+        // e) Pengembalian Dana (paling akhir)
+        if ($jenjang === "sarjana") {
+            $columns[] = [
+                "key" => "pengembalian_dana",
+                "label" => "PENGEMBALIAN",
+                "type" => "pengembalian",
+            ];
+        }
+
         return $columns;
     }
 
@@ -1107,6 +1127,154 @@ class LaporanController extends Controller
                     $jumlah,
                     $mataUang,
                 );
+            }
+        }
+
+        // Process Pemasukan Umum Data
+        if ($jenjang === "sarjana") {
+            $puQuery = KeuanganPemasukanUmum::whereBetween("tanggal", [
+                $startDate . " 00:00:00",
+                $endDate . " 23:59:59",
+            ]);
+
+            if ($jenisPembayaranId) {
+                $puQuery->where("jenis_pembayaran_id", $jenisPembayaranId);
+            } else {
+                $puQuery->whereHas('jenisPembayaran', function ($q) {
+                    $q->where(function ($sub) {
+                        $sub->where('nama', 'like', '%cash%')
+                            ->orWhere('nama', 'like', '%tunai%');
+                    });
+                });
+            }
+
+            if ($userId) {
+                $puQuery->where("petugas_id", $userId);
+            } elseif ($jp && $jp->id != '%') {
+                $jkTarget = $jp->id == 8 ? 'Laki-laki' : ($jp->id == 9 ? 'Perempuan' : null);
+                if ($jkTarget) {
+                    $puQuery->whereHas('petugas', function ($q) use ($jkTarget) {
+                        $q->whereIn('jenis_kelamin', [$jkTarget, '*']);
+                    });
+                }
+            }
+
+            $puRecords = $puQuery->selectRaw("DATE(tanggal) as tgl, SUM(nominal) as total_nominal")
+                ->groupBy(DB::raw("DATE(tanggal)"))
+                ->get();
+
+            $assignedKey = "pemasukan_umum";
+            if (isset($colMap[$assignedKey])) {
+                $mataUang = MataUangFormatter::defaultCurrency();
+                foreach ($puRecords as $pu) {
+                    $tgl = $pu->tgl;
+                    $jumlah = (float) $pu->total_nominal;
+
+                    if (isset($dataMap[$tgl])) {
+                        $dataMap[$tgl][$assignedKey] += $jumlah;
+                        $dataMap[$tgl]["jumlah"] += $jumlah;
+                        $totals[$assignedKey] += $jumlah;
+                        $totals["jumlah"] += $jumlah;
+
+                        MataUangFormatter::addToTotals(
+                            $dataMap[$tgl][$assignedKey . "_by_currency"],
+                            $jumlah,
+                            $mataUang,
+                        );
+                        MataUangFormatter::addToTotals(
+                            $dataMap[$tgl]["jumlah_by_currency"],
+                            $jumlah,
+                            $mataUang,
+                        );
+                        MataUangFormatter::addToTotals(
+                            $totals[$assignedKey . "_by_currency"],
+                            $jumlah,
+                            $mataUang,
+                        );
+                        MataUangFormatter::addToTotals(
+                            $totals["jumlah_by_currency"],
+                            $jumlah,
+                            $mataUang,
+                        );
+                    }
+                }
+            }
+        }
+
+        // Process Pengembalian Dana Data
+        if ($jenjang === "sarjana") {
+            $pdQuery = KeuanganPengembalianDana::whereBetween("tanggal", [
+                $startDate . " 00:00:00",
+                $endDate . " 23:59:59",
+            ]);
+
+            if ($jenisPembayaranId) {
+                $pdQuery->where("jenis_pembayaran_id", $jenisPembayaranId);
+            } else {
+                $pdQuery->whereHas('jenisPembayaran', function ($q) {
+                    $q->where(function ($sub) {
+                        $sub->where('nama', 'like', '%cash%')
+                            ->orWhere('nama', 'like', '%tunai%');
+                    });
+                });
+            }
+
+            if ($userId) {
+                $pdQuery->where("petugas_id", $userId);
+            } elseif ($jp && $jp->id != '%') {
+                $jkTarget = $jp->id == 8 ? 'Laki-laki' : ($jp->id == 9 ? 'Perempuan' : null);
+                if ($jkTarget) {
+                    $pdQuery->whereHas('petugas', function ($q) use ($jkTarget) {
+                        $q->whereIn('jenis_kelamin', [$jkTarget, '*']);
+                    });
+                }
+            }
+
+            $pdRecords = $pdQuery->selectRaw("DATE(tanggal) as tgl, SUM(nominal) as total_nominal")
+                ->groupBy(DB::raw("DATE(tanggal)"))
+                ->get();
+
+            $assignedKey = "pengembalian_dana";
+            if (isset($colMap[$assignedKey])) {
+                $mataUang = MataUangFormatter::defaultCurrency();
+                foreach ($pdRecords as $pd) {
+                    $tgl = $pd->tgl;
+                    $nominalPositif = (float) $pd->total_nominal;
+                    if ($nominalPositif <= 0) {
+                        continue;
+                    }
+
+                    // Sifatnya negatif untuk mengurangi pemasukan
+                    $jumlahNegatif = -$nominalPositif;
+
+                    if (isset($dataMap[$tgl])) {
+                        $dataMap[$tgl][$assignedKey] += $jumlahNegatif;
+                        $dataMap[$tgl]["jumlah"] += $jumlahNegatif;
+                        $totals[$assignedKey] += $jumlahNegatif;
+                        $totals["jumlah"] += $jumlahNegatif;
+
+                        MataUangFormatter::addToTotals(
+                            $dataMap[$tgl][$assignedKey . "_by_currency"],
+                            $jumlahNegatif,
+                            $mataUang,
+                        );
+                        MataUangFormatter::addToTotals(
+                            $dataMap[$tgl]["jumlah_by_currency"],
+                            $jumlahNegatif,
+                            $mataUang,
+                        );
+                        MataUangFormatter::addToTotals(
+                            $totals[$assignedKey . "_by_currency"],
+                            $jumlahNegatif,
+                            $mataUang,
+                        );
+                        MataUangFormatter::addToTotals(
+                            $totals["jumlah_by_currency"],
+                            $jumlahNegatif,
+                            $mataUang,
+                        );
+                    }
+                }
             }
         }
 
@@ -2116,7 +2284,95 @@ class LaporanController extends Controller
             }
         }
 
+        if ($jenjang === "sarjana") {
+            $puQuery = KeuanganPemasukanUmum::with(["petugas", "jenisPembayaran"])
+                ->whereDate("tanggal", $tanggal);
+
+            if ($jenisPembayaranId) {
+                $puQuery->where("jenis_pembayaran_id", $jenisPembayaranId);
+            }
+
+            if ($userId) {
+                $puQuery->where("petugas_id", $userId);
+            } elseif ($jp && $jp->id != "%") {
+                $jkTarget = $jp->id == 8 ? "Laki-laki" : ($jp->id == 9 ? "Perempuan" : null);
+                if ($jkTarget) {
+                    $puQuery->whereHas("petugas", function ($q) use ($jkTarget) {
+                        $q->whereIn("jenis_kelamin", [$jkTarget, "*"]);
+                    });
+                }
+            }
+
+            $puRecords = $puQuery->orderBy("tanggal")->get();
+            $puRows = $puRecords->map(function ($pu) {
+                return [
+                    "tanggal_input" => $pu->created_at ? date("Y-m-d", strtotime($pu->created_at)) : null,
+                    "tanggal_transaksi" => $pu->tanggal ? date("Y-m-d", strtotime($pu->tanggal)) : null,
+                    "kwitansi" => $pu->no_transaksi ?: "-",
+                    "nim" => "-",
+                    "nama" => "Pemasukan Umum",
+                    "jenis_kelamin" => "-",
+                    "prodi" => "-",
+                    "pembayaran" => $pu->keterangan ? ("Pemasukan Umum - " . $pu->keterangan) : "Pemasukan Umum",
+                    "nominal" => (float) $pu->nominal,
+                    "mata_uang" => MataUangFormatter::defaultCurrency(),
+                    "metode" => $pu->jenisPembayaran->nama ?? "Tunai",
+                    "petugas" => $pu->petugas->name ?? "-",
+                    "source" => "Pemasukan Umum",
+                ];
+            })->all();
+
+            $rows = array_merge($rows, $puRows);
+        }
+
+        if ($jenjang === "sarjana") {
+            $pdQuery = KeuanganPengembalianDana::with(["petugas", "jenisPembayaran"])
+                ->whereDate("tanggal", $tanggal);
+
+            if ($jenisPembayaranId) {
+                $pdQuery->where("jenis_pembayaran_id", $jenisPembayaranId);
+            }
+
+            if ($userId) {
+                $pdQuery->where("petugas_id", $userId);
+            } elseif ($jp && $jp->id != "%") {
+                $jkTarget = $jp->id == 8 ? "Laki-laki" : ($jp->id == 9 ? "Perempuan" : null);
+                if ($jkTarget) {
+                    $pdQuery->whereHas("petugas", function ($q) use ($jkTarget) {
+                        $q->whereIn("jenis_kelamin", [$jkTarget, "*"]);
+                    });
+                }
+            }
+
+            $pdRecords = $pdQuery->orderBy("tanggal")->get();
+            $pdRows = $pdRecords->map(function ($pd) {
+                return [
+                    "tanggal_input" => $pd->created_at ? date("Y-m-d", strtotime($pd->created_at)) : null,
+                    "tanggal_transaksi" => $pd->tanggal ? date("Y-m-d", strtotime($pd->tanggal)) : null,
+                    "kwitansi" => $pd->no_transaksi ?: "-",
+                    "nim" => "-",
+                    "nama" => "Pengembalian Dana",
+                    "jenis_kelamin" => "-",
+                    "prodi" => "-",
+                    "pembayaran" => $pd->keterangan ? ("Pengembalian Dana - " . $pd->keterangan) : "Pengembalian Dana",
+                    "nominal" => - (float) $pd->nominal,
+                    "mata_uang" => MataUangFormatter::defaultCurrency(),
+                    "metode" => $pd->jenisPembayaran->nama ?? "Tunai",
+                    "petugas" => $pd->petugas->name ?? "-",
+                    "source" => "Pengembalian Dana",
+                ];
+            })->all();
+
+            $rows = array_merge($rows, $pdRows);
+        }
+
         usort($rows, function ($a, $b) {
+            $orderA = ($a["source"] ?? "") === "Pengembalian Dana" ? 2 : (($a["source"] ?? "") === "Pemasukan Umum" ? 1 : 0);
+            $orderB = ($b["source"] ?? "") === "Pengembalian Dana" ? 2 : (($b["source"] ?? "") === "Pemasukan Umum" ? 1 : 0);
+            if ($orderA !== $orderB) {
+                return $orderA <=> $orderB;
+            }
+
             return strcmp(
                 ($a["tanggal_input"] ?? "") . ($a["kwitansi"] ?? ""),
                 ($b["tanggal_input"] ?? "") . ($b["kwitansi"] ?? ""),
@@ -2751,6 +3007,214 @@ class LaporanController extends Controller
                 }
             }
 
+            // Process Pemasukan Umum
+            if ($jenjang === "sarjana") {
+                $puQuery = KeuanganPemasukanUmum::leftJoin("keuangan_jenis_pembayaran as kjp", "kjp.id", "=", "keuangan_pemasukan_umum.jenis_pembayaran_id")
+                    ->whereBetween("keuangan_pemasukan_umum.tanggal", [
+                        $startDate . " 00:00:00",
+                        $endDate . " 23:59:59",
+                    ]);
+
+                if ($userId) {
+                    $puQuery->where("keuangan_pemasukan_umum.petugas_id", $userId);
+                } elseif ($jp && $jp->id != "%") {
+                    $jkTarget = $jp->id == 8 ? "Laki-laki" : ($jp->id == 9 ? "Perempuan" : null);
+                    if ($jkTarget) {
+                        $puQuery->whereHas("petugas", function ($q) use ($jkTarget) {
+                            $q->whereIn("jenis_kelamin", [$jkTarget, "*"]);
+                        });
+                    }
+                }
+
+                if ($mode === "tahunan") {
+                    $puRecords = $puQuery->selectRaw("MONTH(keuangan_pemasukan_umum.tanggal) as bulan, kjp.nama as jenis_pembayaran_nama, SUM(keuangan_pemasukan_umum.nominal) as total_jumlah")
+                        ->groupBy(DB::raw("MONTH(keuangan_pemasukan_umum.tanggal)"), "kjp.nama")
+                        ->get();
+                } else {
+                    $puRecords = $puQuery->selectRaw("kjp.nama as jenis_pembayaran_nama, SUM(keuangan_pemasukan_umum.nominal) as total_jumlah")
+                        ->groupBy("kjp.nama")
+                        ->get();
+                }
+
+                $assignedKey = "pemasukan_umum";
+                $mataUang = MataUangFormatter::defaultCurrency();
+
+                foreach ($puRecords as $pu) {
+                    $jumlah = (float) $pu->total_jumlah;
+                    if ($jumlah <= 0) {
+                        continue;
+                    }
+
+                    $paymentType = $getPaymentType($pu->jenis_pembayaran_nama ?? "tunai");
+                    $bulanVal = $mode === "tahunan" ? (int) $pu->bulan : null;
+
+                    if (isset($data[$assignedKey])) {
+                        $data[$assignedKey][$paymentType] += $jumlah;
+                        $data[$assignedKey]["total"] += $jumlah;
+                        $data["total_all"][$paymentType] += $jumlah;
+                        $data["total_all"]["total"] += $jumlah;
+
+                        MataUangFormatter::addToTotals(
+                            $data[$assignedKey][$paymentType . "_by_currency"],
+                            $jumlah,
+                            $mataUang,
+                        );
+                        MataUangFormatter::addToTotals(
+                            $data[$assignedKey]["total_by_currency"],
+                            $jumlah,
+                            $mataUang,
+                        );
+                        MataUangFormatter::addToTotals(
+                            $data["total_all"][$paymentType . "_by_currency"],
+                            $jumlah,
+                            $mataUang,
+                        );
+                        MataUangFormatter::addToTotals(
+                            $data["total_all"]["total_by_currency"],
+                            $jumlah,
+                            $mataUang,
+                        );
+                    }
+
+                    if (
+                        $mode === "tahunan" &&
+                        $bulanVal &&
+                        isset($allDataMonths[$bulanVal]["data_map"][$assignedKey])
+                    ) {
+                        $allDataMonths[$bulanVal]["data_map"][$assignedKey][$paymentType] += $jumlah;
+                        $allDataMonths[$bulanVal]["data_map"][$assignedKey]["total"] += $jumlah;
+                        $allDataMonths[$bulanVal]["total_all"][$paymentType] += $jumlah;
+                        $allDataMonths[$bulanVal]["total_all"]["total"] += $jumlah;
+
+                        MataUangFormatter::addToTotals(
+                            $allDataMonths[$bulanVal]["data_map"][$assignedKey][$paymentType . "_by_currency"],
+                            $jumlah,
+                            $mataUang,
+                        );
+                        MataUangFormatter::addToTotals(
+                            $allDataMonths[$bulanVal]["data_map"][$assignedKey]["total_by_currency"],
+                            $jumlah,
+                            $mataUang,
+                        );
+                        MataUangFormatter::addToTotals(
+                            $allDataMonths[$bulanVal]["total_all"][$paymentType . "_by_currency"],
+                            $jumlah,
+                            $mataUang,
+                        );
+                        MataUangFormatter::addToTotals(
+                            $allDataMonths[$bulanVal]["total_all"]["total_by_currency"],
+                            $jumlah,
+                            $mataUang,
+                        );
+                    }
+                }
+            }
+
+            // Process Pengembalian Dana
+            if ($jenjang === "sarjana") {
+                $pdQuery = KeuanganPengembalianDana::leftJoin("keuangan_jenis_pembayaran as kjp", "kjp.id", "=", "keuangan_pengembalian_dana.jenis_pembayaran_id")
+                    ->whereBetween("keuangan_pengembalian_dana.tanggal", [
+                        $startDate . " 00:00:00",
+                        $endDate . " 23:59:59",
+                    ]);
+
+                if ($userId) {
+                    $pdQuery->where("keuangan_pengembalian_dana.petugas_id", $userId);
+                } elseif ($jp && $jp->id != "%") {
+                    $jkTarget = $jp->id == 8 ? "Laki-laki" : ($jp->id == 9 ? "Perempuan" : null);
+                    if ($jkTarget) {
+                        $pdQuery->whereHas("petugas", function ($q) use ($jkTarget) {
+                            $q->whereIn("jenis_kelamin", [$jkTarget, "*"]);
+                        });
+                    }
+                }
+
+                if ($mode === "tahunan") {
+                    $pdRecords = $pdQuery->selectRaw("MONTH(keuangan_pengembalian_dana.tanggal) as bulan, kjp.nama as jenis_pembayaran_nama, SUM(keuangan_pengembalian_dana.nominal) as total_jumlah")
+                        ->groupBy(DB::raw("MONTH(keuangan_pengembalian_dana.tanggal)"), "kjp.nama")
+                        ->get();
+                } else {
+                    $pdRecords = $pdQuery->selectRaw("kjp.nama as jenis_pembayaran_nama, SUM(keuangan_pengembalian_dana.nominal) as total_jumlah")
+                        ->groupBy("kjp.nama")
+                        ->get();
+                }
+
+                $assignedKey = "pengembalian_dana";
+                $mataUang = MataUangFormatter::defaultCurrency();
+
+                foreach ($pdRecords as $pd) {
+                    $nominalPositif = (float) $pd->total_jumlah;
+                    if ($nominalPositif <= 0) {
+                        continue;
+                    }
+
+                    // Sifatnya negatif untuk mengurangi pemasukan
+                    $jumlah = -$nominalPositif;
+                    $paymentType = $getPaymentType($pd->jenis_pembayaran_nama ?? "tunai");
+                    $bulanVal = $mode === "tahunan" ? (int) $pd->bulan : null;
+
+                    if (isset($data[$assignedKey])) {
+                        $data[$assignedKey][$paymentType] += $jumlah;
+                        $data[$assignedKey]["total"] += $jumlah;
+                        $data["total_all"][$paymentType] += $jumlah;
+                        $data["total_all"]["total"] += $jumlah;
+
+                        MataUangFormatter::addToTotals(
+                            $data[$assignedKey][$paymentType . "_by_currency"],
+                            $jumlah,
+                            $mataUang,
+                        );
+                        MataUangFormatter::addToTotals(
+                            $data[$assignedKey]["total_by_currency"],
+                            $jumlah,
+                            $mataUang,
+                        );
+                        MataUangFormatter::addToTotals(
+                            $data["total_all"][$paymentType . "_by_currency"],
+                            $jumlah,
+                            $mataUang,
+                        );
+                        MataUangFormatter::addToTotals(
+                            $data["total_all"]["total_by_currency"],
+                            $jumlah,
+                            $mataUang,
+                        );
+                    }
+
+                    if (
+                        $mode === "tahunan" &&
+                        $bulanVal &&
+                        isset($allDataMonths[$bulanVal]["data_map"][$assignedKey])
+                    ) {
+                        $allDataMonths[$bulanVal]["data_map"][$assignedKey][$paymentType] += $jumlah;
+                        $allDataMonths[$bulanVal]["data_map"][$assignedKey]["total"] += $jumlah;
+                        $allDataMonths[$bulanVal]["total_all"][$paymentType] += $jumlah;
+                        $allDataMonths[$bulanVal]["total_all"]["total"] += $jumlah;
+
+                        MataUangFormatter::addToTotals(
+                            $allDataMonths[$bulanVal]["data_map"][$assignedKey][$paymentType . "_by_currency"],
+                            $jumlah,
+                            $mataUang,
+                        );
+                        MataUangFormatter::addToTotals(
+                            $allDataMonths[$bulanVal]["data_map"][$assignedKey]["total_by_currency"],
+                            $jumlah,
+                            $mataUang,
+                        );
+                        MataUangFormatter::addToTotals(
+                            $allDataMonths[$bulanVal]["total_all"][$paymentType . "_by_currency"],
+                            $jumlah,
+                            $mataUang,
+                        );
+                        MataUangFormatter::addToTotals(
+                            $allDataMonths[$bulanVal]["total_all"]["total_by_currency"],
+                            $jumlah,
+                            $mataUang,
+                        );
+                    }
+                }
+            }
+
             $currencyFields = [
                 "tunai_by_currency",
                 "transfer_by_currency",
@@ -2791,6 +3255,7 @@ class LaporanController extends Controller
                 $row = $data[$col["key"]];
                 $tableData[] = [
                     "no" => $no++,
+                    "key" => $col["key"],
                     "kategori" => $row["label"],
                     "tunai" => $row["tunai"],
                     "transfer" => $row["transfer"],
@@ -2806,14 +3271,13 @@ class LaporanController extends Controller
             $formattedAllData = [];
             if ($mode === "tahunan") {
                 foreach ($allDataMonths as $m => $mInfo) {
-                    // Only include months that have at least some total > 0 if desired?
-                    // Actually let's include all 12 or maybe only those with data. Let's include all 12.
                     $mTable = [];
                     $no = 1;
                     foreach ($columns as $col) {
                         $row = $mInfo["data_map"][$col["key"]];
                         $mTable[] = [
                             "no" => $no++,
+                            "key" => $col["key"],
                             "kategori" => $row["label"],
                             "tunai" => $row["tunai"],
                             "transfer" => $row["transfer"],
@@ -2827,6 +3291,7 @@ class LaporanController extends Controller
                     }
                     $formattedAllData[] = [
                         "title" => $mInfo["title"],
+                        "month" => $m,
                         "data" => $mTable,
                         "totals" => $mInfo["total_all"],
                     ];
