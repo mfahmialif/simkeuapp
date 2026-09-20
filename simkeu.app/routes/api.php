@@ -42,6 +42,7 @@ use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\UasSusulanController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\DispensasiUasController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\PembayaranIdnController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\CatatanDepositController;
+use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\PengembalianDanaController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\JenisPembayaranController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\DispensasiTagihanController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\PembayaranTambahanController;
@@ -101,6 +102,8 @@ Route::prefix('siakad')->middleware('siakad.apikey')->group(function () {
     Route::get('uas-susulan', [SiakadUasSusulanController::class, 'index']);
     Route::get('uas-susulan/{nim}', [SiakadUasSusulanController::class, 'index']);
 });
+
+Route::get('pengembalian-dana/file/{id}/{type}', [PengembalianDanaController::class, 'file']);
 
 Route::prefix('auth')->group(function () {
     Route::post('/login', [AuthController::class, 'login']);
@@ -232,6 +235,14 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
 
             Route::apiResource('setoran', SetoranController::class);
             Route::put('setoran/{id}/validasi', [SetoranController::class, 'validasi'])->name('admin.pemasukan.mahasiswa.setoran.validasi');
+
+            // Pengembalian Dana
+            Route::get('pengembalian/stats', [PengembalianDanaController::class, 'stats'])->name('admin.pemasukan.mahasiswa.pengembalian.stats');
+            Route::apiResource('pengembalian', PengembalianDanaController::class)->names('admin.pemasukan.mahasiswa.pengembalian');
+
+            // Legacy routes support
+            Route::get('catatan-deposit/pengembalian/stats', [PengembalianDanaController::class, 'stats']);
+            Route::apiResource('catatan-deposit/pengembalian', PengembalianDanaController::class);
 
             Route::get('catatan-deposit/nim/{nim}', [CatatanDepositController::class, 'nim'])->name('admin.pemasukan.mahasiswa.catatan-deposit.nim');
             Route::apiResource('catatan-deposit', CatatanDepositController::class);
@@ -603,3 +614,9 @@ Route::get('/testingexcel', [DosenTatapMukaController::class, 'exportExcel']);
 // Route::get('admin/pemasukan/mahasiswa/pembayaran/kwitansi/{id}', [PembayaranController::class, 'kwitansi'])->name('admin.pemasukan.mahasiswa.kwitansi.view');
 Route::get('/krs-report', [DashboardController::class, 'krsReport'])->name('admin.dashboard.krs-report');
 Route::get('/krs-report-detail', [DashboardController::class, 'krsReportDetail'])->name('admin.dashboard.krs-report-detail');
+
+// File streaming untuk bukti pengembalian dana (agar bisa diakses via <img> dan tab baru)
+Route::get('admin/pemasukan/mahasiswa/pengembalian/file/{id}/{type}', [PengembalianDanaController::class, 'file'])
+    ->name('admin.pemasukan.mahasiswa.pengembalian.file');
+Route::get('admin/pemasukan/mahasiswa/catatan-deposit/pengembalian/file/{id}/{type}', [PengembalianDanaController::class, 'file']);
+

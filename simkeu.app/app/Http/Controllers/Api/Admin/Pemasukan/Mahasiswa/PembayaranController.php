@@ -581,8 +581,9 @@ class PembayaranController extends Controller
             $this->ensureManualJenisPembayaran($dataValidated['jenis_pembayaran']);
             $this->ensureTagihanCanBePaid($nim, $dataValidated['list_tagihan_id']);
             if ($request->boolean('is_uas_susulan')) {
+                $targetUasThAkademikId = $request->input('uas_susulan_th_akademik_id') ?: $dataValidated['tahun_akademik'];
                 $alreadyExistsUas = KeuanganUasSusulan::where('nim', $nim)
-                    ->where('th_akademik_id', $dataValidated['tahun_akademik'])
+                    ->where('th_akademik_id', $targetUasThAkademikId)
                     ->exists();
 
                 if ($alreadyExistsUas) {
@@ -649,9 +650,10 @@ class PembayaranController extends Controller
                     $tagihanPembayaran->load('mata_uang');
                     $tagihanId = $tagihanPembayaran->id;
 
-                    // Save to keuangan_uas_susulan (menggunakan tahun akademik dari section akademik)
+                    // Save to keuangan_uas_susulan (menggunakan tahun akademik susulan)
+                    $targetUasThId = $uasThAkademikId ?: $dataValidated['tahun_akademik'];
                     $uasSusulan = KeuanganUasSusulan::create([
-                        'th_akademik_id' => $dataValidated['tahun_akademik'],
+                        'th_akademik_id' => $targetUasThId,
                         'tanggal' => $dataValidated['tanggal'],
                         'nim' => $nim,
                         'keterangan' => $uasKeterangan,
@@ -791,11 +793,12 @@ class PembayaranController extends Controller
 
             // Save to keuangan_uas_susulan if active but not created from custom tagihan row
             if ($request->boolean('is_uas_susulan') && !$uasSusulanCreated) {
+                $targetUasThId = $request->input('uas_susulan_th_akademik_id') ?: $dataValidated['tahun_akademik'];
                 $uasJadwalKuliahIds = (array) $request->input('uas_susulan_jadwal_kuliah_id', []);
                 $uasKeterangan = $request->input('uas_susulan_keterangan', '');
 
                 $uasSusulan = KeuanganUasSusulan::create([
-                    'th_akademik_id' => $dataValidated['tahun_akademik'],
+                    'th_akademik_id' => $targetUasThId,
                     'tanggal' => $dataValidated['tanggal'],
                     'nim' => $nim,
                     'keterangan' => $uasKeterangan,

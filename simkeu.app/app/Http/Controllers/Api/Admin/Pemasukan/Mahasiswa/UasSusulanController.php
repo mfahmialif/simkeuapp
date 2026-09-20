@@ -14,6 +14,7 @@ use App\Models\KeuanganUasSusulanMk;
 use Illuminate\Support\Facades\Auth;
 use Maatwebsite\Excel\Facades\Excel;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\DB;
 
 class UasSusulanController extends Controller
 {
@@ -155,6 +156,77 @@ class UasSusulanController extends Controller
             return response()->json(['status' => false, 'message' => 'Uas Susulan tidak ditemukan.'], 404);
         }
         $data->load('th_akademik', 'uasSusulanMk');
+
+        // Ambil data detail mahasiswa dari SIAKAD
+        try {
+            $data->mahasiswa = \App\Services\Mahasiswa::nim($data->nim);
+        } catch (\Throwable $th) {
+            $data->mahasiswa = null;
+        }
+
+        // Ambil data jadwal dari jadwal_kuliah_id yang terdaftar pada uas_susulan_mk
+        try {
+            $jadwalIds = $data->uasSusulanMk->pluck('jadwal_kuliah_id')->filter()->unique()->values()->all();
+            
+            $jadwalList = !empty($jadwalIds) ? Jadwal::find(json_encode($jadwalIds), true) : [];
+            $jadwalMap = [];
+            $thIdFromJadwal = null;
+
+            if (is_array($jadwalList)) {
+                foreach ($jadwalList as $j) {
+                    $jadwalMap[$j->id] = $j;
+                    if (!$thIdFromJadwal && isset($j->th_akademik_id)) {
+                        $thIdFromJadwal = $j->th_akademik_id;
+                    }
+                }
+            }
+
+            // Cari nilai dari KRS mahasiswa pada th_akademik asal jadwal atau th_akademik_id transaksi
+            $targetThId = $thIdFromJadwal ?: $data->th_akademik_id;
+            $krsData = Jadwal::mahasiswa($data->nim, $targetThId);
+            $krsMap = [];
+            if (isset($krsData->data->krs_detail) && is_array($krsData->data->krs_detail)) {
+                foreach ($krsData->data->krs_detail as $k) {
+                    $krsMap[$k->jadwal_kuliah_id] = $k;
+                }
+                $data->krs_detail = $krsData->data->krs_detail;
+                if (isset($krsData->data->prodi)) {
+                    $data->krs_prodi = $krsData->data->prodi;
+                }
+            }
+
+            // Perkarya setiap uasSusulanMk
+            foreach ($data->uasSusulanMk as $mk) {
+                $j = $jadwalMap[$mk->jadwal_kuliah_id] ?? null;
+                $k = $krsMap[$mk->jadwal_kuliah_id] ?? null;
+
+                $dosenNama = '-';
+                if ($j && isset($j->dosen)) {
+                    $d = $j->dosen;
+                    $dosenNama = trim(($d->gelar_depan ? $d->gelar_depan . ' ' : '') . $d->nama . ($d->gelar_belakang ? ', ' . $d->gelar_belakang : ''));
+                } elseif ($k && !empty($k->dosen_nama)) {
+                    $dosenNama = $k->dosen_nama;
+                }
+
+                $mk->setAttribute('mk_detail', [
+                    'jadwal_kuliah_id' => $mk->jadwal_kuliah_id,
+                    'kode_mk'          => $j?->kurikulum_matakuliah?->matakuliah?->kode ?? ($k?->kode_mk ?? '-'),
+                    'nama_mk'          => $j?->kurikulum_matakuliah?->matakuliah?->nama ?? ($k?->nama_mk ?? "Mata Kuliah #{$mk->jadwal_kuliah_id}"),
+                    'sks_mk'           => $j?->kurikulum_matakuliah?->matakuliah?->sks ?? ($k?->sks_mk ?? '-'),
+                    'smt_mk'           => $j?->kurikulum_matakuliah?->matakuliah?->smt ?? ($j?->smt ?? ($k?->smt_mk ?? '-')),
+                    'dosen_nama'       => $dosenNama,
+                    'nilai_akhir'      => $k?->nilai_akhir ?? null,
+                    'nilai_huruf'      => $k?->nilai_huruf ?? '',
+                    'kelompok'         => $j?->kelompok?->kode ?? ($k?->jadwal_kuliah?->kelompok?->kode ?? '-'),
+                ]);
+            }
+
+            // Sediakan juga uasSusulanMk di root attribute agar format camelCase maupun snake_case tercover
+            $data->setAttribute('uasSusulanMk', $data->uasSusulanMk);
+        } catch (\Throwable $th) {
+            // Abaikan error jika SIAKAD offline
+        }
+
         return response()->json($data, 200);
     }
 
@@ -239,36 +311,34 @@ class UasSusulanController extends Controller
     // DELETE /keuangan/uas-susulan/{id}
     public function destroy($id)
     {
+        $userRole = strtolower(Auth::user()->role->name ?? '');
+        if (!in_array($userRole, ['admin', 'kabag', 'kabag_pemasukan'], true)) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'Hanya role Admin dan Kabag yang diizinkan untuk menghapus data UAS Susulan.',
+            ], 403);
+        }
+
         $data = KeuanganUasSusulan::find($id);
         if (!$data) {
             return response()->json(['status' => false, 'message' => 'Uas Susulan tidak ditemukan.'], 404);
         }
 
-        $data->delete();
+        DB::transaction(function () use ($data, $id) {
+            KeuanganUasSusulanMk::where('uas_susulan_id', $id)->delete();
+            $data->delete();
+        });
 
         return response()->json([
             'status'  => true,
-            'message' => 'Uas Susulan berhasil dihapus.',
+            'message' => 'Data UAS Susulan dan mata kuliah terkait berhasil dihapus.',
         ]);
     }
 
     // DELETE /keuangan/uas-susulan/full/{id}
     public function destroyFull($id)
     {
-        $data = KeuanganUasSusulan::find($id);
-        if (!$data) {
-            return response()->json(['status' => false, 'message' => 'Uas Susulan tidak ditemukan.'], 404);
-        }
-
-        // Hapus semua record yang terkait
-        KeuanganUasSusulanMk::where('uas_susulan_id', $id)->delete();
-
-        $data->delete();
-
-        return response()->json([
-            'status'  => true,
-            'message' => 'Uas Susulan berhasil dihapus.',
-        ]);
+        return $this->destroy($id);
     }
 
     public function checkRegistered(Request $request)
