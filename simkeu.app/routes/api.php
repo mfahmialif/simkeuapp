@@ -251,6 +251,13 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
                 Route::apiResource('catatan-deposit/pengembalian', PengembalianDanaController::class);
             });
 
+            // Pemasukan Umum
+            Route::get('pemasukan-umum/stats', [PemasukanUmumController::class, 'stats'])->name('admin.pemasukan.mahasiswa.pemasukan-umum.stats');
+            Route::get('pemasukan-umum/pdf-bundling', [PemasukanUmumController::class, 'pdfBundling'])->name('admin.pemasukan.mahasiswa.pemasukan-umum.pdf-bundling');
+            Route::get('pemasukan-umum/{id}/pdf', [PemasukanUmumController::class, 'cetakPdf'])->name('admin.pemasukan.mahasiswa.pemasukan-umum.pdf');
+            Route::post('pemasukan-umum/{id}', [PemasukanUmumController::class, 'update'])->name('admin.pemasukan.mahasiswa.pemasukan-umum.update-post');
+            Route::apiResource('pemasukan-umum', PemasukanUmumController::class)->names('admin.pemasukan.mahasiswa.pemasukan-umum');
+
             Route::get('catatan-deposit/nim/{nim}', [CatatanDepositController::class, 'nim'])->name('admin.pemasukan.mahasiswa.catatan-deposit.nim');
             Route::apiResource('catatan-deposit', CatatanDepositController::class);
 
