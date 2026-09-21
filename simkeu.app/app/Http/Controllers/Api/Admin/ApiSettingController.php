@@ -27,7 +27,43 @@ class ApiSettingController extends Controller
                 ],
                 'endpoints' => [
                     [
-                        'name' => 'UAS Susulan & MK',
+                        'name' => 'Peserta Ujian Susulan & Jumlah MK',
+                        'method' => 'GET',
+                        'path' => '/peserta',
+                        'full_url' => "{$baseUrl}/peserta",
+                        'alias_url' => url('/api/siakad/peserta'),
+                        'description' => 'Mengambil daftar peserta pendaftaran ujian susulan beserta nama mahasiswa, prodi, dan jumlah total mata kuliah (jumlah_mk) yang disusulkan.',
+                        'parameters' => [
+                            ['name' => 'nim', 'type' => 'string', 'required' => false, 'description' => 'Filter NIM mahasiswa (contoh: 210101001 atau koma dipisah: 210101001,210101002)'],
+                            ['name' => 'th_akademik_kode', 'type' => 'string', 'required' => false, 'description' => 'Filter kode tahun akademik SIMKEU (contoh: 20251)'],
+                            ['name' => 'th_akademik_id', 'type' => 'integer', 'required' => false, 'description' => 'Filter ID tahun akademik di database SIMKEU'],
+                            ['name' => 'jadwal_kuliah_id', 'type' => 'integer', 'required' => false, 'description' => 'Filter spesifik ID jadwal kuliah'],
+                            ['name' => 'tanggal', 'type' => 'date', 'required' => false, 'description' => 'Filter tanggal pendaftaran (YYYY-MM-DD)'],
+                            ['name' => 'tanggal_mulai', 'type' => 'date', 'required' => false, 'description' => 'Filter tanggal awal rentang (YYYY-MM-DD)'],
+                            ['name' => 'tanggal_akhir', 'type' => 'date', 'required' => false, 'description' => 'Filter tanggal akhir rentang (YYYY-MM-DD)'],
+                            ['name' => 'search', 'type' => 'string', 'required' => false, 'description' => 'Pencarian umum (NIM, keterangan, th akademik)'],
+                            ['name' => 'limit', 'type' => 'integer', 'required' => false, 'description' => 'Jumlah data per halaman (default 20, isi 0 atau all untuk semua data)'],
+                            ['name' => 'page', 'type' => 'integer', 'required' => false, 'description' => 'Nomor halaman pagination (default 1)'],
+                            ['name' => 'sort_by', 'type' => 'string', 'required' => false, 'description' => 'Kolom sorting (id, tanggal, nim, th_akademik_id, created_at)'],
+                            ['name' => 'sort_dir', 'type' => 'string', 'required' => false, 'description' => 'Arah sorting (asc atau desc, default desc)'],
+                        ],
+                    ],
+                    [
+                        'name' => 'Detail MK Ujian Susulan by NIM',
+                        'method' => 'GET',
+                        'path' => '/peserta/{nim}/detail',
+                        'full_url' => "{$baseUrl}/peserta/{nim}/detail",
+                        'alias_url' => url('/api/siakad/peserta/{nim}/detail'),
+                        'description' => 'Mengambil detail lengkap seluruh mata kuliah ujian susulan yang didaftarkan oleh peserta tertentu (nama MK, kode MK, SKS, dosen pengampu, ruang, hari, jam, kelompok, nilai).',
+                        'parameters' => [
+                            ['name' => 'nim', 'type' => 'string (URL path)', 'required' => true, 'description' => 'NIM mahasiswa pada URL path (contoh: 202585010009)'],
+                            ['name' => 'th_akademik_kode', 'type' => 'string (query)', 'required' => false, 'description' => 'Filter kode tahun akademik SIMKEU (contoh: 20251)'],
+                            ['name' => 'th_akademik_id', 'type' => 'integer (query)', 'required' => false, 'description' => 'Filter ID tahun akademik'],
+                            ['name' => 'uas_susulan_id', 'type' => 'integer (query)', 'required' => false, 'description' => 'Filter ID transaksi pendaftaran spesifik'],
+                        ],
+                    ],
+                    [
+                        'name' => 'UAS Susulan & MK (Legacy)',
                         'method' => 'GET',
                         'path' => '/uas-susulan',
                         'full_url' => "{$baseUrl}/uas-susulan",
@@ -47,7 +83,7 @@ class ApiSettingController extends Controller
                         ],
                     ],
                     [
-                        'name' => 'UAS Susulan by NIM',
+                        'name' => 'UAS Susulan by NIM (Legacy)',
                         'method' => 'GET',
                         'path' => '/uas-susulan/{nim}',
                         'full_url' => "{$baseUrl}/uas-susulan/{nim}",
@@ -107,5 +143,15 @@ class ApiSettingController extends Controller
     public function uasSusulanPreview(Request $request, SiakadUasSusulanController $siakadController): JsonResponse
     {
         return $siakadController->index($request);
+    }
+
+    public function pesertaPreview(Request $request, SiakadUasSusulanController $siakadController): JsonResponse
+    {
+        return $siakadController->peserta($request);
+    }
+
+    public function pesertaDetailPreview(Request $request, string $nim, SiakadUasSusulanController $siakadController): JsonResponse
+    {
+        return $siakadController->pesertaDetail($request, $nim);
     }
 }
