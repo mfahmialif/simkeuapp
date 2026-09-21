@@ -95,43 +95,48 @@ Route::prefix('v1/integrations/siakad/bsi')->middleware('bsi.siakad')->group(fun
 });
 
 Route::prefix('v1/integrations/siakad')->middleware('siakad.apikey')->group(function () {
-    Route::get('uas-susulan', [SiakadUasSusulanController::class, 'index']);
-    Route::get('uas-susulan/{nim}', [SiakadUasSusulanController::class, 'index']);
-
-    // Peserta Ujian Susulan & Detail MK
-    Route::get('peserta', [SiakadUasSusulanController::class, 'peserta']);
-    Route::get('peserta/{nim}/detail', [SiakadUasSusulanController::class, 'pesertaDetail']);
-
-    // Aliases
+    // Primary Endpoints UAS Susulan
     Route::get('uas-susulan/peserta', [SiakadUasSusulanController::class, 'peserta']);
     Route::get('uas-susulan/peserta/{nim}/detail', [SiakadUasSusulanController::class, 'pesertaDetail']);
+    Route::get('uas-susulan/jadwal-kuliah', [SiakadUasSusulanController::class, 'jadwalKuliah']);
+
+    // Legacy & Shortcut Aliases
+    Route::get('uas-susulan', [SiakadUasSusulanController::class, 'index']);
+    Route::get('uas-susulan/{nim}', [SiakadUasSusulanController::class, 'index']);
+    Route::get('peserta', [SiakadUasSusulanController::class, 'peserta']);
+    Route::get('peserta/{nim}/detail', [SiakadUasSusulanController::class, 'pesertaDetail']);
+    Route::get('jadwal-kuliah', [SiakadUasSusulanController::class, 'jadwalKuliah']);
     Route::get('ujian-susulan', [SiakadUasSusulanController::class, 'index']);
     Route::get('ujian-susulan/{nim}', [SiakadUasSusulanController::class, 'index']);
     Route::get('ujian-susulan/peserta', [SiakadUasSusulanController::class, 'peserta']);
     Route::get('ujian-susulan/peserta/{nim}/detail', [SiakadUasSusulanController::class, 'pesertaDetail']);
+    Route::get('ujian-susulan/jadwal-kuliah', [SiakadUasSusulanController::class, 'jadwalKuliah']);
 });
 
 Route::prefix('siakad')->middleware('siakad.apikey')->group(function () {
-    Route::get('uas-susulan', [SiakadUasSusulanController::class, 'index']);
-    Route::get('uas-susulan/{nim}', [SiakadUasSusulanController::class, 'index']);
-
-    // Peserta Ujian Susulan & Detail MK
-    Route::get('peserta', [SiakadUasSusulanController::class, 'peserta']);
-    Route::get('peserta/{nim}/detail', [SiakadUasSusulanController::class, 'pesertaDetail']);
-
-    // Aliases
+    // Primary Endpoints UAS Susulan
     Route::get('uas-susulan/peserta', [SiakadUasSusulanController::class, 'peserta']);
     Route::get('uas-susulan/peserta/{nim}/detail', [SiakadUasSusulanController::class, 'pesertaDetail']);
+    Route::get('uas-susulan/jadwal-kuliah', [SiakadUasSusulanController::class, 'jadwalKuliah']);
+
+    // Aliases
+    Route::get('uas-susulan', [SiakadUasSusulanController::class, 'index']);
+    Route::get('uas-susulan/{nim}', [SiakadUasSusulanController::class, 'index']);
+    Route::get('peserta', [SiakadUasSusulanController::class, 'peserta']);
+    Route::get('peserta/{nim}/detail', [SiakadUasSusulanController::class, 'pesertaDetail']);
+    Route::get('jadwal-kuliah', [SiakadUasSusulanController::class, 'jadwalKuliah']);
     Route::get('ujian-susulan', [SiakadUasSusulanController::class, 'index']);
     Route::get('ujian-susulan/{nim}', [SiakadUasSusulanController::class, 'index']);
     Route::get('ujian-susulan/peserta', [SiakadUasSusulanController::class, 'peserta']);
     Route::get('ujian-susulan/peserta/{nim}/detail', [SiakadUasSusulanController::class, 'pesertaDetail']);
+    Route::get('ujian-susulan/jadwal-kuliah', [SiakadUasSusulanController::class, 'jadwalKuliah']);
 });
 
 Route::prefix('ujian-susulan')->middleware('siakad.apikey')->group(function () {
     Route::get('/', [SiakadUasSusulanController::class, 'index']);
     Route::get('peserta', [SiakadUasSusulanController::class, 'peserta']);
     Route::get('peserta/{nim}/detail', [SiakadUasSusulanController::class, 'pesertaDetail']);
+    Route::get('jadwal-kuliah', [SiakadUasSusulanController::class, 'jadwalKuliah']);
     Route::get('{nim}', [SiakadUasSusulanController::class, 'index']);
 });
 
@@ -174,6 +179,7 @@ Route::prefix('admin')->middleware('auth:sanctum')->group(function () {
         Route::get('uas-susulan-preview', [ApiSettingController::class, 'uasSusulanPreview']);
         Route::get('peserta-preview', [ApiSettingController::class, 'pesertaPreview']);
         Route::get('peserta-detail-preview/{nim}', [ApiSettingController::class, 'pesertaDetailPreview']);
+        Route::get('jadwal-kuliah-preview', [ApiSettingController::class, 'jadwalKuliahPreview']);
     });
 
     Route::get('pegawai', [PegawaiController::class, 'index']);

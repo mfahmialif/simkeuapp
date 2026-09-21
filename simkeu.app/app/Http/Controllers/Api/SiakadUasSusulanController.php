@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\KeuanganUasSusulan;
+use App\Models\KeuanganUasSusulanMk;
 use App\Services\Jadwal;
 use App\Services\Mahasiswa;
 use Illuminate\Http\JsonResponse;
@@ -561,5 +562,224 @@ class SiakadUasSusulanController extends Controller
             ],
         ]);
     }
+
+    /**
+     * Get data jadwal_kuliah_id apa saja yang terdaftar di UAS Susulan.
+     *
+     * URL: GET /uas-susulan/jadwal-kuliah
+     * Headers:
+     * - X-SIAKAD-API-KEY: <api_key> (atau apikey: <api_key>)
+     * - Accept: application/json
+     *
+     * Filters:
+     * - th_akademik_kode: string (e.g. '20251')
+     * - th_akademik_id: int
+     * - jadwal_kuliah_id: int
+     * - nim: string|array
+     * - tanggal: string (YYYY-MM-DD)
+     * - tanggal_mulai: string (YYYY-MM-DD)
+     * - tanggal_akhir: string (YYYY-MM-DD)
+     * - search: string
+     * - limit: int|string (default 0 / 'all' untuk semua data)
+     * - page: int
+     * - only_ids: bool (jika true, hanya kembalikan array integer jadwal_kuliah_ids)
+     * - with_detail: bool (default true, memuat detail nama MK, dosen, ruang dari SIAKAD)
+     */
+    public function jadwalKuliah(Request $request): JsonResponse
+    {
+        $query = KeuanganUasSusulanMk::query()
+            ->join('keuangan_uas_susulan', 'keuangan_uas_susulan.id', '=', 'keuangan_uas_susulan_mk.uas_susulan_id')
+            ->leftJoin('th_akademik', 'th_akademik.id', '=', 'keuangan_uas_susulan.th_akademik_id')
+            ->select(
+                'keuangan_uas_susulan_mk.id as uas_susulan_mk_id',
+                'keuangan_uas_susulan_mk.jadwal_kuliah_id',
+                'keuangan_uas_susulan_mk.uas_susulan_id',
+                'keuangan_uas_susulan.nim',
+                'keuangan_uas_susulan.tanggal',
+                'keuangan_uas_susulan.keterangan',
+                'keuangan_uas_susulan.th_akademik_id',
+                'th_akademik.kode as th_akademik_kode',
+                'th_akademik.nama as th_akademik_nama',
+                'th_akademik.semester as th_akademik_semester'
+            )
+            ->whereNotNull('keuangan_uas_susulan_mk.jadwal_kuliah_id');
+
+        // Filter NIM
+        if ($request->filled('nim')) {
+            $nimFilter = $request->input('nim');
+            if (is_array($nimFilter)) {
+                $query->whereIn('keuangan_uas_susulan.nim', array_map('trim', $nimFilter));
+            } elseif (str_contains($nimFilter, ',')) {
+                $nims = array_filter(array_map('trim', explode(',', $nimFilter)));
+                $query->whereIn('keuangan_uas_susulan.nim', $nims);
+            } else {
+                $query->where('keuangan_uas_susulan.nim', trim($nimFilter));
+            }
+        }
+
+        // Filter Kode Tahun Akademik
+        if ($request->filled('th_akademik_kode')) {
+            $kode = trim((string) $request->input('th_akademik_kode'));
+            $query->where('th_akademik.kode', $kode);
+        }
+
+        // Filter ID Tahun Akademik
+        if ($request->filled('th_akademik_id')) {
+            $query->where('keuangan_uas_susulan.th_akademik_id', (int) $request->input('th_akademik_id'));
+        }
+
+        // Filter Jadwal Kuliah ID tertentu
+        if ($request->filled('jadwal_kuliah_id')) {
+            $query->where('keuangan_uas_susulan_mk.jadwal_kuliah_id', (int) $request->input('jadwal_kuliah_id'));
+        }
+
+        // Filter Tanggal
+        if ($request->filled('tanggal')) {
+            $query->whereDate('keuangan_uas_susulan.tanggal', $request->input('tanggal'));
+        }
+        if ($request->filled('tanggal_mulai')) {
+            $query->whereDate('keuangan_uas_susulan.tanggal', '>=', $request->input('tanggal_mulai'));
+        }
+        if ($request->filled('tanggal_akhir')) {
+            $query->whereDate('keuangan_uas_susulan.tanggal', '<=', $request->input('tanggal_akhir'));
+        }
+
+        // Pencarian umum
+        if ($request->filled('search')) {
+            $s = trim((string) $request->input('search'));
+            $query->where(function ($q) use ($s) {
+                $q->where('keuangan_uas_susulan.nim', 'like', "%{$s}%")
+                    ->orWhere('keuangan_uas_susulan.keterangan', 'like', "%{$s}%")
+                    ->orWhere('th_akademik.nama', 'like', "%{$s}%")
+                    ->orWhere('th_akademik.kode', 'like', "%{$s}%");
+            });
+        }
+
+        $allRows = $query->orderBy('keuangan_uas_susulan_mk.id', 'desc')->get();
+
+        // Kumpulkan semua jadwal_kuliah_id distinct
+        $distinctJadwalIds = $allRows->pluck('jadwal_kuliah_id')->filter()->unique()->values()->all();
+
+        // Jika hanya minta IDs saja (only_ids)
+        if ($request->boolean('only_ids') || $request->boolean('ids_only')) {
+            return response()->json([
+                'status'            => true,
+                'message'           => 'Daftar ID jadwal kuliah terdaftar UAS susulan berhasil diambil.',
+                'total'             => count($distinctJadwalIds),
+                'jadwal_kuliah_ids' => $distinctJadwalIds,
+            ]);
+        }
+
+        // Grouping per jadwal_kuliah_id
+        $grouped = $allRows->groupBy('jadwal_kuliah_id');
+
+        $limitInput = $request->input('limit', 0);
+        $isAll = $limitInput === '0' || $limitInput === 0 || $limitInput === 'all' || empty($limitInput);
+
+        $keys = $grouped->keys();
+        $totalDistinct = $keys->count();
+
+        if (!$isAll) {
+            $limit = max(1, min(200, (int) $limitInput));
+            $page = max(1, (int) $request->input('page', 1));
+            $pagedKeys = $keys->slice(($page - 1) * $limit, $limit)->values();
+        } else {
+            $pagedKeys = $keys;
+        }
+
+        // Ambil detail jadwal dari SIAKAD via Jadwal::find
+        $withDetail = $request->boolean('with_detail', true);
+        $jadwalMap = [];
+
+        if ($withDetail && $pagedKeys->isNotEmpty()) {
+            try {
+                $jadwalList = Jadwal::find(json_encode($pagedKeys->all()), true);
+                if (is_array($jadwalList)) {
+                    foreach ($jadwalList as $j) {
+                        if (isset($j->id)) {
+                            $jadwalMap[$j->id] = $j;
+                        }
+                    }
+                }
+            } catch (\Throwable $th) {
+                // Ignore SIAKAD connection error
+            }
+        }
+
+        $formattedItems = $pagedKeys->map(function ($jadwalId) use ($grouped, $jadwalMap) {
+            $items = $grouped->get($jadwalId);
+            $first = $items->first();
+            $j = $jadwalMap[$jadwalId] ?? null;
+
+            $dosenNama = '-';
+            if ($j && isset($j->dosen)) {
+                $d = $j->dosen;
+                $dosenNama = trim(($d->gelar_depan ? $d->gelar_depan . ' ' : '') . $d->nama . ($d->gelar_belakang ? ', ' . $d->gelar_belakang : ''));
+            }
+
+            $kodeMk = $j?->kurikulum_matakuliah?->matakuliah?->kode ?? '-';
+            $namaMk = $j?->kurikulum_matakuliah?->matakuliah?->nama ?? "Mata Kuliah #{$jadwalId}";
+            $sks = $j?->kurikulum_matakuliah?->matakuliah?->sks ?? null;
+            $smt = $j?->kurikulum_matakuliah?->matakuliah?->smt ?? ($j?->smt ?? null);
+            $kelompok = $j?->kelompok?->nama ?? ($j?->kelompok?->kode ?? '-');
+            $ruang = $j?->ruang_kelas?->nama ?? ($j?->ruang_kelas?->kode ?? '-');
+            $hari = $j?->hari?->nama ?? '-';
+            $jam = $j?->jamkul?->nama ?? '-';
+
+            $pesertaNims = $items->pluck('nim')->filter()->unique()->values()->all();
+
+            return [
+                'jadwal_kuliah_id'     => (int) $jadwalId,
+                'kode_mk'              => $kodeMk,
+                'nama_mk'              => $namaMk,
+                'sks'                  => $sks,
+                'sks_mk'               => $sks,
+                'smt'                  => $smt,
+                'smt_mk'               => $smt,
+                'dosen_nama'           => $dosenNama,
+                'kelompok'             => $kelompok,
+                'ruang'                => $ruang,
+                'hari'                 => $hari,
+                'jam'                  => $jam,
+                'th_akademik_id'       => $first?->th_akademik_id,
+                'th_akademik_kode'     => $first?->th_akademik_kode,
+                'th_akademik_nama'     => $first?->th_akademik_nama,
+                'th_akademik_semester' => $first?->th_akademik_semester,
+                'total_peserta'        => count($pesertaNims),
+                'peserta_nims'         => $pesertaNims,
+                'peserta'              => $items->map(fn ($it) => [
+                    'nim'            => $it->nim,
+                    'uas_susulan_id' => $it->uas_susulan_id,
+                    'tanggal'        => $it->tanggal ? (string) $it->tanggal : null,
+                ])->values()->all(),
+            ];
+        })->values()->all();
+
+        $responsePayload = [
+            'status'            => true,
+            'message'           => 'Data jadwal kuliah terdaftar ujian susulan berhasil diambil.',
+            'total_jadwal'      => $totalDistinct,
+            'total_pendaftaran' => $allRows->count(),
+            'jadwal_kuliah_ids' => $distinctJadwalIds,
+            'data'              => $formattedItems,
+        ];
+
+        if (!$isAll) {
+            $page = max(1, (int) $request->input('page', 1));
+            $limit = max(1, min(200, (int) $limitInput));
+            $lastPage = (int) ceil($totalDistinct / $limit);
+            $responsePayload['pagination'] = [
+                'total'        => $totalDistinct,
+                'per_page'     => $limit,
+                'current_page' => $page,
+                'last_page'    => $lastPage,
+                'from'         => ($page - 1) * $limit + 1,
+                'to'           => min($page * $limit, $totalDistinct),
+            ];
+        }
+
+        return response()->json($responsePayload);
+    }
 }
+
 
