@@ -14,6 +14,7 @@ use App\Models\KeuanganPembayaran;
 use App\Services\SemesterPendek;
 use App\Services\TagihanMahasiswa;
 use App\Services\Wisuda;
+use App\Services\SiakadUasSusulan;
 use Illuminate\Support\Facades\DB;
 use App\Http\Controllers\Controller;
 use Illuminate\Support\Facades\Auth;
@@ -863,15 +864,49 @@ class PembayaranController extends Controller
                 }
             }
 
+            $uasSusulanResponse = null;
+            $uasSusulanError = null;
+
+            if ($request->boolean('is_uas_susulan')) {
+                try {
+                    $targetUasThId = $request->input('uas_susulan_th_akademik_id') ?: $dataValidated['tahun_akademik'];
+                    $uasJadwalKuliahIds = (array) $request->input('uas_susulan_jadwal_kuliah_id', []);
+                    $uasKeterangan = $request->input('uas_susulan_keterangan', '');
+
+                    $uasSusulanResponse = SiakadUasSusulan::syncCreate(
+                        $nim,
+                        $uasJadwalKuliahIds,
+                        $targetUasThId,
+                        $dataValidated['tanggal'],
+                        $uasKeterangan
+                    );
+
+                    if ($uasSusulanResponse === null) {
+                        $uasSusulanError = 'Tidak ada response dari API UAS Susulan SIAKAD.';
+                    } elseif (is_object($uasSusulanResponse) && isset($uasSusulanResponse->status) && $uasSusulanResponse->status === false) {
+                        $uasSusulanError = $uasSusulanResponse->message ?? 'Sinkronisasi UAS Susulan ke SIAKAD gagal.';
+                    }
+                } catch (\Throwable $th) {
+                    $uasSusulanError = $th->getMessage();
+                }
+            }
+
+            $message = "Berhasil menyimpan data";
+            if ($wisudaError) {
+                $message .= ", tetapi registrasi wisuda gagal: $wisudaError";
+            }
+            if ($uasSusulanError) {
+                $message .= ", tetapi sinkronisasi UAS Susulan ke SIAKAD gagal: $uasSusulanError";
+            }
+
             $data = [
                 "status" => true,
                 "code" => 200,
                 "id"      => $pembayaran ? $pembayaran->id : null,
-                "message" => $wisudaError
-                    ? "Berhasil menyimpan data, tetapi registrasi wisuda gagal: $wisudaError"
-                    : "Berhasil menyimpan data",
+                "message" => $message,
                 'req' => $request->all(),
                 'wisuda_response' => $wisudaResponse,
+                'uas_susulan_response' => $uasSusulanResponse,
             ];
             return $data;
         } catch (\Illuminate\Validation\ValidationException $e) {

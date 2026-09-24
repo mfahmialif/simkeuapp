@@ -11,6 +11,8 @@ use App\Exports\UasSusulanExport;
 use App\Models\KeuanganUasSusulan;
 use App\Http\Controllers\Controller;
 use App\Models\KeuanganUasSusulanMk;
+use App\Models\ThAkademik;
+use App\Services\SiakadUasSusulan;
 use Illuminate\Support\Facades\Auth;
 use Maatwebsite\Excel\Facades\Excel;
 use Illuminate\Support\Facades\Validator;
@@ -140,10 +142,36 @@ class UasSusulanController extends Controller
             ]);
         }
 
+        // Sinkronisasi create ke SIAKAD
+        $siakadResponse = null;
+        $siakadError = null;
+        try {
+            $siakadResponse = SiakadUasSusulan::syncCreate(
+                $request->nim,
+                (array) $request->jadwal_kuliah_id,
+                $request->th_akademik_id,
+                $request->tanggal,
+                $request->keterangan
+            );
+            if ($siakadResponse && isset($siakadResponse->status) && $siakadResponse->status === false) {
+                $siakadError = $siakadResponse->message ?? 'Sinkronisasi ke SIAKAD gagal.';
+            }
+        } catch (\Throwable $th) {
+            $siakadError = $th->getMessage();
+        }
+
+        $message = 'Uas Susulan berhasil dibuat';
+        if ($siakadError) {
+            $message .= ", tetapi sinkronisasi ke SIAKAD gagal: {$siakadError}";
+        } else {
+            $message .= ' dan disinkronkan ke SIAKAD.';
+        }
+
         return response()->json([
-            'status'  => true,
-            'data'    => $data->load('th_akademik', 'uasSusulanMk'),
-            'message' => 'Uas Susulan berhasil dibuat.',
+            'status'          => true,
+            'data'            => $data->load('th_akademik', 'uasSusulanMk'),
+            'message'         => $message,
+            'siakad_response' => $siakadResponse,
         ], 201);
     }
 
@@ -300,10 +328,37 @@ class UasSusulanController extends Controller
             ]);
         }
 
+        // Sinkronisasi update ke SIAKAD
+        $siakadResponse = null;
+        $siakadError = null;
+        try {
+            $thAkademik = ThAkademik::find($request->th_akademik_id);
+            $siakadResponse = SiakadUasSusulan::update($request->nim, [
+                'tanggal'          => $request->tanggal,
+                'keterangan'       => $request->keterangan,
+                'th_akademik_id'   => (int) $request->th_akademik_id,
+                'th_akademik_kode' => $thAkademik ? $thAkademik->kode : null,
+                'mk'               => array_values(array_map('intval', array_filter($request->jadwal_kuliah_id))),
+            ]);
+            if ($siakadResponse && isset($siakadResponse->status) && $siakadResponse->status === false) {
+                $siakadError = $siakadResponse->message ?? 'Sinkronisasi update ke SIAKAD gagal.';
+            }
+        } catch (\Throwable $th) {
+            $siakadError = $th->getMessage();
+        }
+
+        $message = 'Uas Susulan berhasil diperbarui';
+        if ($siakadError) {
+            $message .= ", tetapi sinkronisasi ke SIAKAD gagal: {$siakadError}";
+        } else {
+            $message .= ' dan disinkronkan ke SIAKAD.';
+        }
+
         return response()->json([
-            'status'  => true,
-            'data'    => $data->load('th_akademik', 'uasSusulanMk'),
-            'message' => 'Uas Susulan berhasil diperbarui.',
+            'status'          => true,
+            'data'            => $data->load('th_akademik', 'uasSusulanMk'),
+            'message'         => $message,
+            'siakad_response' => $siakadResponse,
         ]);
     }
 
@@ -324,10 +379,19 @@ class UasSusulanController extends Controller
             return response()->json(['status' => false, 'message' => 'Uas Susulan tidak ditemukan.'], 404);
         }
 
+        $nimMahasiswa = $data->nim;
+
         DB::transaction(function () use ($data, $id) {
             KeuanganUasSusulanMk::where('uas_susulan_id', $id)->delete();
             $data->delete();
         });
+
+        // Sinkronisasi hapus ke SIAKAD
+        try {
+            SiakadUasSusulan::delete($nimMahasiswa);
+        } catch (\Throwable $th) {
+            // Abaikan error jika koneksi SIAKAD gagal
+        }
 
         return response()->json([
             'status'  => true,
