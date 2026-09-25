@@ -39,6 +39,7 @@ use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\CekTagihanController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\DispensasiController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\PembayaranController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\UasSusulanController;
+use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\SyaratTagihanController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\DispensasiUasController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\PembayaranIdnController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\CatatanDepositController;
@@ -230,6 +231,12 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
             Route::get('tagihan-perorangan/export-excel', [TagihanPeroranganController::class, 'exportExcel']);
             Route::apiResource('tagihan-perorangan', TagihanPeroranganController::class);
             Route::apiResource('tagihan', TagihanController::class);
+            Route::get('syarat-tagihan/tagihan-names', [SyaratTagihanController::class, 'tagihanNames']);
+            Route::get('syarat-tagihan/unregistered', [SyaratTagihanController::class, 'unregistered']);
+            Route::get('syarat-tagihan/template-preview', [SyaratTagihanController::class, 'templatePreview']);
+            Route::post('syarat-tagihan/apply-template', [SyaratTagihanController::class, 'applyTemplate']);
+            Route::post('syarat-tagihan/reset-all', [SyaratTagihanController::class, 'resetAll']);
+            Route::apiResource('syarat-tagihan', SyaratTagihanController::class);
 
             Route::get('cek-tagihan/pdf', [CekTagihanController::class, 'pdf']);
             Route::get('cek-tagihan/excel', [CekTagihanController::class, 'excel']);
