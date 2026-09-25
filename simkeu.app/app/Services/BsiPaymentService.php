@@ -69,43 +69,18 @@ class BsiPaymentService
         // SIAKAD hanya boleh menawarkan tagihan sampai semester mahasiswa saat ini.
         // Tagihan semester depan tetap tersimpan di SIMKEU, tetapi tidak dikirim ke VA.
         $items = collect($tagihanData['list_tagihan_semester_ini'] ?? [])
-            ->filter(function ($tagihan) use ($allUnpaid, $activeRules) {
+            ->map(function ($tagihan) use ($activeRules) {
+                $tagihanId = (int) data_get($tagihan, 'id');
                 $tagihanNama = trim((string) data_get($tagihan, 'nama'));
+                $sisaResmi = max(0, (float) data_get($tagihan, 'sisa', 0));
 
-                // Cari aturan prasyarat untuk tagihan ini
+                // Cari aturan prasyarat untuk tagihan ini (jika ada)
                 $matchingRules = $activeRules->filter(function ($rule) use ($tagihanNama) {
-                    return strcasecmp(trim((string) $rule->tagihan_nama), $tagihanNama) === 0;
+                    return strcasecmp(trim((string) $rule->tagihan_nama), $tagihanNama) === 0 && ! empty($rule->syarat_nama);
                 });
 
-                if ($matchingRules->isEmpty()) {
-                    return true;
-                }
-
-                // Cek apakah ada syarat yang belum terpenuhi (masih ada di allUnpaid dengan sisa > 0)
-                foreach ($matchingRules as $rule) {
-                    if (empty($rule->syarat_nama)) {
-                        continue;
-                    }
-
-                    $syaratNama = trim((string) $rule->syarat_nama);
-                    $hasUnpaidSyarat = $allUnpaid->contains(function ($unpaidItem) use ($syaratNama) {
-                        $nama = trim((string) data_get($unpaidItem, 'nama'));
-                        $sisa = (float) data_get($unpaidItem, 'sisa', 0);
-
-                        return strcasecmp($nama, $syaratNama) === 0 && $sisa > 0;
-                    });
-
-                    if ($hasUnpaidSyarat) {
-                        // Syarat belum lunas, sembunyikan tagihan ini dari SIAKAD
-                        return false;
-                    }
-                }
-
-                return true;
-            })
-            ->map(function ($tagihan) {
-                $tagihanId = (int) data_get($tagihan, 'id');
-                $sisaResmi = max(0, (float) data_get($tagihan, 'sisa', 0));
+                $prasyaratList = $matchingRules->pluck('syarat_nama')->filter()->values();
+                $prasyarat = $prasyaratList->isNotEmpty() ? $prasyaratList->join(', ') : null;
 
                 return [
                     'id' => $tagihanId,
@@ -122,6 +97,7 @@ class BsiPaymentService
                     'mata_uang_kode' => strtoupper((string) data_get($tagihan, 'mata_uang_kode', 'IDR')),
                     'tidak_bisa_dibayar' => (bool) data_get($tagihan, 'tidak_bisa_dibayar', false),
                     'keterangan_pembayaran' => data_get($tagihan, 'keterangan_pembayaran'),
+                    'prasyarat' => $prasyarat,
                 ];
             })
             ->filter(fn (array $item) => $item['tersedia'] > 0)
@@ -250,29 +226,6 @@ class BsiPaymentService
                     $tagihan = $available->get($item['tagihan_id']);
 
                     if (! $tagihan) {
-                        $rawTagihanData = TagihanMahasiswa::tagihan($canonical['nim']);
-                        $rawItem = collect($rawTagihanData['list_tagihan'] ?? [])->firstWhere('id', $item['tagihan_id']);
-                        if ($rawItem) {
-                            $rawNama = trim((string) data_get($rawItem, 'nama'));
-                            $activeRules = KeuanganSyaratTagihan::where('is_active', true)->get();
-                            $unmetRule = $activeRules->first(function ($r) use ($rawNama, $rawTagihanData) {
-                                if (strcasecmp(trim((string) $r->tagihan_nama), $rawNama) !== 0) {
-                                    return false;
-                                }
-                                $syaratNama = trim((string) $r->syarat_nama);
-
-                                return collect($rawTagihanData['list_tagihan'] ?? [])->contains(function ($u) use ($syaratNama) {
-                                    return strcasecmp(trim((string) data_get($u, 'nama')), $syaratNama) === 0 && (float) data_get($u, 'sisa', 0) > 0;
-                                });
-                            });
-
-                            if ($unmetRule) {
-                                throw ValidationException::withMessages([
-                                    "items.$index.tagihan_id" => "Tagihan '{$rawNama}' belum dapat dibayarkan karena tagihan prasyarat '{$unmetRule->syarat_nama}' belum lunas.",
-                                ]);
-                            }
-                        }
-
                         throw ValidationException::withMessages([
                             "items.$index.tagihan_id" => 'Tagihan tidak tersedia atau sudah lunas.',
                         ]);
