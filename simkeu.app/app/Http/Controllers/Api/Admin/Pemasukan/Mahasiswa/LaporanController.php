@@ -1336,6 +1336,19 @@ class LaporanController extends Controller
             $jenjang = $request->input("jenjang", "sarjana");
             $jenisPembayaranId = $request->input("jenis_pembayaran_id");
             $userId = $request->input("user_id");
+            $username = $request->input("username");
+            $userObj = null;
+            if ($userId) {
+                $userObj = \App\Models\User::find($userId);
+                if (!$username && $userObj) {
+                    $username = $userObj->username;
+                }
+            } elseif ($username) {
+                $userObj = \App\Models\User::where("username", $username)->first();
+                if ($userObj) {
+                    $userId = $userObj->id;
+                }
+            }
 
             $jenisPembayaranNama = null;
             $jenisPembayaranKategori = null;
@@ -1392,32 +1405,35 @@ class LaporanController extends Controller
                 );
             }
 
-            if (!$userId) {
-                try {
-                    $pmbResponse = \Illuminate\Support\Facades\Http::withHeaders(
-                        [
-                            "apikey" => $pmbApiKey,
-                        ],
-                    )->get($pmbUrl, [
-                        "start_date" => $startDate,
-                        "end_date" => $endDate,
-                        "jenjang" => $jenjang,
-                        "jenis_kelamin" => $jenisPembayaranKategori,
-                        "jenis_pembayaran" => $jenisPembayaranNama,
-                    ]);
-
-                    if ($pmbResponse->successful()) {
-                        $pmbResData = $pmbResponse->json();
-                        if (
-                            isset($pmbResData["data"]) &&
-                            is_array($pmbResData["data"])
-                        ) {
-                            $pmbDataAll = $pmbResData["data"];
-                        }
-                    }
-                } catch (\Throwable $th) {
-                    // Ignore API error, proceed with empty PMB data
+            try {
+                $pmbParams = [
+                    "start_date" => $startDate,
+                    "end_date" => $endDate,
+                    "jenjang" => $jenjang,
+                    "jenis_kelamin" => $jenisPembayaranKategori,
+                    "jenis_pembayaran" => $jenisPembayaranNama,
+                ];
+                if ($username) {
+                    $pmbParams["username"] = $username;
                 }
+
+                $pmbResponse = \Illuminate\Support\Facades\Http::withHeaders(
+                    [
+                        "apikey" => $pmbApiKey,
+                    ],
+                )->timeout(10)->get($pmbUrl, $pmbParams);
+
+                if ($pmbResponse->successful()) {
+                    $pmbResData = $pmbResponse->json();
+                    if (
+                        isset($pmbResData["data"]) &&
+                        is_array($pmbResData["data"])
+                    ) {
+                        $pmbDataAll = $pmbResData["data"];
+                    }
+                }
+            } catch (\Throwable $th) {
+                // Ignore API error, proceed with empty PMB data
             }
 
             if ($mode === "tahunan") {
@@ -2000,10 +2016,10 @@ class LaporanController extends Controller
             ->toArray();
     }
 
-    private function normalizeLaporanHarianPmbRows($pmbData)
+    private function normalizeLaporanHarianPmbRows($pmbData, $defaultPetugas = "PMB")
     {
         return collect($pmbData)
-            ->map(function ($item) {
+            ->map(function ($item) use ($defaultPetugas) {
                 $jenisPembayaran = data_get($item, "jenis_pembayaran", "-");
                 $jenisPembayaranUpper = strtoupper((string) $jenisPembayaran);
                 $jenisKelamin = data_get($item, "jk", data_get($item, "jenis_kelamin", ""));
@@ -2087,7 +2103,7 @@ class LaporanController extends Controller
                     "nominal" => (float) data_get($item, "nominal", 0),
                     "mata_uang" => MataUangFormatter::defaultCurrency(),
                     "metode" => $jenisPembayaran,
-                    "petugas" => data_get($item, "petugas", "PMB"),
+                    "petugas" => data_get($item, "petugas", data_get($item, "username", $defaultPetugas)),
                     "source" => "PMB",
                 ];
             })
@@ -2101,6 +2117,19 @@ class LaporanController extends Controller
         $jenjang = $request->input("jenjang", "sarjana");
         $jenisPembayaranId = $request->input("jenis_pembayaran_id");
         $userId = $request->input("user_id");
+        $username = $request->input("username");
+        $userObj = null;
+        if ($userId) {
+            $userObj = \App\Models\User::find($userId);
+            if (!$username && $userObj) {
+                $username = $userObj->username;
+            }
+        } elseif ($username) {
+            $userObj = \App\Models\User::where("username", $username)->first();
+            if ($userObj) {
+                $userId = $userObj->id;
+            }
+        }
         $jp = Helper::getJenisKelaminUser();
         $paymentMeta = $this->getLaporanHarianPaymentFilterMeta(
             $jenisPembayaranId,
@@ -2258,30 +2287,35 @@ class LaporanController extends Controller
             $this->normalizeLaporanHarianSemesterPendekRows($spPayments, $jenjang),
         );
 
-        if (!$userId) {
-            try {
-                $pmbResponse = \Illuminate\Support\Facades\Http::withHeaders([
-                    "apikey" => env("PMB_API_KEY"),
-                ])->get(rtrim(env("PMB_URL"), "/") . "/simkeu/pembayaran", [
-                    "start_date" => $tanggal,
-                    "end_date" => $tanggal,
-                    "jenjang" => $jenjang,
-                    "jenis_kelamin" => $paymentMeta["kategori"],
-                    "jenis_pembayaran" => $paymentMeta["nama"],
-                ]);
-
-                if ($pmbResponse->successful()) {
-                    $pmbResData = $pmbResponse->json();
-                    $rows = array_merge(
-                        $rows,
-                        $this->normalizeLaporanHarianPmbRows(
-                            $pmbResData["data"] ?? [],
-                        ),
-                    );
-                }
-            } catch (\Throwable $th) {
-                // PMB is optional; keep SIMKEU report available if it fails.
+        try {
+            $pmbParams = [
+                "start_date" => $tanggal,
+                "end_date" => $tanggal,
+                "jenjang" => $jenjang,
+                "jenis_kelamin" => $paymentMeta["kategori"],
+                "jenis_pembayaran" => $paymentMeta["nama"],
+            ];
+            if ($username) {
+                $pmbParams["username"] = $username;
             }
+
+            $pmbResponse = \Illuminate\Support\Facades\Http::withHeaders([
+                "apikey" => env("PMB_API_KEY"),
+            ])->timeout(10)->get(rtrim(env("PMB_URL"), "/") . "/simkeu/pembayaran", $pmbParams);
+
+            if ($pmbResponse->successful()) {
+                $pmbResData = $pmbResponse->json();
+                $defaultPetugas = $userObj ? $userObj->name : "PMB";
+                $rows = array_merge(
+                    $rows,
+                    $this->normalizeLaporanHarianPmbRows(
+                        $pmbResData["data"] ?? [],
+                        $defaultPetugas,
+                    ),
+                );
+            }
+        } catch (\Throwable $th) {
+            // PMB is optional; keep SIMKEU report available if it fails.
         }
 
         if ($jenjang === "sarjana") {
@@ -2472,6 +2506,19 @@ class LaporanController extends Controller
             $mode = $request->input("mode", "bulanan"); // 'bulanan' atau 'tahunan'
             $jenjang = $request->input("jenjang", "sarjana");
             $userId = $request->input("user_id");
+            $username = $request->input("username");
+            $userObj = null;
+            if ($userId) {
+                $userObj = \App\Models\User::find($userId);
+                if (!$username && $userObj) {
+                    $username = $userObj->username;
+                }
+            } elseif ($username) {
+                $userObj = \App\Models\User::where("username", $username)->first();
+                if ($userObj) {
+                    $userId = $userObj->id;
+                }
+            }
 
             // Columns setup (Categories)
             $columns = $this->getPemasukanTunaiColumns($jenjang);
@@ -2555,33 +2602,36 @@ class LaporanController extends Controller
                     " $year";
             }
 
-            if (!$userId) {
-                try {
-                    $pmbResponse = \Illuminate\Support\Facades\Http::withHeaders(
-                        [
-                            "apikey" => $pmbApiKey,
-                        ],
-                    )
-                        ->timeout(5)
-                        ->get($pmbUrl, [
-                            "start_date" => $startDate,
-                            "end_date" => $endDate,
-                            "jenjang" => $jenjang,
-                            "jenis_kelamin" => $jp->kategori ?? "%",
-                        ]);
-
-                    if ($pmbResponse->successful()) {
-                        $pmbResData = $pmbResponse->json();
-                        if (
-                            isset($pmbResData["data"]) &&
-                            is_array($pmbResData["data"])
-                        ) {
-                            $pmbDataAll = $pmbResData["data"];
-                        }
-                    }
-                } catch (\Throwable $th) {
-                    // Ignore API error, proceed with empty PMB data
+            try {
+                $pmbParams = [
+                    "start_date" => $startDate,
+                    "end_date" => $endDate,
+                    "jenjang" => $jenjang,
+                    "jenis_kelamin" => $jp->kategori ?? "%",
+                ];
+                if ($username) {
+                    $pmbParams["username"] = $username;
                 }
+
+                $pmbResponse = \Illuminate\Support\Facades\Http::withHeaders(
+                    [
+                        "apikey" => $pmbApiKey,
+                    ],
+                )
+                    ->timeout(10)
+                    ->get($pmbUrl, $pmbParams);
+
+                if ($pmbResponse->successful()) {
+                    $pmbResData = $pmbResponse->json();
+                    if (
+                        isset($pmbResData["data"]) &&
+                        is_array($pmbResData["data"])
+                    ) {
+                        $pmbDataAll = $pmbResData["data"];
+                    }
+                }
+            } catch (\Throwable $th) {
+                // Ignore API error, proceed with empty PMB data
             }
 
             $bulanNames = [

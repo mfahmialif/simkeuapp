@@ -1101,7 +1101,7 @@ class HelperController extends Controller
             }
 
             // Also we can optionally filter by name if search is needed, but for dropdown we just get all
-            $users = $query->orderBy('name', 'asc')->get(['id', 'name', 'jenis_kelamin']);
+            $users = $query->orderBy('name', 'asc')->get(['id', 'name', 'username', 'jenis_kelamin']);
 
             return response()->json([
                 'status' => true,
