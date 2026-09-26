@@ -146,6 +146,8 @@ class PengembalianDanaController extends Controller
                     ->orWhere('keterangan', 'like', "%{$s}%")
                     ->orWhere('nominal', 'like', "%{$s}%")
                     ->orWhere('id', 'like', "%{$s}%")
+                    ->orWhere('nama_bank', 'like', "%{$s}%")
+                    ->orWhere('no_rek_tujuan', 'like', "%{$s}%")
                     ->orWhereHas('petugas', function ($qp) use ($s) {
                         $qp->where('name', 'like', "%{$s}%");
                     })
@@ -261,6 +263,8 @@ class PengembalianDanaController extends Controller
             'nominal'             => 'required|numeric|min:1',
             'tanggal'             => 'required|date',
             'jenis_pembayaran_id' => 'required|exists:keuangan_jenis_pembayaran,id',
+            'nama_bank'           => 'nullable|string|max:100',
+            'no_rek_tujuan'       => 'nullable|string|max:100',
             'file_bukti_masuk'    => 'required|file|max:10240|mimes:jpg,jpeg,png,pdf,webp',
             'file_bukti_keluar'   => 'nullable|file|max:10240|mimes:jpg,jpeg,png,pdf,webp',
             'keterangan'          => 'nullable|string|max:1000',
@@ -306,6 +310,8 @@ class PengembalianDanaController extends Controller
             'tanggal'             => $parsedDate,
             'petugas_id'          => Auth::id(),
             'jenis_pembayaran_id' => $request->jenis_pembayaran_id,
+            'nama_bank'           => $request->nama_bank,
+            'no_rek_tujuan'       => $request->no_rek_tujuan,
             'file_bukti_masuk'    => $pathMasuk,
             'file_bukti_keluar'   => $pathKeluar,
             'keterangan'          => $request->keterangan,
@@ -369,6 +375,8 @@ class PengembalianDanaController extends Controller
             'nominal'             => 'required|numeric|min:1',
             'tanggal'             => 'required|date',
             'jenis_pembayaran_id' => 'required|exists:keuangan_jenis_pembayaran,id',
+            'nama_bank'           => 'nullable|string|max:100',
+            'no_rek_tujuan'       => 'nullable|string|max:100',
             'file_bukti_masuk'    => 'nullable|file|max:10240|mimes:jpg,jpeg,png,pdf,webp',
             'file_bukti_keluar'   => 'nullable|file|max:10240|mimes:jpg,jpeg,png,pdf,webp',
             'keterangan'          => 'nullable|string|max:1000',
@@ -414,6 +422,8 @@ class PengembalianDanaController extends Controller
         $record->nominal             = $request->nominal;
         $record->tanggal             = Carbon::parse($request->tanggal);
         $record->jenis_pembayaran_id = $request->jenis_pembayaran_id;
+        $record->nama_bank           = $request->nama_bank;
+        $record->no_rek_tujuan       = $request->no_rek_tujuan;
         $record->keterangan          = $request->keterangan;
         $record->save();
 
