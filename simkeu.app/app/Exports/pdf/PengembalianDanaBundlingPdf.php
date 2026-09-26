@@ -158,8 +158,18 @@ class PengembalianDanaBundlingPdf
             }
 
             $metode = $item->jenisPembayaran->nama ?? 'Tunai';
-            if (strlen($metode) > 13) {
-                $metode = substr($metode, 0, 11) . '...';
+            $infoTujuan = [];
+            if (!empty($item->nama_bank)) {
+                $infoTujuan[] = $item->nama_bank;
+            }
+            if (!empty($item->nama_tujuan)) {
+                $infoTujuan[] = $item->nama_tujuan;
+            }
+            if (!empty($infoTujuan)) {
+                $metode .= ' (' . implode(' - ', $infoTujuan) . ')';
+            }
+            if (strlen($metode) > 22) {
+                $metode = substr($metode, 0, 20) . '...';
             }
 
             $petugas = $item->petugas->name ?? $item->petugas->username ?? '-';

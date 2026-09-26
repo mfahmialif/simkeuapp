@@ -185,9 +185,14 @@ class PengembalianDanaPdf
         $renderRow('Tanggal & Waktu', $tglStr);
         $renderRow('Petugas Pencatat', $petugasNama);
         $renderRow('Metode Pengembalian', $metodeNama);
-        if (!empty($item->nama_bank) || !empty($item->no_rek_tujuan)) {
-            $rekStr = trim(($item->nama_bank ? $item->nama_bank . ' - ' : '') . ($item->no_rek_tujuan ?: ''));
-            $renderRow('Rekening Tujuan', $rekStr);
+        if (!empty($item->nama_tujuan)) {
+            $renderRow('Nama Penerima / Tujuan', $item->nama_tujuan);
+        }
+        if (!empty($item->nama_bank)) {
+            $renderRow('Nama Bank Tujuan', $item->nama_bank);
+        }
+        if (!empty($item->no_rek_tujuan)) {
+            $renderRow('No. Rekening Tujuan', $item->no_rek_tujuan);
         }
         $renderRow('Keterangan / Alasan', $keteranganText, true);
         $renderRow('Bukti Dana Masuk', $statusBuktiMasuk);
