@@ -1139,13 +1139,6 @@ class LaporanController extends Controller
 
             if ($jenisPembayaranId) {
                 $puQuery->where("jenis_pembayaran_id", $jenisPembayaranId);
-            } else {
-                $puQuery->whereHas('jenisPembayaran', function ($q) {
-                    $q->where(function ($sub) {
-                        $sub->where('nama', 'like', '%cash%')
-                            ->orWhere('nama', 'like', '%tunai%');
-                    });
-                });
             }
 
             if ($userId) {
@@ -1210,13 +1203,6 @@ class LaporanController extends Controller
 
             if ($jenisPembayaranId) {
                 $pdQuery->where("jenis_pembayaran_id", $jenisPembayaranId);
-            } else {
-                $pdQuery->whereHas('jenisPembayaran', function ($q) {
-                    $q->where(function ($sub) {
-                        $sub->where('nama', 'like', '%cash%')
-                            ->orWhere('nama', 'like', '%tunai%');
-                    });
-                });
             }
 
             if ($userId) {
@@ -1331,6 +1317,21 @@ class LaporanController extends Controller
     {
         try {
             $jp = Helper::getJenisKelaminUser();
+
+            if (
+                $request->has("jenis_kelamin") &&
+                $request->jenis_kelamin != ""
+            ) {
+                $reqJk = strtolower($request->jenis_kelamin);
+                if ($reqJk == "putra") {
+                    $jp = (object) ["id" => 8, "kategori" => "Putra"];
+                } elseif ($reqJk == "putri") {
+                    $jp = (object) ["id" => 9, "kategori" => "Putri"];
+                } elseif ($reqJk == "%" && auth()->user()->role_id == 1) {
+                    $jp = (object) ["id" => "%", "kategori" => "%"];
+                }
+            }
+
             $action = $request->input("action", "json");
             $mode = $request->input("mode", "bulanan"); // 'bulanan' atau 'tahunan'
             $jenjang = $request->input("jenjang", "sarjana");
