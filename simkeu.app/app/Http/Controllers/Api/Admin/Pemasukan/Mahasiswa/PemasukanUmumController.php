@@ -112,7 +112,27 @@ class PemasukanUmumController extends Controller
 
         // Filter Jenis Pembayaran
         if ($request->filled('jenis_pembayaran_id') && $request->jenis_pembayaran_id !== 'all' && $request->jenis_pembayaran_id !== '') {
-            $query->where('jenis_pembayaran_id', $request->jenis_pembayaran_id);
+            $jpVal = strtolower((string) $request->jenis_pembayaran_id);
+            if (in_array($jpVal, ['va_transfer_putra', 'va_transfer_putri', 'va_transfer', 'va_transfer_all'])) {
+                $kategori = null;
+                if ($jpVal === 'va_transfer_putra') $kategori = 'Putra';
+                elseif ($jpVal === 'va_transfer_putri') $kategori = 'Putri';
+
+                $ids = \App\Models\KeuanganJenisPembayaran::where(function ($q) {
+                    $q->where('nama', 'like', '%transfer%')
+                        ->orWhere('nama', 'like', '%va%')
+                        ->orWhere('nama', 'like', '%virtual%');
+                })
+                ->when($kategori, fn($q) => $q->where('kategori', $kategori))
+                ->pluck('id')->toArray();
+
+                if (empty($ids)) {
+                    $ids = $kategori === 'Putri' ? [13, 17] : ($kategori === 'Putra' ? [8, 16] : [8, 16, 13, 17]);
+                }
+                $query->whereIn('jenis_pembayaran_id', $ids);
+            } else {
+                $query->where('jenis_pembayaran_id', $request->jenis_pembayaran_id);
+            }
         }
 
         // Filter Metode Pembayaran Group / Type (e.g. 'tunai', 'transfer', 'yayasan')
@@ -130,6 +150,22 @@ class PemasukanUmumController extends Controller
                     $q->where(function ($sub) {
                         $sub->where('nama', 'like', '%transfer%')
                             ->orWhere('nama', 'like', '%tf%');
+                    });
+                });
+            } elseif ($pt === 'va' || $pt === 'virtual') {
+                $query->whereHas('jenisPembayaran', function ($q) {
+                    $q->where(function ($sub) {
+                        $sub->where('nama', 'like', '%va%')
+                            ->orWhere('nama', 'like', '%virtual%');
+                    });
+                });
+            } elseif ($pt === 'va_transfer' || $pt === 'va+transfer' || $pt === 'transfer_va') {
+                $query->whereHas('jenisPembayaran', function ($q) {
+                    $q->where(function ($sub) {
+                        $sub->where('nama', 'like', '%transfer%')
+                            ->orWhere('nama', 'like', '%tf%')
+                            ->orWhere('nama', 'like', '%va%')
+                            ->orWhere('nama', 'like', '%virtual%');
                     });
                 });
             } elseif ($pt === 'yayasan' || $pt === 'yys') {

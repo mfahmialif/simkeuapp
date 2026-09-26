@@ -885,6 +885,16 @@ class LaporanController extends Controller
         $startDate = sprintf("%04d-%02d-01", $year, $month);
         $endDate = sprintf("%04d-%02d-%02d", $year, $month, $daysInMonth);
 
+        $paymentFilter = $this->resolveJenisPembayaranFilter($jenisPembayaranId);
+        $targetJpIds = $paymentFilter["ids"];
+        if ($paymentFilter["kategori"]) {
+            if ($jp && $jp->id == "%") {
+                $jp = clone $jp;
+                $jp->id = $paymentFilter["kategori"] === "Putra" ? 8 : 9;
+                $jp->kategori = $paymentFilter["kategori"];
+            }
+        }
+
         if ($prefetchedPayments === null) {
             $paymentsQuery = KeuanganPembayaran::join(
                 "keuangan_tagihan as kt",
@@ -910,7 +920,7 @@ class LaporanController extends Controller
                     ->whereIn("p.jenjang", ["S2", "S3"]);
             }
 
-            if ($jenisPembayaranId) {
+            if (!empty($targetJpIds)) {
                 $paymentsQuery
                     ->join(
                         "keuangan_jenis_pembayaran_detail as kjpd",
@@ -918,7 +928,7 @@ class LaporanController extends Controller
                         "=",
                         "keuangan_pembayaran.id",
                     )
-                    ->where("kjpd.jenis_pembayaran_id", $jenisPembayaranId);
+                    ->whereIn("kjpd.jenis_pembayaran_id", $targetJpIds);
             }
 
             if ($userId) {
@@ -954,7 +964,7 @@ class LaporanController extends Controller
                 ->where("kt.nama", "LIKE", "%SEMESTER PENDEK%")
                 ->where("keuangan_pembayaran.jk_id", "LIKE", "%$jp->id%");
 
-            if ($jenisPembayaranId) {
+            if (!empty($targetJpIds)) {
                 $spPaymentsQuery
                     ->join(
                         "keuangan_jenis_pembayaran_detail as kjpd",
@@ -962,7 +972,7 @@ class LaporanController extends Controller
                         "=",
                         "keuangan_pembayaran.id",
                     )
-                    ->where("kjpd.jenis_pembayaran_id", $jenisPembayaranId);
+                    ->whereIn("kjpd.jenis_pembayaran_id", $targetJpIds);
             }
 
             if ($userId) {
@@ -1137,8 +1147,8 @@ class LaporanController extends Controller
                 $endDate . " 23:59:59",
             ]);
 
-            if ($jenisPembayaranId) {
-                $puQuery->where("jenis_pembayaran_id", $jenisPembayaranId);
+            if (!empty($targetJpIds)) {
+                $puQuery->whereIn("jenis_pembayaran_id", $targetJpIds);
             }
 
             if ($userId) {
@@ -1201,8 +1211,8 @@ class LaporanController extends Controller
                 $endDate . " 23:59:59",
             ]);
 
-            if ($jenisPembayaranId) {
-                $pdQuery->where("jenis_pembayaran_id", $jenisPembayaranId);
+            if (!empty($targetJpIds)) {
+                $pdQuery->whereIn("jenis_pembayaran_id", $targetJpIds);
             }
 
             if ($userId) {
@@ -1351,24 +1361,15 @@ class LaporanController extends Controller
                 }
             }
 
-            $jenisPembayaranNama = null;
-            $jenisPembayaranKategori = null;
-            if ($jenisPembayaranId) {
-                $jpModel = \App\Models\KeuanganJenisPembayaran::find(
-                    $jenisPembayaranId,
-                );
-                if ($jpModel) {
-                    $nama = strtolower(trim($jpModel->nama));
-                    $jenisPembayaranKategori = $jpModel->kategori;
-                    if (strpos($nama, "deposit") !== false) {
-                        $jenisPembayaranNama = "deposit";
-                    } elseif (strpos($nama, "transfer") !== false) {
-                        $jenisPembayaranNama = "transfer";
-                    } elseif (strpos($nama, "cash") !== false) {
-                        $jenisPembayaranNama = "cash";
-                    } elseif (strpos($nama, "yayasan") !== false) {
-                        $jenisPembayaranNama = "yayasan";
-                    }
+            $paymentFilter = $this->resolveJenisPembayaranFilter($jenisPembayaranId);
+            $jenisPembayaranNama = $paymentFilter["nama"];
+            $jenisPembayaranKategori = $paymentFilter["kategori"];
+            $targetJpIds = $paymentFilter["ids"];
+            if ($jenisPembayaranKategori) {
+                if ($jp && $jp->id == "%") {
+                    $jp = clone $jp;
+                    $jp->id = $jenisPembayaranKategori === "Putra" ? 8 : 9;
+                    $jp->kategori = $jenisPembayaranKategori;
                 }
             }
 
@@ -1462,7 +1463,7 @@ class LaporanController extends Controller
                         ->whereIn("p.jenjang", ["S2", "S3"]);
                 }
 
-                if ($jenisPembayaranId) {
+                if (!empty($targetJpIds)) {
                     $allPaymentsQuery
                         ->join(
                             "keuangan_jenis_pembayaran_detail as kjpd",
@@ -1470,7 +1471,7 @@ class LaporanController extends Controller
                             "=",
                             "keuangan_pembayaran.id",
                         )
-                        ->where("kjpd.jenis_pembayaran_id", $jenisPembayaranId);
+                        ->whereIn("kjpd.jenis_pembayaran_id", $targetJpIds);
                 }
 
                 if ($userId) {
@@ -1509,7 +1510,7 @@ class LaporanController extends Controller
                     ->where("kt.nama", "LIKE", "%SEMESTER PENDEK%")
                     ->where("keuangan_pembayaran.jk_id", "LIKE", "%$jp->id%");
 
-                if ($jenisPembayaranId) {
+                if (!empty($targetJpIds)) {
                     $spPaymentsQuery
                         ->join(
                             "keuangan_jenis_pembayaran_detail as kjpd",
@@ -1517,7 +1518,7 @@ class LaporanController extends Controller
                             "=",
                             "keuangan_pembayaran.id",
                         )
-                        ->where("kjpd.jenis_pembayaran_id", $jenisPembayaranId);
+                        ->whereIn("kjpd.jenis_pembayaran_id", $targetJpIds);
                 }
 
                 if ($userId) {
@@ -1666,39 +1667,100 @@ class LaporanController extends Controller
         }
     }
 
-    private function getLaporanHarianPaymentFilterMeta($jenisPembayaranId)
+    private function resolveJenisPembayaranFilter($jenisPembayaranId)
     {
+        if (!$jenisPembayaranId || $jenisPembayaranId === 'all') {
+            return [
+                "ids" => null,
+                "nama" => null,
+                "kategori" => null,
+                "label" => "Semua",
+                "is_composite" => false,
+            ];
+        }
+
+        $strVal = strtolower(trim((string) $jenisPembayaranId));
+
+        if (in_array($strVal, ["va_transfer_putra", "va_transfer_putri", "va_transfer", "va_transfer_all"])) {
+            $kategori = null;
+            $label = "VA + Transfer";
+
+            if ($strVal === "va_transfer_putra") {
+                $kategori = "Putra";
+                $label = "VA + Transfer (Putra)";
+            } elseif ($strVal === "va_transfer_putri") {
+                $kategori = "Putri";
+                $label = "VA + Transfer (Putri)";
+            } else {
+                $label = "VA + Transfer";
+            }
+
+            $query = \App\Models\KeuanganJenisPembayaran::query()
+                ->where(function ($q) {
+                    $q->where("nama", "like", "%transfer%")
+                        ->orWhere("nama", "like", "%va%")
+                        ->orWhere("nama", "like", "%virtual%");
+                });
+
+            if ($kategori) {
+                $query->where("kategori", $kategori);
+            }
+
+            $ids = $query->pluck("id")->map(fn($id) => (int) $id)->values()->toArray();
+
+            if (empty($ids)) {
+                if ($kategori === "Putra") {
+                    $ids = [8, 16];
+                } elseif ($kategori === "Putri") {
+                    $ids = [13, 17];
+                } else {
+                    $ids = [8, 16, 13, 17];
+                }
+            }
+
+            return [
+                "ids" => $ids,
+                "nama" => "transfer",
+                "kategori" => $kategori,
+                "label" => $label,
+                "is_composite" => true,
+            ];
+        }
+
+        $jpModel = \App\Models\KeuanganJenisPembayaran::find($jenisPembayaranId);
         $jenisPembayaranNama = null;
         $jenisPembayaranKategori = null;
         $jenisPembayaranLabel = "Semua";
+        $ids = [(int) $jenisPembayaranId];
 
-        if ($jenisPembayaranId) {
-            $jpModel = \App\Models\KeuanganJenisPembayaran::find(
-                $jenisPembayaranId,
-            );
+        if ($jpModel) {
+            $nama = strtolower(trim($jpModel->nama));
+            $jenisPembayaranKategori = $jpModel->kategori;
+            $jenisPembayaranLabel = $jpModel->nama;
 
-            if ($jpModel) {
-                $nama = strtolower(trim($jpModel->nama));
-                $jenisPembayaranKategori = $jpModel->kategori;
-                $jenisPembayaranLabel = $jpModel->nama;
-
-                if (strpos($nama, "deposit") !== false) {
-                    $jenisPembayaranNama = "deposit";
-                } elseif (strpos($nama, "transfer") !== false) {
-                    $jenisPembayaranNama = "transfer";
-                } elseif (strpos($nama, "cash") !== false) {
-                    $jenisPembayaranNama = "cash";
-                } elseif (strpos($nama, "yayasan") !== false) {
-                    $jenisPembayaranNama = "yayasan";
-                }
+            if (strpos($nama, "deposit") !== false) {
+                $jenisPembayaranNama = "deposit";
+            } elseif (strpos($nama, "transfer") !== false) {
+                $jenisPembayaranNama = "transfer";
+            } elseif (strpos($nama, "cash") !== false) {
+                $jenisPembayaranNama = "cash";
+            } elseif (strpos($nama, "yayasan") !== false) {
+                $jenisPembayaranNama = "yayasan";
             }
         }
 
         return [
+            "ids" => $ids,
             "nama" => $jenisPembayaranNama,
             "kategori" => $jenisPembayaranKategori,
             "label" => $jenisPembayaranLabel,
+            "is_composite" => false,
         ];
+    }
+
+    private function getLaporanHarianPaymentFilterMeta($jenisPembayaranId)
+    {
+        return $this->resolveJenisPembayaranFilter($jenisPembayaranId);
     }
 
     private function normalizeLaporanHarianJenisKelamin($value)
@@ -2135,6 +2197,14 @@ class LaporanController extends Controller
         $paymentMeta = $this->getLaporanHarianPaymentFilterMeta(
             $jenisPembayaranId,
         );
+        $targetJpIds = $paymentMeta["ids"];
+        if ($paymentMeta["kategori"]) {
+            if ($jp && $jp->id == "%") {
+                $jp = clone $jp;
+                $jp->id = $paymentMeta["kategori"] === "Putra" ? 8 : 9;
+                $jp->kategori = $paymentMeta["kategori"];
+            }
+        }
 
         $paymentsQuery = KeuanganPembayaran::join(
             "keuangan_tagihan as kt",
@@ -2173,10 +2243,10 @@ class LaporanController extends Controller
             $paymentsQuery->whereIn("p.jenjang", ["S2", "S3"]);
         }
 
-        if ($jenisPembayaranId) {
-            $paymentsQuery->where(
+        if (!empty($targetJpIds)) {
+            $paymentsQuery->whereIn(
                 "kjpd.jenis_pembayaran_id",
-                $jenisPembayaranId,
+                $targetJpIds,
             );
         }
 
@@ -2247,10 +2317,10 @@ class LaporanController extends Controller
             ->where("kt.nama", "LIKE", "%SEMESTER PENDEK%")
             ->where("keuangan_pembayaran.jk_id", "LIKE", "%$jp->id%");
 
-        if ($jenisPembayaranId) {
-            $spPaymentsQuery->where(
+        if (!empty($targetJpIds)) {
+            $spPaymentsQuery->whereIn(
                 "kjpd.jenis_pembayaran_id",
-                $jenisPembayaranId,
+                $targetJpIds,
             );
         }
 
@@ -2323,8 +2393,8 @@ class LaporanController extends Controller
             $puQuery = KeuanganPemasukanUmum::with(["petugas", "jenisPembayaran"])
                 ->whereDate("tanggal", $tanggal);
 
-            if ($jenisPembayaranId) {
-                $puQuery->where("jenis_pembayaran_id", $jenisPembayaranId);
+            if (!empty($targetJpIds)) {
+                $puQuery->whereIn("jenis_pembayaran_id", $targetJpIds);
             }
 
             if ($userId) {
@@ -2364,8 +2434,8 @@ class LaporanController extends Controller
             $pdQuery = KeuanganPengembalianDana::with(["petugas", "jenisPembayaran"])
                 ->whereDate("tanggal", $tanggal);
 
-            if ($jenisPembayaranId) {
-                $pdQuery->where("jenis_pembayaran_id", $jenisPembayaranId);
+            if (!empty($targetJpIds)) {
+                $pdQuery->whereIn("jenis_pembayaran_id", $targetJpIds);
             }
 
             if ($userId) {
@@ -2524,32 +2594,27 @@ class LaporanController extends Controller
             // Columns setup (Categories)
             $columns = $this->getPemasukanTunaiColumns($jenjang);
 
-            // Initialization
-            $data = [];
-            foreach ($columns as $col) {
-                $data[$col["key"]] = [
-                    "label" => $col["label"],
-                    "tunai" => 0,
-                    "transfer" => 0,
-                    "yayasan" => 0,
-                    "total" => 0,
-                    "tunai_by_currency" => [],
-                    "transfer_by_currency" => [],
-                    "yayasan_by_currency" => [],
-                    "total_by_currency" => [],
-                ];
-            }
-            $data["total_all"] = [
-                "label" => "TOTAL",
+            $emptyPaymentRow = [
                 "tunai" => 0,
                 "transfer" => 0,
+                "va" => 0,
+                "va_transfer" => 0,
                 "yayasan" => 0,
                 "total" => 0,
                 "tunai_by_currency" => [],
                 "transfer_by_currency" => [],
+                "va_by_currency" => [],
+                "va_transfer_by_currency" => [],
                 "yayasan_by_currency" => [],
                 "total_by_currency" => [],
             ];
+
+            // Initialization
+            $data = [];
+            foreach ($columns as $col) {
+                $data[$col["key"]] = array_merge(["label" => $col["label"]], $emptyPaymentRow);
+            }
+            $data["total_all"] = array_merge(["label" => "TOTAL"], $emptyPaymentRow);
 
             $pmbUrl = rtrim(env("PMB_URL"), "/") . "/simkeu/pembayaran";
             $pmbApiKey = env("PMB_API_KEY");
@@ -2800,9 +2865,15 @@ class LaporanController extends Controller
 
             $payments = $payments->concat($spPayments);
 
-            // Mapping logic for Tunai, Transfer, Yayasan
+            // Mapping logic for Tunai, Transfer, VA, Yayasan
             $getPaymentType = function ($namaRaw) {
-                $nama = strtolower($namaRaw);
+                $nama = strtolower($namaRaw ?? "");
+                if (
+                    strpos($nama, "va") !== false ||
+                    strpos($nama, "virtual") !== false
+                ) {
+                    return "va";
+                }
                 if (
                     strpos($nama, "cash") !== false ||
                     strpos($nama, "tunai") !== false
@@ -2824,6 +2895,49 @@ class LaporanController extends Controller
                 return "tunai"; // fallback
             };
 
+            $recordPayment = function (&$targetRow, &$totalRow, $paymentType, $jumlah, $mataUang) {
+                $targetRow[$paymentType] += $jumlah;
+                $targetRow["total"] += $jumlah;
+                $totalRow[$paymentType] += $jumlah;
+                $totalRow["total"] += $jumlah;
+
+                MataUangFormatter::addToTotals(
+                    $targetRow[$paymentType . "_by_currency"],
+                    $jumlah,
+                    $mataUang,
+                );
+                MataUangFormatter::addToTotals(
+                    $targetRow["total_by_currency"],
+                    $jumlah,
+                    $mataUang,
+                );
+                MataUangFormatter::addToTotals(
+                    $totalRow[$paymentType . "_by_currency"],
+                    $jumlah,
+                    $mataUang,
+                );
+                MataUangFormatter::addToTotals(
+                    $totalRow["total_by_currency"],
+                    $jumlah,
+                    $mataUang,
+                );
+
+                if ($paymentType === "transfer" || $paymentType === "va") {
+                    $targetRow["va_transfer"] += $jumlah;
+                    $totalRow["va_transfer"] += $jumlah;
+                    MataUangFormatter::addToTotals(
+                        $targetRow["va_transfer_by_currency"],
+                        $jumlah,
+                        $mataUang,
+                    );
+                    MataUangFormatter::addToTotals(
+                        $totalRow["va_transfer_by_currency"],
+                        $jumlah,
+                        $mataUang,
+                    );
+                }
+            };
+
             // Structure for monthly data
             $allDataMonths = [];
             if ($mode === "tahunan") {
@@ -2838,31 +2952,15 @@ class LaporanController extends Controller
                         " $year";
                     $mData = [];
                     foreach ($columns as $col) {
-                        $mData[$col["key"]] = [
-                            "label" => $col["label"],
-                            "tunai" => 0,
-                            "transfer" => 0,
-                            "yayasan" => 0,
-                            "total" => 0,
-                            "tunai_by_currency" => [],
-                            "transfer_by_currency" => [],
-                            "yayasan_by_currency" => [],
-                            "total_by_currency" => [],
-                        ];
+                        $mData[$col["key"]] = array_merge(
+                            ["label" => $col["label"]],
+                            $emptyPaymentRow,
+                        );
                     }
                     $allDataMonths[$m] = [
                         "title" => $mTitle,
                         "data_map" => $mData,
-                        "total_all" => [
-                            "tunai" => 0,
-                            "transfer" => 0,
-                            "yayasan" => 0,
-                            "total" => 0,
-                            "tunai_by_currency" => [],
-                            "transfer_by_currency" => [],
-                            "yayasan_by_currency" => [],
-                            "total_by_currency" => [],
-                        ],
+                        "total_all" => $emptyPaymentRow,
                     ];
                 }
             }
@@ -2897,27 +2995,10 @@ class LaporanController extends Controller
 
                 // Add to year/total data
                 if (isset($data[$assignedKey])) {
-                    $data[$assignedKey][$paymentType] += $jumlah;
-                    $data[$assignedKey]["total"] += $jumlah;
-                    $data["total_all"][$paymentType] += $jumlah;
-                    $data["total_all"]["total"] += $jumlah;
-                    MataUangFormatter::addToTotals(
-                        $data[$assignedKey][$paymentType . "_by_currency"],
-                        $jumlah,
-                        $mataUang,
-                    );
-                    MataUangFormatter::addToTotals(
-                        $data[$assignedKey]["total_by_currency"],
-                        $jumlah,
-                        $mataUang,
-                    );
-                    MataUangFormatter::addToTotals(
-                        $data["total_all"][$paymentType . "_by_currency"],
-                        $jumlah,
-                        $mataUang,
-                    );
-                    MataUangFormatter::addToTotals(
-                        $data["total_all"]["total_by_currency"],
+                    $recordPayment(
+                        $data[$assignedKey],
+                        $data["total_all"],
+                        $paymentType,
                         $jumlah,
                         $mataUang,
                     );
@@ -2929,41 +3010,10 @@ class LaporanController extends Controller
                     $bulanVal &&
                     isset($allDataMonths[$bulanVal]["data_map"][$assignedKey])
                 ) {
-                    $allDataMonths[$bulanVal]["data_map"][$assignedKey][
-                        $paymentType
-                    ] += $jumlah;
-                    $allDataMonths[$bulanVal]["data_map"][$assignedKey][
-                        "total"
-                    ] += $jumlah;
-                    $allDataMonths[$bulanVal]["total_all"][
-                        $paymentType
-                    ] += $jumlah;
-                    $allDataMonths[$bulanVal]["total_all"]["total"] += $jumlah;
-                    MataUangFormatter::addToTotals(
-                        $allDataMonths[$bulanVal]["data_map"][$assignedKey][
-                            $paymentType . "_by_currency"
-                        ],
-                        $jumlah,
-                        $mataUang,
-                    );
-                    MataUangFormatter::addToTotals(
-                        $allDataMonths[$bulanVal]["data_map"][$assignedKey][
-                            "total_by_currency"
-                        ],
-                        $jumlah,
-                        $mataUang,
-                    );
-                    MataUangFormatter::addToTotals(
-                        $allDataMonths[$bulanVal]["total_all"][
-                            $paymentType . "_by_currency"
-                        ],
-                        $jumlah,
-                        $mataUang,
-                    );
-                    MataUangFormatter::addToTotals(
-                        $allDataMonths[$bulanVal]["total_all"][
-                            "total_by_currency"
-                        ],
+                    $recordPayment(
+                        $allDataMonths[$bulanVal]["data_map"][$assignedKey],
+                        $allDataMonths[$bulanVal]["total_all"],
+                        $paymentType,
                         $jumlah,
                         $mataUang,
                     );
@@ -2987,27 +3037,10 @@ class LaporanController extends Controller
                 $assignedKey = "pmb";
 
                 if (isset($data[$assignedKey])) {
-                    $data[$assignedKey][$paymentType] += $jumlah;
-                    $data[$assignedKey]["total"] += $jumlah;
-                    $data["total_all"][$paymentType] += $jumlah;
-                    $data["total_all"]["total"] += $jumlah;
-                    MataUangFormatter::addToTotals(
-                        $data[$assignedKey][$paymentType . "_by_currency"],
-                        $jumlah,
-                        $mataUang,
-                    );
-                    MataUangFormatter::addToTotals(
-                        $data[$assignedKey]["total_by_currency"],
-                        $jumlah,
-                        $mataUang,
-                    );
-                    MataUangFormatter::addToTotals(
-                        $data["total_all"][$paymentType . "_by_currency"],
-                        $jumlah,
-                        $mataUang,
-                    );
-                    MataUangFormatter::addToTotals(
-                        $data["total_all"]["total_by_currency"],
+                    $recordPayment(
+                        $data[$assignedKey],
+                        $data["total_all"],
+                        $paymentType,
                         $jumlah,
                         $mataUang,
                     );
@@ -3017,41 +3050,10 @@ class LaporanController extends Controller
                     $mode === "tahunan" &&
                     isset($allDataMonths[$bulanVal]["data_map"][$assignedKey])
                 ) {
-                    $allDataMonths[$bulanVal]["data_map"][$assignedKey][
-                        $paymentType
-                    ] += $jumlah;
-                    $allDataMonths[$bulanVal]["data_map"][$assignedKey][
-                        "total"
-                    ] += $jumlah;
-                    $allDataMonths[$bulanVal]["total_all"][
-                        $paymentType
-                    ] += $jumlah;
-                    $allDataMonths[$bulanVal]["total_all"]["total"] += $jumlah;
-                    MataUangFormatter::addToTotals(
-                        $allDataMonths[$bulanVal]["data_map"][$assignedKey][
-                            $paymentType . "_by_currency"
-                        ],
-                        $jumlah,
-                        $mataUang,
-                    );
-                    MataUangFormatter::addToTotals(
-                        $allDataMonths[$bulanVal]["data_map"][$assignedKey][
-                            "total_by_currency"
-                        ],
-                        $jumlah,
-                        $mataUang,
-                    );
-                    MataUangFormatter::addToTotals(
-                        $allDataMonths[$bulanVal]["total_all"][
-                            $paymentType . "_by_currency"
-                        ],
-                        $jumlah,
-                        $mataUang,
-                    );
-                    MataUangFormatter::addToTotals(
-                        $allDataMonths[$bulanVal]["total_all"][
-                            "total_by_currency"
-                        ],
+                    $recordPayment(
+                        $allDataMonths[$bulanVal]["data_map"][$assignedKey],
+                        $allDataMonths[$bulanVal]["total_all"],
+                        $paymentType,
                         $jumlah,
                         $mataUang,
                     );
@@ -3100,28 +3102,10 @@ class LaporanController extends Controller
                     $bulanVal = $mode === "tahunan" ? (int) $pu->bulan : null;
 
                     if (isset($data[$assignedKey])) {
-                        $data[$assignedKey][$paymentType] += $jumlah;
-                        $data[$assignedKey]["total"] += $jumlah;
-                        $data["total_all"][$paymentType] += $jumlah;
-                        $data["total_all"]["total"] += $jumlah;
-
-                        MataUangFormatter::addToTotals(
-                            $data[$assignedKey][$paymentType . "_by_currency"],
-                            $jumlah,
-                            $mataUang,
-                        );
-                        MataUangFormatter::addToTotals(
-                            $data[$assignedKey]["total_by_currency"],
-                            $jumlah,
-                            $mataUang,
-                        );
-                        MataUangFormatter::addToTotals(
-                            $data["total_all"][$paymentType . "_by_currency"],
-                            $jumlah,
-                            $mataUang,
-                        );
-                        MataUangFormatter::addToTotals(
-                            $data["total_all"]["total_by_currency"],
+                        $recordPayment(
+                            $data[$assignedKey],
+                            $data["total_all"],
+                            $paymentType,
                             $jumlah,
                             $mataUang,
                         );
@@ -3132,28 +3116,10 @@ class LaporanController extends Controller
                         $bulanVal &&
                         isset($allDataMonths[$bulanVal]["data_map"][$assignedKey])
                     ) {
-                        $allDataMonths[$bulanVal]["data_map"][$assignedKey][$paymentType] += $jumlah;
-                        $allDataMonths[$bulanVal]["data_map"][$assignedKey]["total"] += $jumlah;
-                        $allDataMonths[$bulanVal]["total_all"][$paymentType] += $jumlah;
-                        $allDataMonths[$bulanVal]["total_all"]["total"] += $jumlah;
-
-                        MataUangFormatter::addToTotals(
-                            $allDataMonths[$bulanVal]["data_map"][$assignedKey][$paymentType . "_by_currency"],
-                            $jumlah,
-                            $mataUang,
-                        );
-                        MataUangFormatter::addToTotals(
-                            $allDataMonths[$bulanVal]["data_map"][$assignedKey]["total_by_currency"],
-                            $jumlah,
-                            $mataUang,
-                        );
-                        MataUangFormatter::addToTotals(
-                            $allDataMonths[$bulanVal]["total_all"][$paymentType . "_by_currency"],
-                            $jumlah,
-                            $mataUang,
-                        );
-                        MataUangFormatter::addToTotals(
-                            $allDataMonths[$bulanVal]["total_all"]["total_by_currency"],
+                        $recordPayment(
+                            $allDataMonths[$bulanVal]["data_map"][$assignedKey],
+                            $allDataMonths[$bulanVal]["total_all"],
+                            $paymentType,
                             $jumlah,
                             $mataUang,
                         );
@@ -3205,28 +3171,10 @@ class LaporanController extends Controller
                     $bulanVal = $mode === "tahunan" ? (int) $pd->bulan : null;
 
                     if (isset($data[$assignedKey])) {
-                        $data[$assignedKey][$paymentType] += $jumlah;
-                        $data[$assignedKey]["total"] += $jumlah;
-                        $data["total_all"][$paymentType] += $jumlah;
-                        $data["total_all"]["total"] += $jumlah;
-
-                        MataUangFormatter::addToTotals(
-                            $data[$assignedKey][$paymentType . "_by_currency"],
-                            $jumlah,
-                            $mataUang,
-                        );
-                        MataUangFormatter::addToTotals(
-                            $data[$assignedKey]["total_by_currency"],
-                            $jumlah,
-                            $mataUang,
-                        );
-                        MataUangFormatter::addToTotals(
-                            $data["total_all"][$paymentType . "_by_currency"],
-                            $jumlah,
-                            $mataUang,
-                        );
-                        MataUangFormatter::addToTotals(
-                            $data["total_all"]["total_by_currency"],
+                        $recordPayment(
+                            $data[$assignedKey],
+                            $data["total_all"],
+                            $paymentType,
                             $jumlah,
                             $mataUang,
                         );
@@ -3237,28 +3185,10 @@ class LaporanController extends Controller
                         $bulanVal &&
                         isset($allDataMonths[$bulanVal]["data_map"][$assignedKey])
                     ) {
-                        $allDataMonths[$bulanVal]["data_map"][$assignedKey][$paymentType] += $jumlah;
-                        $allDataMonths[$bulanVal]["data_map"][$assignedKey]["total"] += $jumlah;
-                        $allDataMonths[$bulanVal]["total_all"][$paymentType] += $jumlah;
-                        $allDataMonths[$bulanVal]["total_all"]["total"] += $jumlah;
-
-                        MataUangFormatter::addToTotals(
-                            $allDataMonths[$bulanVal]["data_map"][$assignedKey][$paymentType . "_by_currency"],
-                            $jumlah,
-                            $mataUang,
-                        );
-                        MataUangFormatter::addToTotals(
-                            $allDataMonths[$bulanVal]["data_map"][$assignedKey]["total_by_currency"],
-                            $jumlah,
-                            $mataUang,
-                        );
-                        MataUangFormatter::addToTotals(
-                            $allDataMonths[$bulanVal]["total_all"][$paymentType . "_by_currency"],
-                            $jumlah,
-                            $mataUang,
-                        );
-                        MataUangFormatter::addToTotals(
-                            $allDataMonths[$bulanVal]["total_all"]["total_by_currency"],
+                        $recordPayment(
+                            $allDataMonths[$bulanVal]["data_map"][$assignedKey],
+                            $allDataMonths[$bulanVal]["total_all"],
+                            $paymentType,
                             $jumlah,
                             $mataUang,
                         );
@@ -3269,6 +3199,8 @@ class LaporanController extends Controller
             $currencyFields = [
                 "tunai_by_currency",
                 "transfer_by_currency",
+                "va_by_currency",
+                "va_transfer_by_currency",
                 "yayasan_by_currency",
                 "total_by_currency",
             ];
@@ -3310,10 +3242,14 @@ class LaporanController extends Controller
                     "kategori" => $row["label"],
                     "tunai" => $row["tunai"],
                     "transfer" => $row["transfer"],
+                    "va" => $row["va"],
+                    "va_transfer" => $row["va_transfer"],
                     "yayasan" => $row["yayasan"],
                     "total" => $row["total"],
                     "tunai_by_currency" => $row["tunai_by_currency"],
                     "transfer_by_currency" => $row["transfer_by_currency"],
+                    "va_by_currency" => $row["va_by_currency"],
+                    "va_transfer_by_currency" => $row["va_transfer_by_currency"],
                     "yayasan_by_currency" => $row["yayasan_by_currency"],
                     "total_by_currency" => $row["total_by_currency"],
                 ];
@@ -3332,10 +3268,14 @@ class LaporanController extends Controller
                             "kategori" => $row["label"],
                             "tunai" => $row["tunai"],
                             "transfer" => $row["transfer"],
+                            "va" => $row["va"],
+                            "va_transfer" => $row["va_transfer"],
                             "yayasan" => $row["yayasan"],
                             "total" => $row["total"],
                             "tunai_by_currency" => $row["tunai_by_currency"],
                             "transfer_by_currency" => $row["transfer_by_currency"],
+                            "va_by_currency" => $row["va_by_currency"],
+                            "va_transfer_by_currency" => $row["va_transfer_by_currency"],
                             "yayasan_by_currency" => $row["yayasan_by_currency"],
                             "total_by_currency" => $row["total_by_currency"],
                         ];

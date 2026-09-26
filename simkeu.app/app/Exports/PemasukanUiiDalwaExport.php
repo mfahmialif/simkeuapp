@@ -40,8 +40,10 @@ class PemasukanUiiDalwaExport implements FromView, WithColumnWidths, WithStyles,
             'B' => 35,  // KATEGORI
             'C' => 20,  // TUNAI
             'D' => 20,  // TRANSFER
-            'E' => 20,  // YAYASAN
-            'F' => 20,  // TOTAL
+            'E' => 20,  // VA
+            'F' => 20,  // VA + TRANSFER
+            'G' => 20,  // YAYASAN
+            'H' => 20,  // TOTAL
         ];
     }
 
