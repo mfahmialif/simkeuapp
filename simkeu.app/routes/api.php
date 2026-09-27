@@ -249,16 +249,16 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
             Route::get('wisuda/tahun', [PembayaranController::class, 'tahunWisuda'])->name('admin.pemasukan.mahasiswa.wisuda.tahun');
             Route::apiResource('pembayaran', PembayaranController::class);
 
-            Route::prefix('pembayaran-bsi')->middleware('role:admin,pimpinan,keuangan')->group(function () {
+            Route::prefix('pembayaran-bsi')->middleware('role:admin,pimpinan,keuangan,kabag,kabag_pemasukan,staff')->group(function () {
                 Route::get('/', [BsiPaymentController::class, 'index']);
                 Route::get('reconciliation-stats', [BsiPaymentController::class, 'reconciliationStats']);
                 Route::get('synchronization-candidates', [BsiPaymentController::class, 'synchronizationCandidates'])
-                    ->middleware('role:admin,keuangan');
+                    ->middleware('role:admin,keuangan,kabag,kabag_pemasukan,staff');
                 Route::post('synchronize', [BsiPaymentController::class, 'synchronize'])
-                    ->middleware('role:admin,keuangan');
+                    ->middleware('role:admin,keuangan,kabag,kabag_pemasukan,staff');
                 Route::get('{paymentBsi}', [BsiPaymentController::class, 'show']);
                 Route::post('{paymentBsi}/reject', [BsiPaymentController::class, 'reject'])
-                    ->middleware('role:admin,keuangan');
+                    ->middleware('role:admin,keuangan,kabag,kabag_pemasukan,staff');
             });
 
             Route::get('pembayaran-tambahan/kwitansi/{id}', [PembayaranTambahanController::class, 'kwitansi'])->name('admin.pemasukan.mahasiswa.pembayaran-tambahan.kwitansi');

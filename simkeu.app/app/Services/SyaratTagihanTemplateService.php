@@ -127,6 +127,33 @@ class SyaratTagihanTemplateService
             return null;
         };
 
+        // Helper untuk mencocokkan seluruh nama tagihan yang sesuai pattern
+        $findAllNames = function ($pattern) use ($names) {
+            $matches = [];
+            foreach ($names as $n) {
+                if (preg_match($pattern, $n)) {
+                    $matches[] = $n;
+                }
+            }
+
+            return array_values(array_unique($matches));
+        };
+
+        // Helper untuk mencari tagihan Herregistrasi pada semester tertentu
+        $findHerregistrasi = function ($smt) use ($findAllNames) {
+            $herregs = $findAllNames("/^HER+EGISTRASI\s+SEMESTER\s+$smt$/i");
+            if (! empty($herregs)) {
+                return $herregs;
+            }
+
+            $regs = $findAllNames("/^(?:REGISTRASI|REGISTASI|DAFTAR\s+ULANG)\s+SEMESTER\s+$smt$/i");
+            if (! empty($regs)) {
+                return $regs;
+            }
+
+            return [];
+        };
+
         foreach ($names as $n) {
             // A. Semester Pendek (dapat dibayar langsung tanpa prasyarat)
             if (str_contains($n, 'SEMESTER PENDEK')) {
@@ -136,20 +163,19 @@ class SyaratTagihanTemplateService
 
             $upper = strtoupper(trim($n));
 
-            // B. UTS (Semester 1..8 butuh SPP semester terkait; Semester > 8 butuh Herregistrasi/Registrasi semester terkait)
-            if (preg_match('/^UTS\s+SEMESTER\s+(\d+)$/i', $n, $m)) {
+            // B. UTS (Prasyarat: Herregistrasi semester terkait)
+            if (preg_match('/^UTS\s+(?:SEMESTER\s+)?(\d+)$/i', $n, $m)) {
                 if ($optAlurSiklus) {
                     $smt = (int) $m[1];
-                    if ($smt <= 8) {
-                        $spp = $findName("/^(?:SPP\s+)?SEMESTER\s+$smt$/i");
-                        if ($spp) {
-                            $addRule($n, $spp, "UTS Semester {$smt} wajib melunasi SPP Semester {$smt}", 'Alur Dalam Semester');
+                    $herregs = $findHerregistrasi($smt);
+
+                    if (! empty($herregs)) {
+                        foreach ($herregs as $h) {
+                            $addRule($n, $h, "UTS Semester {$smt} wajib melunasi Herregistrasi Semester {$smt}", 'Alur Dalam Semester');
                         }
                     } else {
-                        $reg = $findName("/^(?:REGISTRASI|REGISTASI|HER+EGISTRASI|DAFTAR\s+ULANG)\s+SEMESTER\s+$smt$/i");
-                        if ($reg) {
-                            $addRule($n, $reg, "UTS Semester {$smt} wajib melunasi Registrasi / Herregistrasi Semester {$smt}", 'Alur Dalam Semester');
-                        }
+                        // Semester 1 atau semester tanpa tagihan herregistrasi
+                        $addRule($n, null, "UTS Semester {$smt} langsung dapat dibayar (bebas herregistrasi)", 'Bebas / Tanpa Prasyarat');
                     }
                 }
                 continue;
@@ -159,21 +185,38 @@ class SyaratTagihanTemplateService
             if (preg_match('/^UJIAN\s+SEMESTER\s+(\d+)$/i', $n, $m)) {
                 if ($optAlurSiklus) {
                     $smt = (int) $m[1];
-                    $spp = $findName("/^(?:SPP\s+)?SEMESTER\s+$smt$/i");
-                    if ($spp) {
-                        $addRule($n, $spp, "Ujian Semester {$smt} wajib melunasi SPP Semester {$smt}", 'Alur Dalam Semester');
+                    $herregs = $findHerregistrasi($smt);
+                    if (! empty($herregs)) {
+                        foreach ($herregs as $h) {
+                            $addRule($n, $h, "Ujian Semester {$smt} wajib melunasi Herregistrasi Semester {$smt}", 'Alur Dalam Semester');
+                        }
                     }
                 }
                 continue;
             }
 
-            // D. UAS (Mencakup variasi seperti UAS SEMESTER X, UAS SEMESTE 8, UAS SEMESTER SEMESTER X, UAS SEMESTER 10)
+            // D. UAS (Prasyarat: Herregistrasi semester terkait dan seluruh SPP di semester itu)
             if (preg_match('/^UAS\s+(?:SEMESTER\s+)?(?:SEMESTER\s+)?(?:SEMESTE\s+)?(\d+)$/i', $n, $m)) {
                 if ($optAlurSiklus) {
                     $smt = (int) $m[1];
-                    $uts = $findName("/^UTS\s+SEMESTER\s+$smt$/i") ?: $findName("/^(?:SPP\s+)?SEMESTER\s+$smt$/i");
-                    if ($uts) {
-                        $addRule($n, $uts, "UAS Semester {$smt} wajib melunasi UTS Semester {$smt}", 'Alur Dalam Semester');
+                    $syaratCount = 0;
+
+                    // 1. Herregistrasi semester terkait (jika ada)
+                    $herregs = $findHerregistrasi($smt);
+                    foreach ($herregs as $h) {
+                        $addRule($n, $h, "UAS Semester {$smt} wajib melunasi Herregistrasi Semester {$smt}", 'Alur Dalam Semester');
+                        $syaratCount++;
+                    }
+
+                    // 2. Seluruh SPP di semester itu (SPP full/lump sum maupun SPP bulanan bulan 1..6)
+                    $sppList = $findAllNames('/^(?:SPP\s+)?SEMESTER\s+' . $smt . '(?:\s+(?:SPP\s+)?BULAN\s+\d+)?$/i');
+                    foreach ($sppList as $spp) {
+                        $addRule($n, $spp, "UAS Semester {$smt} wajib melunasi SPP Semester {$smt}", 'Alur Dalam Semester');
+                        $syaratCount++;
+                    }
+
+                    if ($syaratCount === 0) {
+                        $addRule($n, null, "UAS Semester {$smt} langsung dapat dibayar tanpa prasyarat", 'Bebas / Tanpa Prasyarat');
                     }
                 }
                 continue;
@@ -387,28 +430,14 @@ class SyaratTagihanTemplateService
 
         $created = 0;
         $updated = 0;
+        $groupedRules = collect($rules)->groupBy('tagihan_nama');
 
-        foreach ($rules as $r) {
-            // Jika aturan ini memiliki syarat konkret, bersihkan aturan null lama untuk target ini
-            if ($r['syarat_nama'] !== null) {
-                KeuanganSyaratTagihan::where('tagihan_nama', $r['tagihan_nama'])->whereNull('syarat_nama')->delete();
+        foreach ($groupedRules as $targetNama => $targetRules) {
+            if (! $replaceExisting) {
+                KeuanganSyaratTagihan::where('tagihan_nama', $targetNama)->delete();
             }
 
-            $query = KeuanganSyaratTagihan::where('tagihan_nama', $r['tagihan_nama']);
-            if ($r['syarat_nama'] === null) {
-                $query->whereNull('syarat_nama');
-            } else {
-                $query->where('syarat_nama', $r['syarat_nama']);
-            }
-            $existing = $query->first();
-
-            if ($existing) {
-                $existing->update([
-                    'keterangan' => $r['keterangan'],
-                    'is_active' => true,
-                ]);
-                $updated++;
-            } else {
+            foreach ($targetRules as $r) {
                 KeuanganSyaratTagihan::create([
                     'tagihan_nama' => $r['tagihan_nama'],
                     'syarat_nama' => $r['syarat_nama'],
