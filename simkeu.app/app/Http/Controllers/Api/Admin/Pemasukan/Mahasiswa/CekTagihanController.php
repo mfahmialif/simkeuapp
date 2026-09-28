@@ -33,6 +33,8 @@ class CekTagihanController extends Controller
         $validate = $validator->validated();
         $data = TagihanMahasiswa::tagihan($validate['nim']);
         $nilai = true;
+        $cekNilaiError = false;
+        $cekNilaiMessage = null;
 
         if ($request->cekNilai == 1) {
             $hasSkripsi = false;
@@ -52,20 +54,9 @@ class CekTagihanController extends Controller
 
             if ($hasSkripsi) {
                 $cekNilai = Mahasiswa::cekNilai($validate['nim']);
-                if (!is_object($cekNilai)) {
-                    return response()->json([
-                        'status'  => false,
-                        'message' => 'cekNilai dari siakad error, silakan coba lagi',
-                    ], 200);
-                }
-
-                if (empty($cekNilai->status)) {
-                    return response()->json([
-                        'status'  => false,
-                        'message' => !empty($cekNilai->message)
-                            ? $cekNilai->message
-                            : 'cekNilai dari siakad error, silakan coba lagi',
-                    ], 200);
+                if (!is_object($cekNilai) || empty($cekNilai->status)) {
+                    $cekNilaiError = true;
+                    $cekNilaiMessage = 'cek nilai skripsi error, silahkan klik search lagi';
                 }
             }
         }
@@ -90,6 +81,8 @@ class CekTagihanController extends Controller
             'status' => true,
             'data' => $data,
             'cekNilai' => $nilai,
+            'cekNilai_error' => $cekNilaiError,
+            'cekNilai_message' => $cekNilaiMessage,
             'request' => $request->all()
         ]);
     }
