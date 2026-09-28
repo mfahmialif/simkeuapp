@@ -52,7 +52,7 @@ class CekTagihanController extends Controller
 
             if ($hasSkripsi) {
                 $cekNilai = Mahasiswa::cekNilai($validate['nim']);
-                if (!$cekNilai->status) {
+                if (!is_object($cekNilai) || empty($cekNilai->status)) {
                     $nilai = false;
                     // return response()->json([
                     //     'status'  => false,
