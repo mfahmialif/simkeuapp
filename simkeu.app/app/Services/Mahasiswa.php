@@ -253,7 +253,6 @@ class Mahasiswa
 
     public static function cekNilai($nim)
     {
-
         $post = [
             'nim' => $nim,
         ];
@@ -267,18 +266,34 @@ class Mahasiswa
         curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
         curl_setopt($ch, CURLOPT_HTTPHEADER, [
             "apikey: $apiKey",
-
         ]);
         $response = curl_exec($ch);
+        $curlError = curl_error($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
 
-        $response = json_decode($response);
-        return $response;
+        if ($response === false || !empty($curlError)) {
+            return (object) [
+                'status'  => false,
+                'message' => 'Koneksi ke SIAKAD timeout atau gagal (' . ($curlError ?: 'timeout') . ')',
+                'code'    => $httpCode ?: 504,
+            ];
+        }
+
+        $decoded = json_decode($response);
+        if (!is_object($decoded)) {
+            return (object) [
+                'status'  => false,
+                'message' => 'Respon dari SIAKAD tidak valid (HTTP ' . $httpCode . ')',
+                'code'    => $httpCode,
+            ];
+        }
+
+        return $decoded;
     }
 
     public static function cekPelanggaran($nim)
     {
-
         $post = [
             'nim' => $nim,
         ];
@@ -292,12 +307,29 @@ class Mahasiswa
         curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
         curl_setopt($ch, CURLOPT_HTTPHEADER, [
             "apikey: $apiKey",
-
         ]);
         $response = curl_exec($ch);
+        $curlError = curl_error($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
 
-        $response = json_decode($response);
-        return $response;
+        if ($response === false || !empty($curlError)) {
+            return (object) [
+                'status'  => false,
+                'message' => 'Koneksi ke SIAKAD timeout atau gagal (' . ($curlError ?: 'timeout') . ')',
+                'code'    => $httpCode ?: 504,
+            ];
+        }
+
+        $decoded = json_decode($response);
+        if (!is_object($decoded)) {
+            return (object) [
+                'status'  => false,
+                'message' => 'Respon cek pelanggaran dari SIAKAD tidak valid (HTTP ' . $httpCode . ')',
+                'code'    => $httpCode,
+            ];
+        }
+
+        return $decoded;
     }
 }

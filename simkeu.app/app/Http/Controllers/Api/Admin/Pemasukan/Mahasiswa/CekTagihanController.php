@@ -56,7 +56,10 @@ class CekTagihanController extends Controller
                 $cekNilai = Mahasiswa::cekNilai($validate['nim']);
                 if (!is_object($cekNilai) || empty($cekNilai->status)) {
                     $cekNilaiError = true;
-                    $cekNilaiMessage = 'cek nilai skripsi error, silahkan klik search lagi';
+                    $detailMsg = is_object($cekNilai) && !empty($cekNilai->message)
+                        ? $cekNilai->message
+                        : 'Koneksi ke SIAKAD error';
+                    $cekNilaiMessage = "Cek nilai skripsi error ({$detailMsg}), silakan klik search lagi";
                 }
             }
         }
