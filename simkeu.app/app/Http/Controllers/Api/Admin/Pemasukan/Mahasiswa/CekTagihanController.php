@@ -52,12 +52,20 @@ class CekTagihanController extends Controller
 
             if ($hasSkripsi) {
                 $cekNilai = Mahasiswa::cekNilai($validate['nim']);
-                if (!is_object($cekNilai) || empty($cekNilai->status)) {
-                    $nilai = false;
-                    // return response()->json([
-                    //     'status'  => false,
-                    //     'message' => $cekNilai->message,
-                    // ], 200);
+                if (!is_object($cekNilai)) {
+                    return response()->json([
+                        'status'  => false,
+                        'message' => 'cekNilai dari siakad error, silakan coba lagi',
+                    ], 200);
+                }
+
+                if (empty($cekNilai->status)) {
+                    return response()->json([
+                        'status'  => false,
+                        'message' => !empty($cekNilai->message)
+                            ? $cekNilai->message
+                            : 'cekNilai dari siakad error, silakan coba lagi',
+                    ], 200);
                 }
             }
         }
