@@ -142,6 +142,66 @@ curl --request GET \
   --header 'X-SIAKAD-API-KEY: GANTI_DENGAN_API_KEY'
 ```
 
+Contoh respons:
+
+```json
+{
+  "status": true,
+  "data": {
+    "nim": "20240001",
+    "nama_mahasiswa": "Nama Mahasiswa",
+    "nama_prodi": "S1 Sistem Informasi",
+    "nama_kelas": "A",
+    "semester": 5,
+    "list_tagihan": [
+      {
+        "id": 10,
+        "nama": "Daftar Ulang",
+        "th_akademik_id": 25,
+        "th_akademik_kode": "20261",
+        "tahun_akademik": "2026/2027 Ganjil",
+        "jumlah_tagihan": 500000,
+        "sisa_resmi": 500000,
+        "reservasi_bsi": 0,
+        "tersedia": 500000,
+        "mata_uang_kode": "IDR",
+        "tidak_bisa_dibayar": false,
+        "keterangan_pembayaran": null,
+        "prasyarat": [],
+        "prasyarat_string": null
+      },
+      {
+        "id": 12,
+        "nama": "UAS Semester 5",
+        "th_akademik_id": 25,
+        "th_akademik_kode": "20261",
+        "tahun_akademik": "2026/2027 Ganjil",
+        "jumlah_tagihan": 1200000,
+        "sisa_resmi": 1200000,
+        "reservasi_bsi": 0,
+        "tersedia": 1200000,
+        "mata_uang_kode": "IDR",
+        "tidak_bisa_dibayar": true,
+        "keterangan_pembayaran": "Belum melunasi prasyarat: Herregistrasi Semester 5, SPP Semester 5",
+        "prasyarat": [
+          "Herregistrasi Semester 5",
+          "SPP Semester 5"
+        ],
+        "prasyarat_string": "Herregistrasi Semester 5, SPP Semester 5"
+      }
+    ],
+    "total_tersedia": 1700000
+  }
+}
+```
+
+> **Catatan Prasyarat (Multi):**
+> - `prasyarat`: Array berisi daftar nama tagihan prasyarat yang wajib lunas (string[]).
+> - `prasyarat_string`: Representasi teks prasyarat yang dipisahkan koma atau null jika tidak memiliki syarat.
+> - `tidak_bisa_dibayar`: Bernilai `true` jika tagihan belum memenuhi syarat atau masih ada prasyarat yang belum lunas.
+> - `keterangan_pembayaran`: Memberikan rincian tagihan prasyarat mana saja yang belum dilunasi oleh mahasiswa.
+
+
 ### Ambil riwayat pembayaran
 
 ```http

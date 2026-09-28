@@ -69,18 +69,44 @@ class BsiPaymentService
         // SIAKAD hanya boleh menawarkan tagihan sampai semester mahasiswa saat ini.
         // Tagihan semester depan tetap tersimpan di SIMKEU, tetapi tidak dikirim ke VA.
         $items = collect($tagihanData['list_tagihan_semester_ini'] ?? [])
-            ->map(function ($tagihan) use ($activeRules) {
+            ->map(function ($tagihan) use ($activeRules, $allUnpaid) {
                 $tagihanId = (int) data_get($tagihan, 'id');
                 $tagihanNama = trim((string) data_get($tagihan, 'nama'));
                 $sisaResmi = max(0, (float) data_get($tagihan, 'sisa', 0));
 
-                // Cari aturan prasyarat untuk tagihan ini (jika ada)
+                // Cari aturan prasyarat untuk tagihan ini (mendukung multi-prasyarat)
                 $matchingRules = $activeRules->filter(function ($rule) use ($tagihanNama) {
                     return strcasecmp(trim((string) $rule->tagihan_nama), $tagihanNama) === 0 && ! empty($rule->syarat_nama);
                 });
 
-                $prasyaratList = $matchingRules->pluck('syarat_nama')->filter()->values();
-                $prasyarat = $prasyaratList->isNotEmpty() ? $prasyaratList->join(', ') : null;
+                $prasyaratList = $matchingRules->pluck('syarat_nama')
+                    ->map(fn ($s) => trim((string) $s))
+                    ->filter(fn ($s) => $s !== '')
+                    ->unique()
+                    ->values();
+
+                // Cek apakah ada tagihan prasyarat yang masih memiliki sisa / belum lunas
+                $unpaidPrereqs = $allUnpaid->filter(function ($unpaid) use ($tagihanId, $prasyaratList) {
+                    if ((int) data_get($unpaid, 'id') === $tagihanId) {
+                        return false;
+                    }
+                    $unpaidNama = trim((string) data_get($unpaid, 'nama'));
+                    $sisa = (float) data_get($unpaid, 'sisa', 0);
+                    if ($sisa <= 0) {
+                        return false;
+                    }
+
+                    return $prasyaratList->contains(fn ($req) => strcasecmp($req, $unpaidNama) === 0);
+                })->pluck('nama')->map(fn ($n) => trim((string) $n))->unique()->values();
+
+                $isBlockedByPrereq = $unpaidPrereqs->isNotEmpty();
+                $tidakBisaDibayar = (bool) data_get($tagihan, 'tidak_bisa_dibayar', false) || $isBlockedByPrereq;
+
+                $keteranganPembayaran = data_get($tagihan, 'keterangan_pembayaran');
+                if ($isBlockedByPrereq) {
+                    $prereqMsg = 'Belum melunasi prasyarat: ' . $unpaidPrereqs->join(', ');
+                    $keteranganPembayaran = $keteranganPembayaran ? ($keteranganPembayaran . ' | ' . $prereqMsg) : $prereqMsg;
+                }
 
                 return [
                     'id' => $tagihanId,
@@ -95,9 +121,10 @@ class BsiPaymentService
                     'reservasi_bsi' => 0.0,
                     'tersedia' => $sisaResmi,
                     'mata_uang_kode' => strtoupper((string) data_get($tagihan, 'mata_uang_kode', 'IDR')),
-                    'tidak_bisa_dibayar' => (bool) data_get($tagihan, 'tidak_bisa_dibayar', false),
-                    'keterangan_pembayaran' => data_get($tagihan, 'keterangan_pembayaran'),
-                    'prasyarat' => $prasyarat,
+                    'tidak_bisa_dibayar' => $tidakBisaDibayar,
+                    'keterangan_pembayaran' => $keteranganPembayaran,
+                    'prasyarat' => $prasyaratList->all(),
+                    'prasyarat_string' => $prasyaratList->isNotEmpty() ? $prasyaratList->join(', ') : null,
                 ];
             })
             ->filter(fn (array $item) => $item['tersedia'] > 0)

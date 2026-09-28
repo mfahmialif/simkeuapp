@@ -33,6 +33,68 @@ class SiakadBsiPaymentControllerTest extends TestCase
         $this->assertSame($history, $response->getData(true)['data']);
     }
 
+    public function test_bills_returns_student_bills_with_multi_prasyarat(): void
+    {
+        $billsData = [
+            'nim' => '20240001',
+            'nama_mahasiswa' => 'Mahasiswa Test',
+            'nama_prodi' => 'S1 Sistem Informasi',
+            'nama_kelas' => 'A',
+            'semester' => 5,
+            'list_tagihan' => [
+                [
+                    'id' => 10,
+                    'nama' => 'Daftar Ulang',
+                    'th_akademik_id' => 25,
+                    'th_akademik_kode' => '20261',
+                    'tahun_akademik' => '2026/2027 Ganjil',
+                    'jumlah_tagihan' => 500000.0,
+                    'sisa_resmi' => 500000.0,
+                    'reservasi_bsi' => 0.0,
+                    'tersedia' => 500000.0,
+                    'mata_uang_kode' => 'IDR',
+                    'tidak_bisa_dibayar' => false,
+                    'keterangan_pembayaran' => null,
+                    'prasyarat' => [],
+                    'prasyarat_string' => null,
+                ],
+                [
+                    'id' => 12,
+                    'nama' => 'UAS Semester 5',
+                    'th_akademik_id' => 25,
+                    'th_akademik_kode' => '20261',
+                    'tahun_akademik' => '2026/2027 Ganjil',
+                    'jumlah_tagihan' => 1200000.0,
+                    'sisa_resmi' => 1200000.0,
+                    'reservasi_bsi' => 0.0,
+                    'tersedia' => 1200000.0,
+                    'mata_uang_kode' => 'IDR',
+                    'tidak_bisa_dibayar' => true,
+                    'keterangan_pembayaran' => 'Belum melunasi prasyarat: Herregistrasi Semester 5, SPP Semester 5',
+                    'prasyarat' => ['Herregistrasi Semester 5', 'SPP Semester 5'],
+                    'prasyarat_string' => 'Herregistrasi Semester 5, SPP Semester 5',
+                ],
+            ],
+            'total_tersedia' => 1700000.0,
+        ];
+
+        $service = $this->createMock(\App\Services\BsiPaymentService::class);
+        $service->expects($this->once())
+            ->method('availableTagihan')
+            ->with('20240001')
+            ->willReturn($billsData);
+
+        $response = (new SiakadBsiPaymentController)->bills('20240001', $service);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $responseData = $response->getData(true);
+        $this->assertTrue($responseData['status']);
+        $this->assertEquals($billsData, $responseData['data']);
+        $this->assertIsArray($responseData['data']['list_tagihan'][1]['prasyarat']);
+        $this->assertCount(2, $responseData['data']['list_tagihan'][1]['prasyarat']);
+        $this->assertSame('Herregistrasi Semester 5', $responseData['data']['list_tagihan'][1]['prasyarat'][0]);
+    }
+
     public function test_create_order_accepts_only_the_simple_siakad_payload(): void
     {
         $payload = [

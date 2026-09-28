@@ -392,7 +392,31 @@ components:
     Bill:
       type: object
       additionalProperties: true
-      description: Bentuk tagihan mengikuti hasil BsiPaymentService::availableTagihan.
+      description: Bentuk tagihan mengikuti hasil BsiPaymentService::availableTagihan (mendukung multi-prasyarat).
+      properties:
+        id: { type: integer, example: 10 }
+        nama: { type: string, example: "UAS Semester 5" }
+        th_akademik_id: { type: integer, example: 25 }
+        th_akademik_kode: { type: string, example: "20261" }
+        tahun_akademik: { type: string, example: "2026/2027 Ganjil" }
+        jumlah_tagihan: { type: number, example: 1200000 }
+        sisa_resmi: { type: number, example: 1200000 }
+        reservasi_bsi: { type: number, example: 0 }
+        tersedia: { type: number, example: 1200000 }
+        mata_uang_kode: { type: string, example: "IDR" }
+        tidak_bisa_dibayar: { type: boolean, example: false }
+        keterangan_pembayaran: { type: string, nullable: true, example: null }
+        prasyarat:
+          type: array
+          description: Daftar nama tagihan prasyarat yang harus lunas sebelum tagihan ini dapat dibayar (multi-prasyarat)
+          items:
+            type: string
+          example: ["Herregistrasi Semester 5", "SPP Semester 5"]
+        prasyarat_string:
+          type: string
+          nullable: true
+          description: Ringkasan prasyarat dalam format string dipisahkan koma
+          example: "Herregistrasi Semester 5, SPP Semester 5"
     CreatePaymentOrder:
       type: object
       additionalProperties: false
