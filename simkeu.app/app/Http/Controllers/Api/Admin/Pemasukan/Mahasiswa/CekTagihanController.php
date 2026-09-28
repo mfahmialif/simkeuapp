@@ -54,12 +54,32 @@ class CekTagihanController extends Controller
 
             if ($hasSkripsi) {
                 $cekNilai = Mahasiswa::cekNilai($validate['nim']);
-                if (!is_object($cekNilai) || empty($cekNilai->status)) {
-                    $cekNilaiError = true;
-                    $detailMsg = is_object($cekNilai) && !empty($cekNilai->message)
-                        ? $cekNilai->message
-                        : 'Koneksi ke SIAKAD error';
-                    $cekNilaiMessage = "Cek nilai skripsi error ({$detailMsg}), silakan klik search lagi";
+
+                if (is_object($cekNilai) && !empty($cekNilai->status)) {
+                    $nilai = true;
+                    $cekNilaiError = false;
+                } else {
+                    $msg = is_object($cekNilai) ? trim((string) ($cekNilai->message ?? '')) : '';
+
+                    // Jika respon menyatakan nilai tidak memenuhi syarat (misal: "Nilai kurang dari D"),
+                    // ini adalah hasil evaluasi nilai biasa, BUKAN error teknis / koneksi.
+                    $isGradeIneligible = (
+                        stripos($msg, 'kurang dari') !== false ||
+                        stripos($msg, 'nilai') !== false
+                    ) && stripos($msg, 'timeout') === false
+                      && stripos($msg, 'koneksi') === false
+                      && stripos($msg, 'tidak valid') === false;
+
+                    if ($isGradeIneligible) {
+                        $nilai = false;
+                        $cekNilaiError = false;
+                        $cekNilaiMessage = null;
+                    } else {
+                        $nilai = true;
+                        $cekNilaiError = true;
+                        $detailMsg = !empty($msg) ? $msg : 'Koneksi ke SIAKAD bermasalah';
+                        $cekNilaiMessage = "Cek nilai skripsi error ({$detailMsg}), silakan klik search lagi";
+                    }
                 }
             }
         }
