@@ -62,6 +62,7 @@ class DosenTatapMukaController extends Controller
             'keuangan_pengeluaran_dosen.*',
             'pegawai.nama as nama_dosen',
             'pegawai.kode as kode_dosen',
+            'pegawai.nomer_rekening as nomer_rekening',
             'prodi.nama as nama_prodi_dosen',
             'prodi.alias as alias_prodi_dosen',
             'pengeluaran_rekap.nama as nama_rekap',
@@ -355,6 +356,7 @@ class DosenTatapMukaController extends Controller
             'keuangan_pengeluaran_dosen.tanggal',
             'pegawai.nama as dosen',
             'pegawai.kode as niy',
+            'pegawai.nomer_rekening as nomer_rekening',
             'prodi.nama as prodi',
             'pengeluaran_rekap.nama as rekap',
             'keuangan_pengeluaran_dosen.jam',
@@ -431,7 +433,22 @@ class DosenTatapMukaController extends Controller
     {
         $data = $this->bsiRows($request);
 
-        return Excel::download(new BsiPayrollExport($data, 'barokah mengajar'), 'CUZ BSI Barokah Dosen Tatapmuka.xlsx');
+        $filename = 'CUZ BSI Barokah Dosen Tatapmuka.xlsx';
+        if ($request->filled('rekap_id')) {
+            $rekap = KeuanganPengeluaranDosenRekap::find($request->rekap_id);
+            if ($rekap && $rekap->nama) {
+                $filename = 'CUZ BSI ' . $rekap->nama . '.xlsx';
+            }
+        }
+
+        return Excel::download(new BsiPayrollExport($data, 'barokah mengajar'), $filename);
+    }
+
+    public function rekapDetailExportBsi(Request $request, $id)
+    {
+        $request->merge(['rekap_id' => $id]);
+
+        return $this->exportBsi($request);
     }
 
     public function copyBsi(Request $request)
@@ -455,10 +472,24 @@ class DosenTatapMukaController extends Controller
         $export = new BsiPayrollExport($data, 'barokah mengajar');
 
         $filename = 'Template Batch Payment_' . date('Y-m-d_H-i-s') . '.txt';
+        if ($request->filled('rekap_id')) {
+            $rekap = KeuanganPengeluaranDosenRekap::find($request->rekap_id);
+            if ($rekap && $rekap->nama) {
+                $cleanName = preg_replace('/[^A-Za-z0-9_\-]/', '_', $rekap->nama);
+                $filename = 'Template Batch Payment_' . $cleanName . '_' . date('Y-m-d_H-i-s') . '.txt';
+            }
+        }
 
         return response($export->txtContent())
             ->header('Content-Type', 'text/plain')
             ->header('Content-Disposition', 'attachment; filename="' . $filename . '"');
+    }
+
+    public function rekapDetailExportBsiTxt(Request $request, $id)
+    {
+        $request->merge(['rekap_id' => $id]);
+
+        return $this->exportBsiTxt($request);
     }
 
     private function bsiRows(Request $request)
@@ -649,6 +680,7 @@ class DosenTatapMukaController extends Controller
             'keuangan_pengeluaran_dosen.*',
             'pegawai.nama as nama_dosen',
             'pegawai.kode as kode_dosen',
+            'pegawai.nomer_rekening as nomer_rekening',
             'prodi.nama as nama_prodi_dosen',
             'prodi.alias as alias_prodi_dosen',
             'pengeluaran_rekap.nama as nama_rekap',

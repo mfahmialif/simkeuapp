@@ -427,6 +427,7 @@ trait ManagesPengeluaranRekap
                 'pegawai.kode as kode_pegawai',
                 'pegawai.nama as nama_pegawai',
                 'pegawai.tipe as tipe_pegawai',
+                'pegawai.nomer_rekening as nomer_rekening',
                 'prodi.nama as prodi',
                 'staff.jabatan as jabatan',
             ];
@@ -436,6 +437,7 @@ trait ManagesPengeluaranRekap
                 DB::raw('NULL as kode_pegawai'),
                 DB::raw('NULL as nama_pegawai'),
                 DB::raw('NULL as tipe_pegawai'),
+                DB::raw('NULL as nomer_rekening'),
                 DB::raw('NULL as prodi'),
                 DB::raw('NULL as jabatan'),
             ];
@@ -530,7 +532,7 @@ trait ManagesPengeluaranRekap
             'keuangan_pengeluaran_dosen',
             'keuangan_pengeluaran_dosen_kegiatan',
         ], true)
-            ? ['pegawai.kode', 'pegawai.nama', 'pegawai.tipe', 'prodi.nama', 'staff.jabatan']
+            ? ['pegawai.kode', 'pegawai.nama', 'pegawai.nomer_rekening', 'pegawai.tipe', 'prodi.nama', 'staff.jabatan']
             : [];
 
         $query->where(function ($q) use ($detailColumns, $joinedColumns, $search, $table) {
@@ -562,6 +564,7 @@ trait ManagesPengeluaranRekap
                     'TANGGAL',
                     'KODE',
                     'NAMA',
+                    'NO REKENING',
                     'PRODI',
                     'TRANSPORT MOTOR',
                     'HARI MOTOR',
@@ -584,6 +587,7 @@ trait ManagesPengeluaranRekap
                     $this->formatGenericRekapExportDate($item->tanggal ?? null),
                     (string) ($item->kode_pegawai ?? ''),
                     $item->nama_pegawai ?: '-',
+                    (string) ($item->nomer_rekening ?? ''),
                     $item->prodi ?: '-',
                     (int) ($item->transport_motor ?? $item->transport ?? 0),
                     (int) ($item->hari_transport_motor ?? $item->hari ?? 0),
@@ -601,9 +605,9 @@ trait ManagesPengeluaranRekap
                     $item->jenis_pembayaran ?: '',
                     $item->keterangan ?: ($item->keterangan_sempro ?? ''),
                 ],
-                'amount_columns' => [6, 8, 10, 12, 14, 16, 18],
-                'text_columns' => [3],
-                'total_column' => 18,
+                'amount_columns' => [7, 9, 11, 13, 15, 17, 19],
+                'text_columns' => [3, 5],
+                'total_column' => 19,
             ],
             'keuangan_pengeluaran_dosen_kegiatan' => $isKegiatanNonPegawaiOnly
                 ? [

@@ -363,6 +363,8 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
         Route::put('/dosen/rekap/{id}', [DosenTatapMukaController::class, 'rekapUpdate'])->middleware($roleTatapMukaWrite);
         Route::delete('/dosen/rekap/{id}', [DosenTatapMukaController::class, 'rekapDestroy'])->middleware($roleTatapMukaWrite);
         Route::get('/dosen/rekap/{id}/export-excel', [DosenTatapMukaController::class, 'rekapDetailExportExcel']);
+        Route::get('/dosen/rekap/{id}/export-bsi', [DosenTatapMukaController::class, 'rekapDetailExportBsi']);
+        Route::get('/dosen/rekap/{id}/export-bsi-txt', [DosenTatapMukaController::class, 'rekapDetailExportBsiTxt']);
         Route::get('/dosen/rekap/{id}/lpj', [DosenTatapMukaController::class, 'lpjShow']);
         Route::post('/dosen/rekap/{id}/lpj/copy', [DosenTatapMukaController::class, 'lpjCopy'])->middleware($roleTatapMukaWrite);
         Route::put('/dosen/rekap/{id}/lpj', [DosenTatapMukaController::class, 'lpjUpdate'])->middleware($roleTatapMukaWrite);
