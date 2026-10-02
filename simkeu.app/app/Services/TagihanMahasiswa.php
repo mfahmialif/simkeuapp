@@ -244,14 +244,40 @@ class TagihanMahasiswa
 
         $listTagihan = [];
 
+        $tagihanIds = $tagihan->pluck('id')->filter()->all();
+
+        $pembayaranIdnMap = !empty($tagihanIds)
+            ? KeuanganPembayaranIDN::where('bill_key', $mhs->nim)
+                ->whereIn('tagihan_id', $tagihanIds)
+                ->groupBy('tagihan_id')
+                ->selectRaw('tagihan_id, SUM(total_bill_amount) as total_bayar')
+                ->pluck('total_bayar', 'tagihan_id')
+                ->all()
+            : [];
+
+        $pembayaranPdwMap = !empty($tagihanIds)
+            ? KeuanganPembayaran::where('nim', $mhs->nim)
+                ->whereIn('tagihan_id', $tagihanIds)
+                ->groupBy('tagihan_id')
+                ->selectRaw('tagihan_id, SUM(jumlah) as total_bayar')
+                ->pluck('total_bayar', 'tagihan_id')
+                ->all()
+            : [];
+
+        $dispensasiMap = !empty($tagihanIds)
+            ? KeuanganDispensasiTagihan::where('nim', $nim)
+                ->whereIn('jenis_tagihan_id', $tagihanIds)
+                ->get()
+                ->keyBy('jenis_tagihan_id')
+            : collect();
+
         foreach ($tagihan as $row) {
-            $sisa = TagihanMahasiswa::getSisaTagihan($mhs->nim, $row->id);
+            $jml_bayar_idn = (float) ($pembayaranIdnMap[$row->id] ?? 0);
+            $jml_bayar_pdw = (float) ($pembayaranPdwMap[$row->id] ?? 0);
+            $sisa = (float) $row->jumlah - ($jml_bayar_idn + $jml_bayar_pdw);
 
             // dispensasi tagihan
-            $dispensasiTagihan = KeuanganDispensasiTagihan::where([
-                ['jenis_tagihan_id', $row->id],
-                ['nim', $nim],
-            ])->first();
+            $dispensasiTagihan = $dispensasiMap->get($row->id);
             $batasDispensasi  = ($dispensasiTagihan) ? $dispensasiTagihan->batas : null;
             $statusDispensasi = false;
             if ($dispensasiTagihan) {

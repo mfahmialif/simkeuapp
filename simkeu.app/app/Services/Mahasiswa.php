@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use Illuminate\Support\Facades\Cache;
+
 class Mahasiswa
 {
     /**
@@ -66,11 +68,30 @@ class Mahasiswa
 
     public static function nim($nim, $whereIn = null)
     {
-        // if ($whereIn) {
-        // $nim = json_encode($nim);
-        // }
-        // dd(json_decode($nim));
+        $nim = trim(strtoupper((string) $nim));
+        if (empty($nim)) {
+            return null;
+        }
 
+        if ($whereIn !== null) {
+            return self::fetchNimFromSiakad($nim, $whereIn);
+        }
+
+        $cacheKey = "siakad_mhs_nim_{$nim}";
+        if (Cache::has($cacheKey)) {
+            return Cache::get($cacheKey);
+        }
+
+        $data = self::fetchNimFromSiakad($nim, null);
+        if ($data) {
+            Cache::put($cacheKey, $data, 120);
+        }
+
+        return $data;
+    }
+
+    private static function fetchNimFromSiakad($nim, $whereIn = null)
+    {
         $post = [
             'nim' => $nim,
             'whereIn' => $whereIn
@@ -81,9 +102,10 @@ class Mahasiswa
         $ch = curl_init($url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, $post);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
         curl_setopt($ch, CURLOPT_HTTPHEADER, [
             "apikey: $apiKey",
-
         ]);
         $response = curl_exec($ch);
         curl_close($ch);
@@ -294,6 +316,19 @@ class Mahasiswa
 
     public static function cekPelanggaran($nim)
     {
+        $nim = trim(strtoupper((string) $nim));
+        if (empty($nim)) {
+            return (object) [
+                'status'  => true,
+                'message' => 'NIM kosong',
+            ];
+        }
+
+        $cacheKey = "siakad_pelanggaran_{$nim}";
+        if (Cache::has($cacheKey)) {
+            return Cache::get($cacheKey);
+        }
+
         $post = [
             'nim' => $nim,
         ];
@@ -303,8 +338,8 @@ class Mahasiswa
         $ch = curl_init($url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, $post);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 15);
-        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
         curl_setopt($ch, CURLOPT_HTTPHEADER, [
             "apikey: $apiKey",
         ]);
@@ -329,6 +364,8 @@ class Mahasiswa
                 'code'    => $httpCode,
             ];
         }
+
+        Cache::put($cacheKey, $decoded, 60);
 
         return $decoded;
     }
