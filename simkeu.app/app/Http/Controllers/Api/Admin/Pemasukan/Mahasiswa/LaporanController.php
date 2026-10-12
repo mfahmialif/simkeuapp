@@ -2055,10 +2055,10 @@ class LaporanController extends Controller
             $rincian[] = $getItem("Cash", "cash");
             $rincian[] = $getItem("Transfer", "transfer");
             $totalSum = (float) (($typeTotals["cash"]["total"] ?? 0) + ($typeTotals["transfer"]["total"] ?? 0));
-            $totalCurrencies = MataUangFormatter::normalizeTotals(array_merge(
+            $totalCurrencies = MataUangFormatter::mergeTotals(
                 $typeTotals["cash"]["by_currency"] ?? [],
                 $typeTotals["transfer"]["by_currency"] ?? []
-            ));
+            );
             $rincian[] = [
                 "nama" => "Total (Cash + Transfer)",
                 "key" => "total",
@@ -2070,10 +2070,10 @@ class LaporanController extends Controller
             $rincian[] = $getItem("VA Pondok", "va_pondok");
             $rincian[] = $getItem("Transfer", "transfer");
             $totalSum = (float) (($typeTotals["va_pondok"]["total"] ?? 0) + ($typeTotals["transfer"]["total"] ?? 0));
-            $totalCurrencies = MataUangFormatter::normalizeTotals(array_merge(
+            $totalCurrencies = MataUangFormatter::mergeTotals(
                 $typeTotals["va_pondok"]["by_currency"] ?? [],
                 $typeTotals["transfer"]["by_currency"] ?? []
-            ));
+            );
             $rincian[] = [
                 "nama" => "Total (VA + Transfer)",
                 "key" => "total",
@@ -2083,16 +2083,18 @@ class LaporanController extends Controller
             ];
         } elseif ($filterNama && !$isComposite && $filterNama !== "all") {
             $singleTotal = 0;
-            $singleCurrencies = [];
+            $currencyGroups = [];
             foreach ($typeTotals as $k => $d) {
                 $singleTotal += (float) ($d["total"] ?? 0);
-                $singleCurrencies = array_merge($singleCurrencies, $d["by_currency"] ?? []);
+                if (!empty($d["by_currency"])) {
+                    $currencyGroups[] = $d["by_currency"];
+                }
             }
             $rincian[] = [
                 "nama" => $paymentFilter["label"] ?? "Pembayaran",
                 "key" => $filterNama,
                 "total" => $singleTotal,
-                "total_by_currency" => MataUangFormatter::normalizeTotals($singleCurrencies),
+                "total_by_currency" => MataUangFormatter::mergeTotals(...$currencyGroups),
             ];
         } else {
             $standardKeys = [
@@ -2105,13 +2107,15 @@ class LaporanController extends Controller
             ];
 
             $totalSum = 0;
-            $allCurrencies = [];
+            $currencyGroups = [];
 
             foreach ($standardKeys as $key => $label) {
                 if (isset($typeTotals[$key]) && (float) ($typeTotals[$key]["total"] ?? 0) != 0) {
                     $rincian[] = $getItem($label, $key);
                     $totalSum += (float) $typeTotals[$key]["total"];
-                    $allCurrencies = array_merge($allCurrencies, $typeTotals[$key]["by_currency"] ?? []);
+                    if (!empty($typeTotals[$key]["by_currency"])) {
+                        $currencyGroups[] = $typeTotals[$key]["by_currency"];
+                    }
                 }
             }
 
@@ -2119,7 +2123,9 @@ class LaporanController extends Controller
                 if (!isset($standardKeys[$key]) && (float) ($data["total"] ?? 0) != 0) {
                     $rincian[] = $getItem(ucfirst(str_replace("_", " ", $key)), $key);
                     $totalSum += (float) $data["total"];
-                    $allCurrencies = array_merge($allCurrencies, $data["by_currency"] ?? []);
+                    if (!empty($data["by_currency"])) {
+                        $currencyGroups[] = $data["by_currency"];
+                    }
                 }
             }
 
@@ -2128,7 +2134,7 @@ class LaporanController extends Controller
                 "key" => "total",
                 "is_total" => true,
                 "total" => $totalSum,
-                "total_by_currency" => MataUangFormatter::normalizeTotals($allCurrencies),
+                "total_by_currency" => MataUangFormatter::mergeTotals(...$currencyGroups),
             ];
         }
 
@@ -3993,10 +3999,10 @@ class LaporanController extends Controller
                     "nama" => "Cash + Transfer",
                     "key" => "cash_transfer",
                     "total" => (float) (($data["total_all"]["tunai"] ?? 0) + ($data["total_all"]["transfer"] ?? 0)),
-                    "total_by_currency" => MataUangFormatter::normalizeTotals(array_merge(
+                    "total_by_currency" => MataUangFormatter::mergeTotals(
                         $data["total_all"]["tunai_by_currency"] ?? [],
                         $data["total_all"]["transfer_by_currency"] ?? []
-                    )),
+                    ),
                 ],
                 [
                     "nama" => "VA Pondok",
