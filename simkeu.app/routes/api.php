@@ -50,6 +50,7 @@ use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\DispensasiTagihanControll
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\PembayaranTambahanController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\PemasukanPengeluaranController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\SemesterPendekController;
+use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\SemesterPendekSyncController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\BsiPaymentController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\WisudaController;
 use App\Http\Controllers\Api\Admin\Pengeluaran\DosenTatapMukaController;
@@ -247,6 +248,13 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
             Route::get('pembayaran/kwitansi/{id}/view', [PembayaranController::class, 'kwitansiPreview'])->name('admin.pemasukan.mahasiswa.pembayaran.kwitansi.view');
             Route::get('pembayaran-statistic', [PembayaranController::class, 'statistic'])->name('admin.pemasukan.mahasiswa.pembayaran.statistic');
             Route::get('pembayaran-statistic-detail-prodi', [PembayaranController::class, 'statisticDetailProdi'])->name('admin.pemasukan.mahasiswa.pembayaran.statistic-detail-prodi');
+            Route::prefix('semester-pendek-sync')->middleware('role:admin,pimpinan,keuangan,kabag,kabag_pemasukan,staff')->group(function () {
+                Route::get('/', [SemesterPendekSyncController::class, 'index'])->name('admin.pemasukan.mahasiswa.semester-pendek-sync.index');
+                Route::get('statistics', [SemesterPendekSyncController::class, 'statistics'])->name('admin.pemasukan.mahasiswa.semester-pendek-sync.statistics');
+                Route::get('filter-options', [SemesterPendekSyncController::class, 'filterOptions'])->name('admin.pemasukan.mahasiswa.semester-pendek-sync.filter-options');
+                Route::post('sinkronkan', [SemesterPendekSyncController::class, 'sinkronkan'])->name('admin.pemasukan.mahasiswa.semester-pendek-sync.sinkronkan');
+                Route::post('sinkronkan-batch', [SemesterPendekSyncController::class, 'sinkronkanBatch'])->name('admin.pemasukan.mahasiswa.semester-pendek-sync.sinkronkan-batch');
+            });
             Route::prefix('wisuda')->middleware('role:admin,pimpinan,keuangan,kabag,kabag_pemasukan,staff')->group(function () {
                 Route::get('/', [WisudaController::class, 'index'])->name('admin.pemasukan.mahasiswa.wisuda.index');
                 Route::get('statistics', [WisudaController::class, 'statistics'])->name('admin.pemasukan.mahasiswa.wisuda.statistics');
@@ -649,6 +657,14 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
 
     Route::prefix('absensi')->group(function () {
         Route::get('/', [AbsensiController::class, 'index']);
+    });
+
+    Route::prefix('semester-pendek-sync')->middleware('role:admin,pimpinan,keuangan,kabag,kabag_pemasukan,staff')->group(function () {
+        Route::get('/', [SemesterPendekSyncController::class, 'index'])->name('admin.semester-pendek-sync.index');
+        Route::get('statistics', [SemesterPendekSyncController::class, 'statistics'])->name('admin.semester-pendek-sync.statistics');
+        Route::get('filter-options', [SemesterPendekSyncController::class, 'filterOptions'])->name('admin.semester-pendek-sync.filter-options');
+        Route::post('sinkronkan', [SemesterPendekSyncController::class, 'sinkronkan'])->name('admin.semester-pendek-sync.sinkronkan');
+        Route::post('sinkronkan-batch', [SemesterPendekSyncController::class, 'sinkronkanBatch'])->name('admin.semester-pendek-sync.sinkronkan-batch');
     });
 
     Route::prefix('wisuda')->middleware('role:admin,pimpinan,keuangan,kabag,kabag_pemasukan,staff')->group(function () {
