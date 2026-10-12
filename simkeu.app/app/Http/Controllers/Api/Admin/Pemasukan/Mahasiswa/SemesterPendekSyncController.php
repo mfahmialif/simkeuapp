@@ -74,11 +74,14 @@ class SemesterPendekSyncController extends Controller
 
                 return response()->json([
                     'status' => true,
-                    'data' => $items,
                     'total' => $total,
-                    'current_page' => $page,
-                    'per_page' => $limit,
-                    'last_page' => (int) ceil($total / max(1, $limit)),
+                    'data' => [
+                        'current_page' => $page,
+                        'data' => $items,
+                        'total' => $total,
+                        'per_page' => $limit,
+                        'last_page' => (int) ceil($total / max(1, $limit)),
+                    ],
                 ]);
             }
 
@@ -88,11 +91,14 @@ class SemesterPendekSyncController extends Controller
 
             return response()->json([
                 'status' => true,
-                'data' => $items,
                 'total' => $paginated->total(),
-                'current_page' => $paginated->currentPage(),
-                'per_page' => $paginated->perPage(),
-                'last_page' => $paginated->lastPage(),
+                'data' => [
+                    'current_page' => $paginated->currentPage(),
+                    'data' => $items,
+                    'total' => $paginated->total(),
+                    'per_page' => $paginated->perPage(),
+                    'last_page' => $paginated->lastPage(),
+                ],
             ]);
         } catch (\Throwable $th) {
             Log::error('Error fetching semester pendek sync items: ' . $th->getMessage(), [
@@ -442,6 +448,7 @@ class SemesterPendekSyncController extends Controller
         }
 
         // Gender filter
+        $jkScope = $request->header('X-Simkeu-Jk-Scope') ?: $request->cookie('simkeuJkScope');
         if ($request->filled('jk_id')) {
             $jkId = $request->jk_id;
             if ($jkId === 'putra' || $jkId === '8' || $jkId === 8) {
@@ -449,12 +456,19 @@ class SemesterPendekSyncController extends Controller
             } elseif ($jkId === 'putri' || $jkId === '9' || $jkId === 9) {
                 $query->where('keuangan_pembayaran_semester_pendek.jk_id', 9);
             }
-        } elseif ($request->filled('jenis_kelamin')) {
+        } elseif ($request->filled('jenis_kelamin') && $request->jenis_kelamin !== 'all') {
             $jk = strtolower(trim((string) $request->jenis_kelamin));
             if ($jk === 'putra' || $jk === 'laki-laki' || $jk === '8') {
                 $query->where('keuangan_pembayaran_semester_pendek.jk_id', 8);
             } elseif ($jk === 'putri' || $jk === 'perempuan' || $jk === '9') {
                 $query->where('keuangan_pembayaran_semester_pendek.jk_id', 9);
+            }
+        } elseif ($jkScope && in_array(strtolower($jkScope), ['putra', 'putri'])) {
+            $query->where('keuangan_pembayaran_semester_pendek.jk_id', strtolower($jkScope) === 'putra' ? 8 : 9);
+        } else {
+            $jkUser = Helper::getJenisKelaminUser();
+            if ($jkUser && $jkUser->id !== '%' && !empty($jkUser->id)) {
+                $query->where('keuangan_pembayaran_semester_pendek.jk_id', $jkUser->id);
             }
         }
 
