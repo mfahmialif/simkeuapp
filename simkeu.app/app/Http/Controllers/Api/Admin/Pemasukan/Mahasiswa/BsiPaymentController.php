@@ -7,6 +7,7 @@ use App\Models\BsiReconciliation;
 use App\Models\KeuanganPembayaranBsi;
 use App\Services\BsiPaymentService;
 use App\Services\BsiPaymentTransferService;
+use App\Services\BsiSnapService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Throwable;
@@ -113,6 +114,32 @@ class BsiPaymentController extends Controller
                     'count' => $mismatch->count(),
                     'amount' => (float) (clone $query)->where('match_status', '!=', 'matched')->sum('payment_amount'),
                 ],
+            ],
+        ]);
+    }
+
+    public function recheckReconciliations(BsiSnapService $snapService): JsonResponse
+    {
+        $mismatches = BsiReconciliation::where('match_status', '!=', 'matched')->get();
+        $matchedCount = 0;
+        $stillMismatchCount = 0;
+
+        foreach ($mismatches as $reconciliation) {
+            $updated = $snapService->recheckReconciliation($reconciliation);
+            if ($updated->match_status === 'matched') {
+                $matchedCount++;
+            } else {
+                $stillMismatchCount++;
+            }
+        }
+
+        return response()->json([
+            'status' => true,
+            'message' => "Pemeriksaan ulang rekonsiliasi selesai: {$matchedCount} berhasil cocok, {$stillMismatchCount} masih mismatch.",
+            'data' => [
+                'rechecked_count' => $mismatches->count(),
+                'matched_count' => $matchedCount,
+                'still_mismatch_count' => $stillMismatchCount,
             ],
         ]);
     }

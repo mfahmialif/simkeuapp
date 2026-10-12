@@ -51,6 +51,7 @@ use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\PembayaranTambahanControl
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\PemasukanPengeluaranController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\SemesterPendekController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\BsiPaymentController;
+use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\WisudaController;
 use App\Http\Controllers\Api\Admin\Pengeluaran\DosenTatapMukaController;
 use App\Http\Controllers\Api\Admin\Pengeluaran\DosenBulananController;
 use App\Http\Controllers\Api\Admin\Pengeluaran\AbsensiController as PengeluaranAbsensiController;
@@ -246,7 +247,13 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
             Route::get('pembayaran/kwitansi/{id}/view', [PembayaranController::class, 'kwitansiPreview'])->name('admin.pemasukan.mahasiswa.pembayaran.kwitansi.view');
             Route::get('pembayaran-statistic', [PembayaranController::class, 'statistic'])->name('admin.pemasukan.mahasiswa.pembayaran.statistic');
             Route::get('pembayaran-statistic-detail-prodi', [PembayaranController::class, 'statisticDetailProdi'])->name('admin.pemasukan.mahasiswa.pembayaran.statistic-detail-prodi');
-            Route::get('wisuda/tahun', [PembayaranController::class, 'tahunWisuda'])->name('admin.pemasukan.mahasiswa.wisuda.tahun');
+            Route::prefix('wisuda')->middleware('role:admin,pimpinan,keuangan,kabag,kabag_pemasukan,staff')->group(function () {
+                Route::get('/', [WisudaController::class, 'index'])->name('admin.pemasukan.mahasiswa.wisuda.index');
+                Route::get('statistics', [WisudaController::class, 'statistics'])->name('admin.pemasukan.mahasiswa.wisuda.statistics');
+                Route::get('tahun', [WisudaController::class, 'tahun'])->name('admin.pemasukan.mahasiswa.wisuda.tahun');
+                Route::post('sinkronkan', [WisudaController::class, 'sinkronkan'])->name('admin.pemasukan.mahasiswa.wisuda.sinkronkan');
+                Route::post('sinkronkan-batch', [WisudaController::class, 'sinkronkanBatch'])->name('admin.pemasukan.mahasiswa.wisuda.sinkronkan-batch');
+            });
             Route::apiResource('pembayaran', PembayaranController::class);
 
             Route::prefix('pembayaran-bsi')->middleware('role:admin,pimpinan,keuangan,kabag,kabag_pemasukan,staff')->group(function () {
@@ -255,6 +262,8 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
                 Route::get('synchronization-candidates', [BsiPaymentController::class, 'synchronizationCandidates'])
                     ->middleware('role:admin,keuangan,kabag,kabag_pemasukan,staff');
                 Route::post('synchronize', [BsiPaymentController::class, 'synchronize'])
+                    ->middleware('role:admin,keuangan,kabag,kabag_pemasukan,staff');
+                Route::post('recheck-reconciliations', [BsiPaymentController::class, 'recheckReconciliations'])
                     ->middleware('role:admin,keuangan,kabag,kabag_pemasukan,staff');
                 Route::get('{paymentBsi}', [BsiPaymentController::class, 'show']);
                 Route::post('{paymentBsi}/reject', [BsiPaymentController::class, 'reject'])
@@ -640,6 +649,14 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
 
     Route::prefix('absensi')->group(function () {
         Route::get('/', [AbsensiController::class, 'index']);
+    });
+
+    Route::prefix('wisuda')->middleware('role:admin,pimpinan,keuangan,kabag,kabag_pemasukan,staff')->group(function () {
+        Route::get('/', [WisudaController::class, 'index'])->name('admin.wisuda.index');
+        Route::get('statistics', [WisudaController::class, 'statistics'])->name('admin.wisuda.statistics');
+        Route::get('tahun', [WisudaController::class, 'tahun'])->name('admin.wisuda.tahun');
+        Route::post('sinkronkan', [WisudaController::class, 'sinkronkan'])->name('admin.wisuda.sinkronkan');
+        Route::post('sinkronkan-batch', [WisudaController::class, 'sinkronkanBatch'])->name('admin.wisuda.sinkronkan-batch');
     });
 });
 

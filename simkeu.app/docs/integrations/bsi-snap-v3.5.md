@@ -421,7 +421,7 @@ SHA1(nomorPembayaran + secretKey + wktRekonsiliasi + totalPembayaran + idRekon +
 
 Dokumen BSI v3.5 mewajibkan `allChecksum`, tetapi tidak mendefinisikan rumus pembentukannya. Implementasi mewajibkan format SHA-1 untuk field tersebut, menyimpan payload lengkap untuk audit, dan menentukan `rc` dari checksum per item serta kecocokan transaksi/nominal.
 
-Webservice rekonsiliasi tersedia di `POST /api/bpi-bi-snap/reconciliation`. Request divalidasi terhadap kode bank `451`, KODE BPI, format waktu, nominal, status rekonsiliasi, checksum per item, dan transaksi sukses di SIMKEU. Respons selalu berupa array sesuai spesifikasi, misalnya `[ {"rc":true,"idRekon":"123456"} ]`. BSI hanya memanggil otomatis satu kali; pengiriman ulang harus dilakukan manual dari SmartBilling.
+Webservice rekonsiliasi tersedia di `POST /api/bpi-bi-snap/reconciliation`. Request divalidasi terhadap kode bank `451`, KODE BPI, format waktu, nominal, checksum per item, dan transaksi sukses di SIMKEU. Field `statusRekonsiliasi` bersifat opsional (jika tidak dikirim oleh BSI atau bernilai kosong/true, otomatis dianggap SUKSES). Respons selalu berupa array sesuai spesifikasi, misalnya `[ {"rc":true,"idRekon":"123456"} ]`. BSI hanya memanggil otomatis satu kali; pengiriman ulang dapat dilakukan manual dari SmartBilling atau fitur periksa ulang rekonsiliasi di SIMKEU.
 
 ## Kode respons BI-SNAP v3.5
 

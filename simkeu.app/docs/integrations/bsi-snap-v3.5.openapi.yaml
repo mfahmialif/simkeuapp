@@ -684,7 +684,7 @@ components:
           type: array
           items:
             type: object
-            required: [idRekon, wktRekonsiliasi, wktTransaksi, nomorPembayaran, totalPembayaran, kodeFT, statusRekonsiliasi, checksum]
+            required: [idRekon, wktRekonsiliasi, wktTransaksi, nomorPembayaran, totalPembayaran, kodeFT, checksum]
             properties:
               idRekon: { type: string }
               wktRekonsiliasi: { type: string }

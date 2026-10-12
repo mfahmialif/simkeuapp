@@ -386,9 +386,150 @@ PEM;
         $this->assertSame('mismatch', $reconciliation->match_status);
         $this->assertTrue($reconciliation->checksum_valid);
         $this->assertStringContainsString(
-            'statusRekonsiliasi',
+            'Transaksi pembayaran tidak ditemukan di SIMKEU',
             $reconciliation->mismatch_description
         );
+    }
+
+    public function test_production_reconciliation_matches_when_status_rekonsiliasi_is_omitted(): void
+    {
+        BsiIntegrationSetting::query()->update(['environment' => 'production']);
+
+        $payment = KeuanganPembayaranBsi::create([
+            'nomor' => 'BSI-20260812-00000099',
+            'request_id' => 'SIAKAD-RECON-NO-STATUS',
+            'request_hash' => str_repeat('d', 64),
+            'nim' => '20240003',
+            'nama_mahasiswa' => 'Mahasiswa Tanpa Status',
+            'jk_id' => 8,
+            'jenis_pembayaran_id' => 1,
+            'va_number' => '5090123456789015',
+            'customer_no' => '123456789015',
+            'bsi_payment_number' => '5090123456789015',
+            'reference_no' => 'BSI-20260812-00000099',
+            'total' => 500000,
+            'admin_fee_bearer' => 'institution',
+            'admin_fee_amount' => 0,
+            'production' => true,
+            'status' => 'success',
+            'expired_at' => now()->addDay(),
+        ]);
+
+        $reconId = '987655';
+        $reconciledAt = '2026-08-12 11:00:00';
+        $settlementCode = 'FT-PRODUCTION-NO-STATUS';
+        $reportedAmount = '500000.00';
+        $checksum = sha1(
+            '123456789015'.
+            'recon-secret'.
+            $reconciledAt.
+            $reportedAmount.
+            $reconId.
+            $settlementCode
+        );
+        $service = new BsiSnapService(new BsiSettingsService);
+
+        [$response] = $service->reconciliation(Request::create(
+            '/api/bpi-bi-snap/reconciliation',
+            'POST',
+            [],
+            [],
+            [],
+            ['CONTENT_TYPE' => 'application/json'],
+            json_encode([
+                'action' => 'recon',
+                'kodeBankBI' => '451',
+                'kodeBPI' => '5090',
+                'allChecksum' => str_repeat('0', 40),
+                'data' => [[
+                    'idRekon' => $reconId,
+                    'wktRekonsiliasi' => $reconciledAt,
+                    'wktTransaksi' => '2026-08-12 09:30:00',
+                    'nomorPembayaran' => '123456789015',
+                    'totalPembayaran' => $reportedAmount,
+                    'totalSettlement' => $reportedAmount,
+                    'kodeFT' => $settlementCode,
+                    'checksum' => $checksum,
+                ]],
+            ], JSON_UNESCAPED_SLASHES)
+        ));
+
+        $reconciliation = BsiReconciliation::where('recon_id', $reconId)->firstOrFail();
+
+        $this->assertSame([['rc' => true, 'idRekon' => $reconId]], $response);
+        $this->assertSame('matched', $reconciliation->match_status);
+        $this->assertSame('SUKSES', $reconciliation->bank_status);
+        $this->assertNull($reconciliation->mismatch_description);
+        $this->assertSame('matched', $payment->fresh()->reconciliation_status);
+    }
+
+    public function test_recheck_reconciliations_fixes_previous_mismatched_records(): void
+    {
+        BsiIntegrationSetting::query()->update(['environment' => 'production']);
+
+        $payment = KeuanganPembayaranBsi::create([
+            'nomor' => 'BSI-20260812-00000077',
+            'request_id' => 'SIAKAD-RECON-RECHECK',
+            'request_hash' => str_repeat('e', 64),
+            'nim' => '20240004',
+            'nama_mahasiswa' => 'Mahasiswa Recheck',
+            'jk_id' => 8,
+            'jenis_pembayaran_id' => 1,
+            'va_number' => '5090123456789016',
+            'customer_no' => '123456789016',
+            'bsi_payment_number' => '5090123456789016',
+            'reference_no' => 'BSI-20260812-00000077',
+            'total' => 200000,
+            'admin_fee_bearer' => 'institution',
+            'admin_fee_amount' => 0,
+            'production' => true,
+            'status' => 'success',
+            'reconciliation_status' => 'mismatch',
+            'expired_at' => now()->addDay(),
+        ]);
+
+        $reconId = '777888';
+        $checksum = sha1(
+            '123456789016'.
+            'recon-secret'.
+            '2026-08-12 12:00:00'.
+            '200000.00'.
+            $reconId.
+            'FT-RECHECK'
+        );
+
+        $reconciliation = BsiReconciliation::create([
+            'recon_id' => $reconId,
+            'pembayaran_bsi_id' => $payment->id,
+            'payment_number' => '123456789016',
+            'transaction_at' => '2026-08-12 09:00:00',
+            'reconciled_at' => '2026-08-12 12:00:00',
+            'payment_amount' => '200000.00',
+            'settlement_amount' => '200000.00',
+            'settlement_code' => 'FT-RECHECK',
+            'bank_status' => null,
+            'checksum_valid' => true,
+            'match_status' => 'mismatch',
+            'mismatch_description' => 'Field wajib rekonsiliasi tidak tersedia: statusRekonsiliasi. Status rekonsiliasi BSI "kosong" bukan SUKSES.',
+            'payload' => [
+                'idRekon' => $reconId,
+                'wktRekonsiliasi' => '2026-08-12 12:00:00',
+                'wktTransaksi' => '2026-08-12 09:00:00',
+                'nomorPembayaran' => '123456789016',
+                'totalPembayaran' => '200000.00',
+                'totalSettlement' => '200000.00',
+                'kodeFT' => 'FT-RECHECK',
+                'checksum' => $checksum,
+            ],
+        ]);
+
+        $service = new BsiSnapService(new BsiSettingsService);
+        $updated = $service->recheckReconciliation($reconciliation);
+
+        $this->assertSame('matched', $updated->match_status);
+        $this->assertSame('SUKSES', $updated->bank_status);
+        $this->assertNull($updated->mismatch_description);
+        $this->assertSame('matched', $payment->fresh()->reconciliation_status);
     }
 
     public function test_simulation_pending_order_can_be_cancelled_idempotently(): void

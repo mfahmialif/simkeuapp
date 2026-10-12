@@ -32,4 +32,9 @@ class KeuanganPembayaran extends Model
     {
         return $this->belongsTo(User::class);
     }
+
+    public function wisudaSync()
+    {
+        return $this->hasOne(KeuanganWisudaSync::class, 'pembayaran_id');
+    }
 }
