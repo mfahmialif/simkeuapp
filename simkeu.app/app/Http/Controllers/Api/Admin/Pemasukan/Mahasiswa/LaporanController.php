@@ -1645,11 +1645,22 @@ class LaporanController extends Controller
                     );
                 }
 
+                $rincianTahunan = $this->calculateRincianPemasukanTunaiHarian(
+                    $startDateYear,
+                    $endDateYear,
+                    $jp,
+                    $jenjang,
+                    $paymentFilter,
+                    $userId,
+                    $pmbDataAll
+                );
+
                 return response()->json([
                     "status" => true,
                     "message" => "Data tahunan berhasil diambil",
                     "columns" => $columnHeaders,
                     "all_data" => $allData,
+                    "rincian_jenis_pembayaran" => $rincianTahunan,
                     "jenis_kelamin" => $jp->kategori ?? "Semua",
                 ]);
             } else {
@@ -1685,6 +1696,16 @@ class LaporanController extends Controller
                     );
                 }
 
+                $rincianJenisPembayaran = $this->calculateRincianPemasukanTunaiHarian(
+                    $startDate,
+                    $endDate,
+                    $jp,
+                    $jenjang,
+                    $paymentFilter,
+                    $userId,
+                    $pmbDataAll
+                );
+
                 return response()->json([
                     "status" => true,
                     "message" => "Data bulanan berhasil diambil",
@@ -1692,6 +1713,7 @@ class LaporanController extends Controller
                     "columns" => $columnHeaders,
                     "data" => $monthData["data"],
                     "totals" => $monthData["totals"],
+                    "rincian_jenis_pembayaran" => $rincianJenisPembayaran,
                     "jenis_kelamin" => $jp->kategori ?? "Semua",
                 ]);
             }
@@ -1983,6 +2005,378 @@ class LaporanController extends Controller
             })
             ->values()
             ->all();
+    }
+
+    private function classifyPaymentType($namaRaw)
+    {
+        $nama = strtolower(trim((string) $namaRaw));
+        if (str_contains($nama, "pondok") && (str_contains($nama, "va") || str_contains($nama, "via"))) {
+            return "va_pondok";
+        }
+        if (str_contains($nama, "pondok")) {
+            return "va_pondok";
+        }
+        if (str_contains($nama, "cash") || str_contains($nama, "tunai")) {
+            return "cash";
+        }
+        if (str_contains($nama, "transfer") || str_contains($nama, "tf")) {
+            return "transfer";
+        }
+        if (str_contains($nama, "yayasan") || str_contains($nama, "yys")) {
+            return "yayasan";
+        }
+        if (str_contains($nama, "deposit")) {
+            return "deposit";
+        }
+        if (str_contains($nama, "va") && str_contains($nama, "bsi")) {
+            return "va_bsi";
+        }
+        return "other";
+    }
+
+    private function formatRincianJenisPembayaran(array $typeTotals, $paymentFilter)
+    {
+        $filterNama = strtolower(trim((string) ($paymentFilter["nama"] ?? "")));
+        $isComposite = $paymentFilter["is_composite"] ?? false;
+
+        $getItem = function ($nama, $key) use ($typeTotals) {
+            $data = $typeTotals[$key] ?? ["total" => 0, "by_currency" => []];
+            return [
+                "nama" => $nama,
+                "key" => $key,
+                "total" => (float) ($data["total"] ?? 0),
+                "total_by_currency" => $data["by_currency"] ?? [],
+            ];
+        };
+
+        $rincian = [];
+
+        if ($filterNama === "cash_transfer") {
+            $rincian[] = $getItem("Cash", "cash");
+            $rincian[] = $getItem("Transfer", "transfer");
+            $totalSum = (float) (($typeTotals["cash"]["total"] ?? 0) + ($typeTotals["transfer"]["total"] ?? 0));
+            $totalCurrencies = MataUangFormatter::normalizeTotals(array_merge(
+                $typeTotals["cash"]["by_currency"] ?? [],
+                $typeTotals["transfer"]["by_currency"] ?? []
+            ));
+            $rincian[] = [
+                "nama" => "Total (Cash + Transfer)",
+                "key" => "total",
+                "is_total" => true,
+                "total" => $totalSum,
+                "total_by_currency" => $totalCurrencies,
+            ];
+        } elseif ($filterNama === "va_transfer") {
+            $rincian[] = $getItem("VA Pondok", "va_pondok");
+            $rincian[] = $getItem("Transfer", "transfer");
+            $totalSum = (float) (($typeTotals["va_pondok"]["total"] ?? 0) + ($typeTotals["transfer"]["total"] ?? 0));
+            $totalCurrencies = MataUangFormatter::normalizeTotals(array_merge(
+                $typeTotals["va_pondok"]["by_currency"] ?? [],
+                $typeTotals["transfer"]["by_currency"] ?? []
+            ));
+            $rincian[] = [
+                "nama" => "Total (VA + Transfer)",
+                "key" => "total",
+                "is_total" => true,
+                "total" => $totalSum,
+                "total_by_currency" => $totalCurrencies,
+            ];
+        } elseif ($filterNama && !$isComposite && $filterNama !== "all") {
+            $singleTotal = 0;
+            $singleCurrencies = [];
+            foreach ($typeTotals as $k => $d) {
+                $singleTotal += (float) ($d["total"] ?? 0);
+                $singleCurrencies = array_merge($singleCurrencies, $d["by_currency"] ?? []);
+            }
+            $rincian[] = [
+                "nama" => $paymentFilter["label"] ?? "Pembayaran",
+                "key" => $filterNama,
+                "total" => $singleTotal,
+                "total_by_currency" => MataUangFormatter::normalizeTotals($singleCurrencies),
+            ];
+        } else {
+            $standardKeys = [
+                "cash" => "Cash",
+                "transfer" => "Transfer",
+                "va_pondok" => "VA Pondok",
+                "yayasan" => "Yayasan",
+                "deposit" => "Deposit",
+                "va_bsi" => "VA BSI",
+            ];
+
+            $totalSum = 0;
+            $allCurrencies = [];
+
+            foreach ($standardKeys as $key => $label) {
+                if (isset($typeTotals[$key]) && (float) ($typeTotals[$key]["total"] ?? 0) != 0) {
+                    $rincian[] = $getItem($label, $key);
+                    $totalSum += (float) $typeTotals[$key]["total"];
+                    $allCurrencies = array_merge($allCurrencies, $typeTotals[$key]["by_currency"] ?? []);
+                }
+            }
+
+            foreach ($typeTotals as $key => $data) {
+                if (!isset($standardKeys[$key]) && (float) ($data["total"] ?? 0) != 0) {
+                    $rincian[] = $getItem(ucfirst(str_replace("_", " ", $key)), $key);
+                    $totalSum += (float) $data["total"];
+                    $allCurrencies = array_merge($allCurrencies, $data["by_currency"] ?? []);
+                }
+            }
+
+            $rincian[] = [
+                "nama" => "Total Semua",
+                "key" => "total",
+                "is_total" => true,
+                "total" => $totalSum,
+                "total_by_currency" => MataUangFormatter::normalizeTotals($allCurrencies),
+            ];
+        }
+
+        return $rincian;
+    }
+
+    private function calculateRincianLaporanHarian($rows, $paymentMeta, $jp)
+    {
+        $typeTotals = [];
+
+        foreach ($rows as $row) {
+            $metode = $row["metode"] ?? "";
+            $nominal = (float) ($row["nominal"] ?? 0);
+            $mataUang = $row["mata_uang"] ?? MataUangFormatter::defaultCurrency();
+
+            $typeKey = $this->classifyPaymentType($metode);
+
+            if (!isset($typeTotals[$typeKey])) {
+                $typeTotals[$typeKey] = [
+                    "total" => 0,
+                    "by_currency" => [],
+                ];
+            }
+
+            $typeTotals[$typeKey]["total"] += $nominal;
+            MataUangFormatter::addToTotals(
+                $typeTotals[$typeKey]["by_currency"],
+                $nominal,
+                $mataUang
+            );
+        }
+
+        foreach ($typeTotals as &$data) {
+            $data["by_currency"] = MataUangFormatter::normalizeTotals($data["by_currency"]);
+        }
+        unset($data);
+
+        return $this->formatRincianJenisPembayaran($typeTotals, $paymentMeta);
+    }
+
+    private function calculateRincianPemasukanTunaiHarian(
+        $startDate,
+        $endDate,
+        $jp,
+        $jenjang,
+        $paymentFilter,
+        $userId,
+        $pmbDataAll = []
+    ) {
+        $typeTotals = [];
+        $targetJpIds = $paymentFilter["ids"] ?? null;
+
+        $addPayment = function ($namaRaw, $jumlah, $mataUang) use (&$typeTotals) {
+            $typeKey = $this->classifyPaymentType($namaRaw);
+            if (!isset($typeTotals[$typeKey])) {
+                $typeTotals[$typeKey] = [
+                    "total" => 0,
+                    "by_currency" => [],
+                ];
+            }
+            $typeTotals[$typeKey]["total"] += (float) $jumlah;
+            MataUangFormatter::addToTotals(
+                $typeTotals[$typeKey]["by_currency"],
+                (float) $jumlah,
+                $mataUang
+            );
+        };
+
+        // 1. KeuanganPembayaran (Tagihan Mahasiswa)
+        $paymentsQuery = KeuanganPembayaran::join(
+            "keuangan_tagihan as kt",
+            "kt.id",
+            "=",
+            "keuangan_pembayaran.tagihan_id"
+        )
+            ->leftJoin("mata_uang as mu", "mu.id", "=", "kt.mata_uang_id")
+            ->leftJoin("keuangan_jenis_pembayaran_detail as kjpd", "kjpd.pembayaran_id", "=", "keuangan_pembayaran.id")
+            ->leftJoin("keuangan_jenis_pembayaran as kjp", "kjp.id", "=", "kjpd.jenis_pembayaran_id")
+            ->whereBetween("keuangan_pembayaran.tanggal", [
+                $startDate . " 00:00:00",
+                $endDate . " 23:59:59",
+            ])
+            ->where("kt.nama", "NOT LIKE", "%SEMESTER PENDEK%");
+
+        if ($jp && $jp->id != "%") {
+            $paymentsQuery->where("keuangan_pembayaran.jk_id", $jp->id);
+        }
+
+        if ($jenjang === "sarjana") {
+            $paymentsQuery
+                ->join("prodi as p", "p.id", "=", "kt.prodi_id")
+                ->where("p.jenjang", "S1");
+        } elseif ($jenjang === "pascasarjana") {
+            $paymentsQuery
+                ->join("prodi as p", "p.id", "=", "kt.prodi_id")
+                ->whereIn("p.jenjang", ["S2", "S3"]);
+        }
+
+        if (!empty($targetJpIds)) {
+            $paymentsQuery->whereIn("kjpd.jenis_pembayaran_id", $targetJpIds);
+        }
+
+        if ($userId) {
+            $paymentsQuery->where("keuangan_pembayaran.user_id", $userId);
+        }
+
+        $mhsPayments = $paymentsQuery
+            ->selectRaw("COALESCE(kjp.nama, 'Lainnya') as nama, COALESCE(mu.id, 0) as mata_uang_id, COALESCE(mu.kode, 'IDR') as mata_uang_kode, COALESCE(mu.nama, 'Rupiah') as mata_uang_nama, COALESCE(mu.simbol, 'Rp') as mata_uang_simbol, SUM(keuangan_pembayaran.jumlah) as total_jumlah")
+            ->groupBy("kjp.nama", "mu.id", "mu.kode", "mu.nama", "mu.simbol")
+            ->get();
+
+        foreach ($mhsPayments as $p) {
+            $mataUang = MataUangFormatter::fromColumns($p);
+            $addPayment($p->nama, $p->total_jumlah, $mataUang);
+        }
+
+        // 2. Semester Pendek
+        $spPaymentsQuery = KeuanganPembayaran::join(
+            "keuangan_tagihan as kt",
+            "kt.id",
+            "=",
+            "keuangan_pembayaran.tagihan_id"
+        )
+            ->leftJoin("mata_uang as mu", "mu.id", "=", "kt.mata_uang_id")
+            ->leftJoin("keuangan_jenis_pembayaran_detail as kjpd", "kjpd.pembayaran_id", "=", "keuangan_pembayaran.id")
+            ->leftJoin("keuangan_jenis_pembayaran as kjp", "kjp.id", "=", "kjpd.jenis_pembayaran_id")
+            ->whereBetween("keuangan_pembayaran.tanggal", [
+                $startDate . " 00:00:00",
+                $endDate . " 23:59:59",
+            ])
+            ->where("kt.nama", "LIKE", "%SEMESTER PENDEK%");
+
+        if ($jp && $jp->id != "%") {
+            $spPaymentsQuery->where("keuangan_pembayaran.jk_id", $jp->id);
+        }
+
+        if (!empty($targetJpIds)) {
+            $spPaymentsQuery->whereIn("kjpd.jenis_pembayaran_id", $targetJpIds);
+        }
+
+        if ($userId) {
+            $spPaymentsQuery->where("keuangan_pembayaran.user_id", $userId);
+        }
+
+        $spPayments = $spPaymentsQuery
+            ->selectRaw("COALESCE(kjp.nama, 'Lainnya') as nama, kt.nama as tagihan_nama, COALESCE(mu.id, 0) as mata_uang_id, COALESCE(mu.kode, 'IDR') as mata_uang_kode, COALESCE(mu.nama, 'Rupiah') as mata_uang_nama, COALESCE(mu.simbol, 'Rp') as mata_uang_simbol, SUM(keuangan_pembayaran.jumlah) as total_jumlah")
+            ->groupBy("kjp.nama", "kt.nama", "mu.id", "mu.kode", "mu.nama", "mu.simbol")
+            ->get();
+
+        $spPayments = $this->mapSemesterPendekPaymentsFromTagihan($spPayments);
+        $spPayments = $this->filterSemesterPendekPaymentsByJenjang($spPayments, $jenjang);
+
+        foreach ($spPayments as $p) {
+            $mataUang = MataUangFormatter::fromColumns($p);
+            $addPayment($p->nama, $p->total_jumlah, $mataUang);
+        }
+
+        // 3. Pemasukan Umum (Sarjana only)
+        if ($jenjang === "sarjana") {
+            $puQuery = KeuanganPemasukanUmum::leftJoin(
+                "keuangan_jenis_pembayaran as kjp",
+                "kjp.id",
+                "=",
+                "keuangan_pemasukan_umum.jenis_pembayaran_id"
+            )
+                ->whereBetween("keuangan_pemasukan_umum.tanggal", [
+                    $startDate . " 00:00:00",
+                    $endDate . " 23:59:59",
+                ]);
+
+            if (!empty($targetJpIds)) {
+                $puQuery->whereIn("keuangan_pemasukan_umum.jenis_pembayaran_id", $targetJpIds);
+            }
+
+            if ($userId) {
+                $puQuery->where("keuangan_pemasukan_umum.petugas_id", $userId);
+            } elseif ($jp && $jp->id != '%') {
+                $jkTarget = $jp->id == 8 ? 'Laki-laki' : ($jp->id == 9 ? 'Perempuan' : null);
+                if ($jkTarget) {
+                    $puQuery->whereHas('petugas', function ($q) use ($jkTarget) {
+                        $q->whereIn('jenis_kelamin', [$jkTarget, '*']);
+                    });
+                }
+            }
+
+            $puRecords = $puQuery
+                ->selectRaw("COALESCE(kjp.nama, 'Tunai') as nama, SUM(keuangan_pemasukan_umum.nominal) as total_nominal")
+                ->groupBy("kjp.nama")
+                ->get();
+
+            $mataUang = MataUangFormatter::defaultCurrency();
+            foreach ($puRecords as $pu) {
+                $addPayment($pu->nama, $pu->total_nominal, $mataUang);
+            }
+
+            // 4. Pengembalian Dana (Pengurangan, Sarjana only)
+            $pdQuery = KeuanganPengembalianDana::leftJoin(
+                "keuangan_jenis_pembayaran as kjp",
+                "kjp.id",
+                "=",
+                "keuangan_pengembalian_dana.jenis_pembayaran_id"
+            )
+                ->whereBetween("keuangan_pengembalian_dana.tanggal", [
+                    $startDate . " 00:00:00",
+                    $endDate . " 23:59:59",
+                ]);
+
+            if (!empty($targetJpIds)) {
+                $pdQuery->whereIn("keuangan_pengembalian_dana.jenis_pembayaran_id", $targetJpIds);
+            }
+
+            if ($userId) {
+                $pdQuery->where("keuangan_pengembalian_dana.petugas_id", $userId);
+            } elseif ($jp && $jp->id != '%') {
+                $jkTarget = $jp->id == 8 ? 'Laki-laki' : ($jp->id == 9 ? 'Perempuan' : null);
+                if ($jkTarget) {
+                    $pdQuery->whereHas('petugas', function ($q) use ($jkTarget) {
+                        $q->whereIn('jenis_kelamin', [$jkTarget, '*']);
+                    });
+                }
+            }
+
+            $pdRecords = $pdQuery
+                ->selectRaw("COALESCE(kjp.nama, 'Tunai') as nama, SUM(keuangan_pengembalian_dana.nominal) as total_nominal")
+                ->groupBy("kjp.nama")
+                ->get();
+
+            foreach ($pdRecords as $pd) {
+                $addPayment($pd->nama, -1 * (float) $pd->total_nominal, $mataUang);
+            }
+        }
+
+        // 5. PMB
+        if (!empty($pmbDataAll)) {
+            $mataUang = MataUangFormatter::defaultCurrency();
+            foreach ($pmbDataAll as $item) {
+                $metode = (string) data_get($item, "jenis_pembayaran", data_get($item, "metode_pembayaran", ""));
+                $nominal = (float) data_get($item, "nominal", 0);
+                $addPayment($metode, $nominal, $mataUang);
+            }
+        }
+
+        foreach ($typeTotals as &$data) {
+            $data["by_currency"] = MataUangFormatter::normalizeTotals($data["by_currency"]);
+        }
+        unset($data);
+
+        return $this->formatRincianJenisPembayaran($typeTotals, $paymentFilter);
     }
 
     private function getLaporanHarianPaymentFilterMeta($jenisPembayaranId)
@@ -2767,6 +3161,8 @@ class LaporanController extends Controller
         }
         $totalByCurrency = MataUangFormatter::normalizeTotals($totalByCurrency);
 
+        $rincianJenisPembayaran = $this->calculateRincianLaporanHarian($rows, $paymentMeta, $jp);
+
         return [
             "title" => "LAPORAN HARIAN",
             "tanggal" => $tanggal,
@@ -2781,6 +3177,7 @@ class LaporanController extends Controller
             "rows" => $rows,
             "total" => $total,
             "total_by_currency" => $totalByCurrency,
+            "rincian_jenis_pembayaran" => $rincianJenisPembayaran,
         ];
     }
 
@@ -2807,6 +3204,7 @@ class LaporanController extends Controller
                 "data" => $data["rows"],
                 "total" => $data["total"],
                 "total_by_currency" => $data["total_by_currency"],
+                "rincian_jenis_pembayaran" => $data["rincian_jenis_pembayaran"],
                 "title" => $data["title"],
                 "tanggal" => $data["tanggal"],
                 "kategori" => $data["kategori"],
@@ -3578,12 +3976,62 @@ class LaporanController extends Controller
                 );
             }
 
+            $rincianUiiDalwa = [
+                [
+                    "nama" => "Tunai",
+                    "key" => "tunai",
+                    "total" => (float) ($data["total_all"]["tunai"] ?? 0),
+                    "total_by_currency" => $data["total_all"]["tunai_by_currency"] ?? [],
+                ],
+                [
+                    "nama" => "Transfer",
+                    "key" => "transfer",
+                    "total" => (float) ($data["total_all"]["transfer"] ?? 0),
+                    "total_by_currency" => $data["total_all"]["transfer_by_currency"] ?? [],
+                ],
+                [
+                    "nama" => "Cash + Transfer",
+                    "key" => "cash_transfer",
+                    "total" => (float) (($data["total_all"]["tunai"] ?? 0) + ($data["total_all"]["transfer"] ?? 0)),
+                    "total_by_currency" => MataUangFormatter::normalizeTotals(array_merge(
+                        $data["total_all"]["tunai_by_currency"] ?? [],
+                        $data["total_all"]["transfer_by_currency"] ?? []
+                    )),
+                ],
+                [
+                    "nama" => "VA Pondok",
+                    "key" => "va_pondok",
+                    "total" => (float) ($data["total_all"]["va"] ?? 0),
+                    "total_by_currency" => $data["total_all"]["va_by_currency"] ?? [],
+                ],
+                [
+                    "nama" => "VA + Transfer",
+                    "key" => "va_transfer",
+                    "total" => (float) ($data["total_all"]["va_transfer"] ?? 0),
+                    "total_by_currency" => $data["total_all"]["va_transfer_by_currency"] ?? [],
+                ],
+                [
+                    "nama" => "Yayasan",
+                    "key" => "yayasan",
+                    "total" => (float) ($data["total_all"]["yayasan"] ?? 0),
+                    "total_by_currency" => $data["total_all"]["yayasan_by_currency"] ?? [],
+                ],
+                [
+                    "nama" => "Total Semua",
+                    "key" => "total",
+                    "is_total" => true,
+                    "total" => (float) ($data["total_all"]["total"] ?? 0),
+                    "total_by_currency" => $data["total_all"]["total_by_currency"] ?? [],
+                ],
+            ];
+
             return response()->json([
                 "status" => true,
                 "message" => "Data Pemasukan UII Dalwa berhasil diambil",
                 "title" => $title,
                 "data" => $tableData,
                 "totals" => $data["total_all"],
+                "rincian_jenis_pembayaran" => $rincianUiiDalwa,
                 "all_data" => $formattedAllData,
                 "jenis_kelamin" => $jp->kategori ?? "Semua",
             ]);
