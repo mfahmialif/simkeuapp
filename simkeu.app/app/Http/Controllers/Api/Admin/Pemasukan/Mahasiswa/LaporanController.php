@@ -2214,7 +2214,26 @@ class LaporanController extends Controller
                 $userId = $userObj->id;
             }
         }
+        $user = auth()->user();
+        $roleName = strtolower($user->role->name ?? '');
+        $isAdmin = ($user && ($user->role_id == 1 || $roleName === 'admin'));
         $jp = Helper::getJenisKelaminUser();
+
+        if (
+            $isAdmin &&
+            $request->has("jenis_kelamin") &&
+            $request->jenis_kelamin != ""
+        ) {
+            $reqJk = strtolower($request->jenis_kelamin);
+            if (in_array($reqJk, ["putra", "8", "laki-laki"])) {
+                $jp = (object) ["id" => 8, "kategori" => "Putra"];
+            } elseif (in_array($reqJk, ["putri", "9", "perempuan"])) {
+                $jp = (object) ["id" => 9, "kategori" => "Putri"];
+            } elseif (in_array($reqJk, ["%", "semua"])) {
+                $jp = (object) ["id" => "%", "kategori" => "%"];
+            }
+        }
+
         $paymentMeta = $this->getLaporanHarianPaymentFilterMeta(
             $jenisPembayaranId,
         );
@@ -2386,11 +2405,16 @@ class LaporanController extends Controller
         );
 
         try {
+            $pmbGender = $paymentMeta["kategori"];
+            if (!$pmbGender && $jp && $jp->id != '%') {
+                $pmbGender = $jp->kategori;
+            }
+
             $pmbParams = [
                 "start_date" => $tanggal,
                 "end_date" => $tanggal,
                 "jenjang" => $jenjang,
-                "jenis_kelamin" => $paymentMeta["kategori"],
+                "jenis_kelamin" => $pmbGender,
                 "jenis_pembayaran" => $paymentMeta["nama"],
             ];
             if ($username) {
