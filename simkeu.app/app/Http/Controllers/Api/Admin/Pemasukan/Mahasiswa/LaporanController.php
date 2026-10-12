@@ -895,6 +895,11 @@ class LaporanController extends Controller
             }
         }
 
+        $includePmb = $paymentFilter["include_pmb"] ?? true;
+        if (!$includePmb) {
+            $pmbData = [];
+        }
+
         if ($prefetchedPayments === null) {
             $paymentsQuery = KeuanganPembayaran::join(
                 "keuangan_tagihan as kt",
@@ -1418,35 +1423,40 @@ class LaporanController extends Controller
             }
 
             try {
-                $pmbGender = $jenisPembayaranKategori;
-                if (!$pmbGender && $jp && $jp->id != '%') {
-                    $pmbGender = $jp->kategori;
-                }
+                $includePmb = $paymentFilter["include_pmb"] ?? true;
+                if ($includePmb) {
+                    $pmbGender = $jenisPembayaranKategori;
+                    if (!$pmbGender && $jp && $jp->id != '%') {
+                        $pmbGender = $jp->kategori;
+                    }
 
-                $pmbParams = [
-                    "start_date" => $startDate,
-                    "end_date" => $endDate,
-                    "jenjang" => $jenjang,
-                    "jenis_kelamin" => $pmbGender,
-                    "jenis_pembayaran" => $jenisPembayaranNama,
-                ];
-                if ($username) {
-                    $pmbParams["username"] = $username;
-                }
+                    $pmbParams = [
+                        "start_date" => $startDate,
+                        "end_date" => $endDate,
+                        "jenjang" => $jenjang,
+                        "jenis_kelamin" => $pmbGender,
+                    ];
+                    if ($jenisPembayaranNama) {
+                        $pmbParams["jenis_pembayaran"] = $jenisPembayaranNama;
+                    }
+                    if ($username) {
+                        $pmbParams["username"] = $username;
+                    }
 
-                $pmbResponse = \Illuminate\Support\Facades\Http::withHeaders(
-                    [
-                        "apikey" => $pmbApiKey,
-                    ],
-                )->timeout(10)->get($pmbUrl, $pmbParams);
+                    $pmbResponse = \Illuminate\Support\Facades\Http::withHeaders(
+                        [
+                            "apikey" => $pmbApiKey,
+                        ],
+                    )->timeout(10)->get($pmbUrl, $pmbParams);
 
-                if ($pmbResponse->successful()) {
-                    $pmbResData = $pmbResponse->json();
-                    if (
-                        isset($pmbResData["data"]) &&
-                        is_array($pmbResData["data"])
-                    ) {
-                        $pmbDataAll = $pmbResData["data"];
+                    if ($pmbResponse->successful()) {
+                        $pmbResData = $pmbResponse->json();
+                        if (
+                            isset($pmbResData["data"]) &&
+                            is_array($pmbResData["data"])
+                        ) {
+                            $pmbDataAll = $pmbResData["data"];
+                        }
                     }
                 }
             } catch (\Throwable $th) {
@@ -1697,6 +1707,7 @@ class LaporanController extends Controller
                 "kategori" => null,
                 "label" => "Semua",
                 "is_composite" => false,
+                "include_pmb" => true,
             ];
         }
 
@@ -1745,6 +1756,44 @@ class LaporanController extends Controller
                 "kategori" => $kategori,
                 "label" => $label,
                 "is_composite" => true,
+                "include_pmb" => true,
+            ];
+        }
+
+        if (in_array($strVal, ["va_bsi_putra", "va_bsi_putri", "va_bsi", "va-bsi", "va"])) {
+            $kategori = null;
+            $label = "VA BSI";
+            if (strpos($strVal, "putra") !== false) {
+                $kategori = "Putra";
+                $label = "VA BSI (Putra)";
+            } elseif (strpos($strVal, "putri") !== false) {
+                $kategori = "Putri";
+                $label = "VA BSI (Putri)";
+            }
+
+            $query = \App\Models\KeuanganJenisPembayaran::query()
+                ->where(function ($q) {
+                    $q->where("nama", "like", "%va%")
+                        ->orWhere("nama", "like", "%virtual%");
+                });
+
+            if ($kategori) {
+                $query->where("kategori", $kategori);
+            }
+
+            $ids = $query->pluck("id")->map(fn($id) => (int) $id)->values()->toArray();
+
+            if (empty($ids)) {
+                $ids = $kategori === "Putra" ? [16] : ($kategori === "Putri" ? [17] : [16, 17]);
+            }
+
+            return [
+                "ids" => $ids,
+                "nama" => "va",
+                "kategori" => $kategori,
+                "label" => $label,
+                "is_composite" => true,
+                "include_pmb" => false,
             ];
         }
 
@@ -1753,6 +1802,7 @@ class LaporanController extends Controller
         $jenisPembayaranKategori = null;
         $jenisPembayaranLabel = "Semua";
         $ids = [(int) $jenisPembayaranId];
+        $includePmb = false;
 
         if ($jpModel) {
             $nama = strtolower(trim($jpModel->nama));
@@ -1761,12 +1811,22 @@ class LaporanController extends Controller
 
             if (strpos($nama, "deposit") !== false) {
                 $jenisPembayaranNama = "deposit";
+                $includePmb = false;
             } elseif (strpos($nama, "transfer") !== false) {
                 $jenisPembayaranNama = "transfer";
+                $includePmb = true;
             } elseif (strpos($nama, "cash") !== false) {
                 $jenisPembayaranNama = "cash";
+                $includePmb = true;
             } elseif (strpos($nama, "yayasan") !== false) {
                 $jenisPembayaranNama = "yayasan";
+                $includePmb = false;
+            } elseif (strpos($nama, "va") !== false || strpos($nama, "virtual") !== false) {
+                $jenisPembayaranNama = "va";
+                $includePmb = false;
+            } else {
+                $jenisPembayaranNama = $nama;
+                $includePmb = false;
             }
         }
 
@@ -1776,6 +1836,7 @@ class LaporanController extends Controller
             "kategori" => $jenisPembayaranKategori,
             "label" => $jenisPembayaranLabel,
             "is_composite" => false,
+            "include_pmb" => $includePmb,
         ];
     }
 
@@ -2405,36 +2466,41 @@ class LaporanController extends Controller
         );
 
         try {
-            $pmbGender = $paymentMeta["kategori"];
-            if (!$pmbGender && $jp && $jp->id != '%') {
-                $pmbGender = $jp->kategori;
-            }
+            $includePmb = $paymentMeta["include_pmb"] ?? true;
+            if ($includePmb) {
+                $pmbGender = $paymentMeta["kategori"];
+                if (!$pmbGender && $jp && $jp->id != '%') {
+                    $pmbGender = $jp->kategori;
+                }
 
-            $pmbParams = [
-                "start_date" => $tanggal,
-                "end_date" => $tanggal,
-                "jenjang" => $jenjang,
-                "jenis_kelamin" => $pmbGender,
-                "jenis_pembayaran" => $paymentMeta["nama"],
-            ];
-            if ($username) {
-                $pmbParams["username"] = $username;
-            }
+                $pmbParams = [
+                    "start_date" => $tanggal,
+                    "end_date" => $tanggal,
+                    "jenjang" => $jenjang,
+                    "jenis_kelamin" => $pmbGender,
+                ];
+                if ($paymentMeta["nama"]) {
+                    $pmbParams["jenis_pembayaran"] = $paymentMeta["nama"];
+                }
+                if ($username) {
+                    $pmbParams["username"] = $username;
+                }
 
-            $pmbResponse = \Illuminate\Support\Facades\Http::withHeaders([
-                "apikey" => env("PMB_API_KEY"),
-            ])->timeout(10)->get(rtrim(env("PMB_URL"), "/") . "/simkeu/pembayaran", $pmbParams);
+                $pmbResponse = \Illuminate\Support\Facades\Http::withHeaders([
+                    "apikey" => env("PMB_API_KEY"),
+                ])->timeout(10)->get(rtrim(env("PMB_URL"), "/") . "/simkeu/pembayaran", $pmbParams);
 
-            if ($pmbResponse->successful()) {
-                $pmbResData = $pmbResponse->json();
-                $defaultPetugas = $userObj ? $userObj->name : "PMB";
-                $rows = array_merge(
-                    $rows,
-                    $this->normalizeLaporanHarianPmbRows(
-                        $pmbResData["data"] ?? [],
-                        $defaultPetugas,
-                    ),
-                );
+                if ($pmbResponse->successful()) {
+                    $pmbResData = $pmbResponse->json();
+                    $defaultPetugas = $userObj ? $userObj->name : "PMB";
+                    $rows = array_merge(
+                        $rows,
+                        $this->normalizeLaporanHarianPmbRows(
+                            $pmbResData["data"] ?? [],
+                            $defaultPetugas,
+                        ),
+                    );
+                }
             }
         } catch (\Throwable $th) {
             // PMB is optional; keep SIMKEU report available if it fails.
