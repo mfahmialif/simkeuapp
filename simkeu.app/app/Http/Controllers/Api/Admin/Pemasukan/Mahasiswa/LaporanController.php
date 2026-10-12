@@ -1820,7 +1820,7 @@ class LaporanController extends Controller
                 $includePmb = true;
             } elseif (strpos($nama, "yayasan") !== false) {
                 $jenisPembayaranNama = "yayasan";
-                $includePmb = false;
+                $includePmb = true;
             } elseif (strpos($nama, "va") !== false || strpos($nama, "virtual") !== false) {
                 $jenisPembayaranNama = "va";
                 $includePmb = false;
