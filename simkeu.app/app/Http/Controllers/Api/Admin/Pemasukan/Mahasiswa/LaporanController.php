@@ -907,8 +907,11 @@ class LaporanController extends Controller
                     $startDate . " 00:00:00",
                     $endDate . " 23:59:59",
                 ])
-                ->where("kt.nama", "NOT LIKE", "%SEMESTER PENDEK%")
-                ->where("keuangan_pembayaran.jk_id", "LIKE", "%$jp->id%");
+                ->where("kt.nama", "NOT LIKE", "%SEMESTER PENDEK%");
+
+            if ($jp && $jp->id != "%") {
+                $paymentsQuery->where("keuangan_pembayaran.jk_id", $jp->id);
+            }
 
             if ($jenjang === "sarjana") {
                 $paymentsQuery
@@ -961,8 +964,11 @@ class LaporanController extends Controller
                     $startDate . " 00:00:00",
                     $endDate . " 23:59:59",
                 ])
-                ->where("kt.nama", "LIKE", "%SEMESTER PENDEK%")
-                ->where("keuangan_pembayaran.jk_id", "LIKE", "%$jp->id%");
+                ->where("kt.nama", "LIKE", "%SEMESTER PENDEK%");
+
+            if ($jp && $jp->id != "%") {
+                $spPaymentsQuery->where("keuangan_pembayaran.jk_id", $jp->id);
+            }
 
             if (!empty($targetJpIds)) {
                 $spPaymentsQuery
@@ -1326,18 +1332,22 @@ class LaporanController extends Controller
     public function pemasukanTunaiHarian(Request $request)
     {
         try {
+            $user = auth()->user();
+            $roleName = strtolower($user->role->name ?? '');
+            $isAdmin = ($user && ($user->role_id == 1 || $roleName === 'admin'));
             $jp = Helper::getJenisKelaminUser();
 
             if (
+                $isAdmin &&
                 $request->has("jenis_kelamin") &&
                 $request->jenis_kelamin != ""
             ) {
                 $reqJk = strtolower($request->jenis_kelamin);
-                if ($reqJk == "putra") {
+                if (in_array($reqJk, ["putra", "8", "laki-laki"])) {
                     $jp = (object) ["id" => 8, "kategori" => "Putra"];
-                } elseif ($reqJk == "putri") {
+                } elseif (in_array($reqJk, ["putri", "9", "perempuan"])) {
                     $jp = (object) ["id" => 9, "kategori" => "Putri"];
-                } elseif ($reqJk == "%" && auth()->user()->role_id == 1) {
+                } elseif (in_array($reqJk, ["%", "semua"])) {
                     $jp = (object) ["id" => "%", "kategori" => "%"];
                 }
             }
@@ -1408,11 +1418,16 @@ class LaporanController extends Controller
             }
 
             try {
+                $pmbGender = $jenisPembayaranKategori;
+                if (!$pmbGender && $jp && $jp->id != '%') {
+                    $pmbGender = $jp->kategori;
+                }
+
                 $pmbParams = [
                     "start_date" => $startDate,
                     "end_date" => $endDate,
                     "jenjang" => $jenjang,
-                    "jenis_kelamin" => $jenisPembayaranKategori,
+                    "jenis_kelamin" => $pmbGender,
                     "jenis_pembayaran" => $jenisPembayaranNama,
                 ];
                 if ($username) {
@@ -1450,8 +1465,11 @@ class LaporanController extends Controller
                         $startDateYear . " 00:00:00",
                         $endDateYear . " 23:59:59",
                     ])
-                    ->where("kt.nama", "NOT LIKE", "%SEMESTER PENDEK%")
-                    ->where("keuangan_pembayaran.jk_id", "LIKE", "%$jp->id%");
+                    ->where("kt.nama", "NOT LIKE", "%SEMESTER PENDEK%");
+
+                if ($jp && $jp->id != "%") {
+                    $allPaymentsQuery->where("keuangan_pembayaran.jk_id", $jp->id);
+                }
 
                 if ($jenjang === "sarjana") {
                     $allPaymentsQuery
@@ -1507,8 +1525,11 @@ class LaporanController extends Controller
                         $startDateYear . " 00:00:00",
                         $endDateYear . " 23:59:59",
                     ])
-                    ->where("kt.nama", "LIKE", "%SEMESTER PENDEK%")
-                    ->where("keuangan_pembayaran.jk_id", "LIKE", "%$jp->id%");
+                    ->where("kt.nama", "LIKE", "%SEMESTER PENDEK%");
+
+                if ($jp && $jp->id != "%") {
+                    $spPaymentsQuery->where("keuangan_pembayaran.jk_id", $jp->id);
+                }
 
                 if (!empty($targetJpIds)) {
                     $spPaymentsQuery
@@ -2234,8 +2255,11 @@ class LaporanController extends Controller
             ->leftJoin("users as u", "u.id", "=", "keuangan_pembayaran.user_id")
             ->leftJoin("prodi as p", "p.id", "=", "kt.prodi_id")
             ->whereDate("keuangan_pembayaran.tanggal", $tanggal)
-            ->where("kt.nama", "NOT LIKE", "%SEMESTER PENDEK%")
-            ->where("keuangan_pembayaran.jk_id", "LIKE", "%$jp->id%");
+            ->where("kt.nama", "NOT LIKE", "%SEMESTER PENDEK%");
+
+        if ($jp && $jp->id != "%") {
+            $paymentsQuery->where("keuangan_pembayaran.jk_id", $jp->id);
+        }
 
         if ($jenjang === "sarjana") {
             $paymentsQuery->where("p.jenjang", "S1");
@@ -2314,8 +2338,11 @@ class LaporanController extends Controller
                 "keuangan_pembayaran.user_id",
             )
             ->whereDate("keuangan_pembayaran.tanggal", $tanggal)
-            ->where("kt.nama", "LIKE", "%SEMESTER PENDEK%")
-            ->where("keuangan_pembayaran.jk_id", "LIKE", "%$jp->id%");
+            ->where("kt.nama", "LIKE", "%SEMESTER PENDEK%");
+
+        if ($jp && $jp->id != "%") {
+            $spPaymentsQuery->where("keuangan_pembayaran.jk_id", $jp->id);
+        }
 
         if (!empty($targetJpIds)) {
             $spPaymentsQuery->whereIn(
@@ -2557,18 +2584,22 @@ class LaporanController extends Controller
     public function pemasukanUiiDalwa(Request $request)
     {
         try {
+            $user = auth()->user();
+            $roleName = strtolower($user->role->name ?? '');
+            $isAdmin = ($user && ($user->role_id == 1 || $roleName === 'admin'));
             $jp = Helper::getJenisKelaminUser();
 
             if (
+                $isAdmin &&
                 $request->has("jenis_kelamin") &&
                 $request->jenis_kelamin != ""
             ) {
                 $reqJk = strtolower($request->jenis_kelamin);
-                if ($reqJk == "putra") {
+                if (in_array($reqJk, ["putra", "8", "laki-laki"])) {
                     $jp = (object) ["id" => 8, "kategori" => "Putra"];
-                } elseif ($reqJk == "putri") {
+                } elseif (in_array($reqJk, ["putri", "9", "perempuan"])) {
                     $jp = (object) ["id" => 9, "kategori" => "Putri"];
-                } elseif ($reqJk == "%" && auth()->user()->role_id == 1) {
+                } elseif (in_array($reqJk, ["%", "semua"])) {
                     $jp = (object) ["id" => "%", "kategori" => "%"];
                 }
             }
@@ -2739,8 +2770,11 @@ class LaporanController extends Controller
                     $startDate . " 00:00:00",
                     $endDate . " 23:59:59",
                 ])
-                ->where("kt.nama", "NOT LIKE", "%SEMESTER PENDEK%")
-                ->where("keuangan_pembayaran.jk_id", "LIKE", "%$jp->id%");
+                ->where("kt.nama", "NOT LIKE", "%SEMESTER PENDEK%");
+
+            if ($jp && $jp->id != "%") {
+                $paymentsQuery->where("keuangan_pembayaran.jk_id", $jp->id);
+            }
 
             if ($jenjang === "sarjana") {
                 $paymentsQuery
@@ -2812,8 +2846,11 @@ class LaporanController extends Controller
                     $startDate . " 00:00:00",
                     $endDate . " 23:59:59",
                 ])
-                ->where("kt.nama", "LIKE", "%SEMESTER PENDEK%")
-                ->where("keuangan_pembayaran.jk_id", "LIKE", "%$jp->id%");
+                ->where("kt.nama", "LIKE", "%SEMESTER PENDEK%");
+
+            if ($jp && $jp->id != "%") {
+                $spPaymentsQuery->where("keuangan_pembayaran.jk_id", $jp->id);
+            }
 
             if ($userId) {
                 $spPaymentsQuery->where(

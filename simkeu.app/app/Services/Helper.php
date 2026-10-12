@@ -272,13 +272,20 @@ class Helper
         ];
 
         $user = auth()->user();
+        if (!$user) {
+            return $semua;
+        }
+
+        $roleName = strtolower($user->role->name ?? '');
+        $isAdmin = ($user->role_id == 1) || ($roleName === 'admin');
         $jenisKelamin = $user->jenis_kelamin != null ? $user->jenis_kelamin : 'Laki-laki';
 
-        if ($user->role_id == 1) { // admin bisa switch scope sistem dari navbar
+        if ($isAdmin) {
             $scope = strtolower((string) (
                 request()->header('X-Simkeu-Jk-Scope')
                 ?? request()->input('jk_scope')
                 ?? request()->input('jenis_kelamin_scope')
+                ?? request()->input('jenis_kelamin')
                 ?? 'semua'
             ));
 
@@ -293,7 +300,7 @@ class Helper
             return $semua;
         }
 
-        if ($jenisKelamin == 'Perempuan') {
+        if (stripos($jenisKelamin, 'perempuan') !== false) {
             return $putri;
         }
 
