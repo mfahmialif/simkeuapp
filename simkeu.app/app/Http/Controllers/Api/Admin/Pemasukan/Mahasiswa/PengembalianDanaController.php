@@ -109,7 +109,39 @@ class PengembalianDanaController extends Controller
         // Filter Jenis Pembayaran
         if ($request->filled('jenis_pembayaran_id') && $request->jenis_pembayaran_id !== 'all' && $request->jenis_pembayaran_id !== '') {
             $jpVal = strtolower((string) $request->jenis_pembayaran_id);
-            if (in_array($jpVal, ['va_transfer_putra', 'va_transfer_putri', 'va_transfer', 'va_transfer_all'])) {
+            if (in_array($jpVal, ['cash_transfer_putra', 'cash_transfer_putri', 'cash_transfer', 'cash_transfer_all'])) {
+                $kategori = null;
+                if ($jpVal === 'cash_transfer_putra') $kategori = 'Putra';
+                elseif ($jpVal === 'cash_transfer_putri') $kategori = 'Putri';
+
+                $ids = \App\Models\KeuanganJenisPembayaran::where(function ($q) {
+                    $q->where('nama', 'like', '%cash%')
+                        ->orWhere('nama', 'like', '%tunai%')
+                        ->orWhere('nama', 'like', '%transfer%');
+                })
+                ->when($kategori, fn($q) => $q->where('kategori', $kategori))
+                ->pluck('id')->toArray();
+
+                if (empty($ids)) {
+                    $ids = $kategori === 'Putri' ? [13, 14] : ($kategori === 'Putra' ? [8, 9] : [8, 9, 13, 14]);
+                }
+                $query->whereIn('jenis_pembayaran_id', $ids);
+            } elseif (in_array($jpVal, ['va_pondok_putra', 'va_pondok_putri', 'va_pondok', 'via_pondok_putra', 'via_pondok_putri', 'via_pondok', 'va_pondok_all'])) {
+                $kategori = null;
+                if (strpos($jpVal, 'putra') !== false) $kategori = 'Putra';
+                elseif (strpos($jpVal, 'putri') !== false) $kategori = 'Putri';
+
+                $ids = \App\Models\KeuanganJenisPembayaran::where(function ($q) {
+                    $q->where('nama', 'like', '%pondok%');
+                })
+                ->when($kategori, fn($q) => $q->where('kategori', $kategori))
+                ->pluck('id')->toArray();
+
+                if (empty($ids)) {
+                    $ids = [-1];
+                }
+                $query->whereIn('jenis_pembayaran_id', $ids);
+            } elseif (in_array($jpVal, ['va_transfer_putra', 'va_transfer_putri', 'va_transfer', 'va_transfer_all'])) {
                 $kategori = null;
                 if ($jpVal === 'va_transfer_putra') $kategori = 'Putra';
                 elseif ($jpVal === 'va_transfer_putri') $kategori = 'Putri';

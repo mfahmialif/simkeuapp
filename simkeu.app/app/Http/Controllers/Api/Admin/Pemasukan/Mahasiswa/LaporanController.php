@@ -898,6 +898,8 @@ class LaporanController extends Controller
         $includePmb = $paymentFilter["include_pmb"] ?? true;
         if (!$includePmb) {
             $pmbData = [];
+        } else {
+            $pmbData = $this->filterPmbDataByPaymentMethod($pmbData, $paymentFilter);
         }
 
         if ($prefetchedPayments === null) {
@@ -1436,7 +1438,7 @@ class LaporanController extends Controller
                         "jenjang" => $jenjang,
                         "jenis_kelamin" => $pmbGender,
                     ];
-                    if ($jenisPembayaranNama) {
+                    if ($jenisPembayaranNama && !in_array($jenisPembayaranNama, ["cash_transfer", "va_pondok"])) {
                         $pmbParams["jenis_pembayaran"] = $jenisPembayaranNama;
                     }
                     if ($username) {
@@ -1455,7 +1457,10 @@ class LaporanController extends Controller
                             isset($pmbResData["data"]) &&
                             is_array($pmbResData["data"])
                         ) {
-                            $pmbDataAll = $pmbResData["data"];
+                            $pmbDataAll = $this->filterPmbDataByPaymentMethod(
+                                $pmbResData["data"],
+                                $paymentFilter,
+                            );
                         }
                     }
                 }
@@ -1713,6 +1718,90 @@ class LaporanController extends Controller
 
         $strVal = strtolower(trim((string) $jenisPembayaranId));
 
+        if (in_array($strVal, ["cash_transfer_putra", "cash_transfer_putri", "cash_transfer", "cash_transfer_all"])) {
+            $kategori = null;
+            $label = "Cash + Transfer";
+
+            if ($strVal === "cash_transfer_putra") {
+                $kategori = "Putra";
+                $label = "Cash + Transfer (Putra)";
+            } elseif ($strVal === "cash_transfer_putri") {
+                $kategori = "Putri";
+                $label = "Cash + Transfer (Putri)";
+            } else {
+                $label = "Cash + Transfer";
+            }
+
+            $query = \App\Models\KeuanganJenisPembayaran::query()
+                ->where(function ($q) {
+                    $q->where("nama", "like", "%cash%")
+                        ->orWhere("nama", "like", "%tunai%")
+                        ->orWhere("nama", "like", "%transfer%");
+                });
+
+            if ($kategori) {
+                $query->where("kategori", $kategori);
+            }
+
+            $ids = $query->pluck("id")->map(fn($id) => (int) $id)->values()->toArray();
+
+            if (empty($ids)) {
+                if ($kategori === "Putra") {
+                    $ids = [8, 9];
+                } elseif ($kategori === "Putri") {
+                    $ids = [13, 14];
+                } else {
+                    $ids = [8, 9, 13, 14];
+                }
+            }
+
+            return [
+                "ids" => $ids,
+                "nama" => "cash_transfer",
+                "kategori" => $kategori,
+                "label" => $label,
+                "is_composite" => true,
+                "include_pmb" => true,
+            ];
+        }
+
+        if (in_array($strVal, ["va_pondok_putra", "va_pondok_putri", "va_pondok", "via_pondok_putra", "via_pondok_putri", "via_pondok", "va_pondok_all"])) {
+            $kategori = null;
+            $label = "VA Pondok";
+
+            if (strpos($strVal, "putra") !== false) {
+                $kategori = "Putra";
+                $label = "VA Pondok (Putra)";
+            } elseif (strpos($strVal, "putri") !== false) {
+                $kategori = "Putri";
+                $label = "VA Pondok (Putri)";
+            }
+
+            $query = \App\Models\KeuanganJenisPembayaran::query()
+                ->where(function ($q) {
+                    $q->where("nama", "like", "%pondok%");
+                });
+
+            if ($kategori) {
+                $query->where("kategori", $kategori);
+            }
+
+            $ids = $query->pluck("id")->map(fn($id) => (int) $id)->values()->toArray();
+
+            if (empty($ids)) {
+                $ids = [-1];
+            }
+
+            return [
+                "ids" => $ids,
+                "nama" => "va_pondok",
+                "kategori" => $kategori,
+                "label" => $label,
+                "is_composite" => true,
+                "include_pmb" => true,
+            ];
+        }
+
         if (in_array($strVal, ["va_transfer_putra", "va_transfer_putri", "va_transfer", "va_transfer_all"])) {
             $kategori = null;
             $label = "VA + Transfer";
@@ -1812,6 +1901,9 @@ class LaporanController extends Controller
             if (strpos($nama, "deposit") !== false) {
                 $jenisPembayaranNama = "deposit";
                 $includePmb = false;
+            } elseif (strpos($nama, "pondok") !== false) {
+                $jenisPembayaranNama = "va_pondok";
+                $includePmb = true;
             } elseif (strpos($nama, "transfer") !== false) {
                 $jenisPembayaranNama = "transfer";
                 $includePmb = true;
@@ -1838,6 +1930,59 @@ class LaporanController extends Controller
             "is_composite" => false,
             "include_pmb" => $includePmb,
         ];
+    }
+
+    private function filterPmbDataByPaymentMethod($pmbData, $paymentFilter)
+    {
+        $includePmb = $paymentFilter["include_pmb"] ?? true;
+        if (!$includePmb) {
+            return [];
+        }
+
+        $nama = strtolower(trim((string) ($paymentFilter["nama"] ?? "")));
+        if (!$nama || $nama === "all") {
+            return $pmbData;
+        }
+
+        return collect($pmbData)
+            ->filter(function ($item) use ($nama) {
+                $metode = strtolower(trim((string) data_get(
+                    $item,
+                    "jenis_pembayaran",
+                    data_get($item, "metode_pembayaran", "")
+                )));
+
+                if ($nama === "va_pondok") {
+                    return str_contains($metode, "pondok") &&
+                        (str_contains($metode, "va") || str_contains($metode, "via"));
+                }
+
+                if ($nama === "cash_transfer") {
+                    $isCash = str_contains($metode, "cash") || str_contains($metode, "tunai");
+                    $isTransfer = str_contains($metode, "transfer") || str_contains($metode, "tf");
+                    $isPondok = str_contains($metode, "pondok");
+
+                    return ($isCash || $isTransfer) && !$isPondok;
+                }
+
+                if ($nama === "cash") {
+                    return (str_contains($metode, "cash") || str_contains($metode, "tunai")) &&
+                        !str_contains($metode, "pondok");
+                }
+
+                if ($nama === "transfer") {
+                    return (str_contains($metode, "transfer") || str_contains($metode, "tf")) &&
+                        !str_contains($metode, "pondok");
+                }
+
+                if ($nama === "yayasan") {
+                    return str_contains($metode, "yayasan");
+                }
+
+                return false;
+            })
+            ->values()
+            ->all();
     }
 
     private function getLaporanHarianPaymentFilterMeta($jenisPembayaranId)
@@ -2479,7 +2624,7 @@ class LaporanController extends Controller
                     "jenjang" => $jenjang,
                     "jenis_kelamin" => $pmbGender,
                 ];
-                if ($paymentMeta["nama"]) {
+                if ($paymentMeta["nama"] && !in_array($paymentMeta["nama"], ["cash_transfer", "va_pondok"])) {
                     $pmbParams["jenis_pembayaran"] = $paymentMeta["nama"];
                 }
                 if ($username) {
@@ -2492,11 +2637,15 @@ class LaporanController extends Controller
 
                 if ($pmbResponse->successful()) {
                     $pmbResData = $pmbResponse->json();
+                    $filteredPmb = $this->filterPmbDataByPaymentMethod(
+                        $pmbResData["data"] ?? [],
+                        $paymentMeta,
+                    );
                     $defaultPetugas = $userObj ? $userObj->name : "PMB";
                     $rows = array_merge(
                         $rows,
                         $this->normalizeLaporanHarianPmbRows(
-                            $pmbResData["data"] ?? [],
+                            $filteredPmb,
                             $defaultPetugas,
                         ),
                     );
@@ -2997,6 +3146,7 @@ class LaporanController extends Controller
                 $nama = strtolower($namaRaw ?? "");
                 if (
                     strpos($nama, "va") !== false ||
+                    strpos($nama, "via") !== false ||
                     strpos($nama, "virtual") !== false
                 ) {
                     return "va";
