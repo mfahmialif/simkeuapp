@@ -174,6 +174,12 @@ class BsiPaymentController extends Controller
         $validated = $request->validate([
             'tanggal_mulai' => 'nullable|date',
             'tanggal_akhir' => 'nullable|date|after_or_equal:tanggal_mulai',
+            'search' => 'nullable|string',
+            'status' => 'nullable|string',
+            'transferred' => 'nullable|string',
+            'sinkronisasi' => 'nullable|string',
+            'reconciliation_status' => 'nullable|string',
+            'rekonsiliasi' => 'nullable|string',
         ]);
 
         $baseQuery = KeuanganPembayaranBsi::query()->where(function ($query) {
@@ -211,16 +217,86 @@ class BsiPaymentController extends Controller
             });
         }
 
-        // Rekonsiliasi (sesuai logika filter index)
-        $matchedQuery = (clone $baseQuery)->where(function ($q) {
+        if ($request->filled('search')) {
+            $search = trim((string) $request->search);
+            $baseQuery->where(function ($query) use ($search) {
+                $query->where('nomor', 'like', "%$search%")
+                    ->orWhere('request_id', 'like', "%$search%")
+                    ->orWhere('nim', 'like', "%$search%")
+                    ->orWhere('nama_mahasiswa', 'like', "%$search%")
+                    ->orWhere('va_number', 'like', "%$search%")
+                    ->orWhere('bank_reference', 'like', "%$search%")
+                    ->orWhere('customer_no', 'like', "%$search%")
+                    ->orWhere('bsi_payment_number', 'like', "%$search%");
+            });
+        }
+
+        $statusFilter = $request->input('status');
+        $syncFilter = $request->input('transferred', $request->input('sinkronisasi'));
+        $reconFilter = $request->input('reconciliation_status', $request->input('rekonsiliasi'));
+
+        $applyStatusFilter = function ($q, $status) {
+            if ($status !== null && $status !== '' && $status !== 'all') {
+                $q->where('status', trim($status));
+            }
+        };
+
+        $applySyncFilter = function ($q, $sync) {
+            if ($sync !== null && $sync !== '' && $sync !== 'all') {
+                if (in_array($sync, ['1', 1, true, 'true', 'transferred', 'sudah'], true)) {
+                    $q->where('transferred', true);
+                } elseif (in_array($sync, ['0', 0, false, 'false', 'untransferred', 'belum'], true)) {
+                    $q->where(function ($sq) {
+                        $sq->where('transferred', false)->orWhereNull('transferred');
+                    });
+                }
+            }
+        };
+
+        $applyReconFilter = function ($q, $recon) {
+            if ($recon !== null && $recon !== '' && $recon !== 'all') {
+                if ($recon === 'matched') {
+                    $q->where(function ($sq) {
+                        $sq->where('reconciliation_status', 'matched')
+                            ->orWhereHas('reconciliations', fn ($rq) => $rq->where('match_status', 'matched'));
+                    });
+                } elseif ($recon === 'mismatch') {
+                    $q->where(function ($sq) {
+                        $sq->where('reconciliation_status', 'mismatch')
+                            ->orWhereHas('reconciliations', fn ($rq) => $rq->where('match_status', '!=', 'matched'));
+                    });
+                } elseif (in_array($recon, ['unreconciled', 'none', 'belum'], true)) {
+                    $q->where(function ($sq) {
+                        $sq->where(function ($ssq) {
+                            $ssq->whereNull('reconciliation_status')
+                                ->orWhere('reconciliation_status', '')
+                                ->orWhere('reconciliation_status', 'unreconciled');
+                        })->whereDoesntHave('reconciliations');
+                    });
+                }
+            }
+        };
+
+        // 1. Total Card (Semua filter aktif diterapkan secara penuh)
+        $totalQuery = clone $baseQuery;
+        $applyStatusFilter($totalQuery, $statusFilter);
+        $applySyncFilter($totalQuery, $syncFilter);
+        $applyReconFilter($totalQuery, $reconFilter);
+
+        // 2. Rekonsiliasi cards (Diterapkan filter Status & Sinkronisasi)
+        $reconBaseQuery = clone $baseQuery;
+        $applyStatusFilter($reconBaseQuery, $statusFilter);
+        $applySyncFilter($reconBaseQuery, $syncFilter);
+
+        $matchedQuery = (clone $reconBaseQuery)->where(function ($q) {
             $q->where('reconciliation_status', 'matched')
                 ->orWhereHas('reconciliations', fn ($rq) => $rq->where('match_status', 'matched'));
         });
-        $mismatchQuery = (clone $baseQuery)->where(function ($q) {
+        $mismatchQuery = (clone $reconBaseQuery)->where(function ($q) {
             $q->where('reconciliation_status', 'mismatch')
                 ->orWhereHas('reconciliations', fn ($rq) => $rq->where('match_status', '!=', 'matched'));
         });
-        $unreconciledQuery = (clone $baseQuery)->where(function ($q) {
+        $unreconciledQuery = (clone $reconBaseQuery)->where(function ($q) {
             $q->where(function ($sq) {
                 $sq->whereNull('reconciliation_status')
                     ->orWhere('reconciliation_status', '')
@@ -228,26 +304,34 @@ class BsiPaymentController extends Controller
             })->whereDoesntHave('reconciliations');
         });
 
-        // Sinkronisasi
-        $syncedQuery = (clone $baseQuery)->where('transferred', true);
-        $unsyncedQuery = (clone $baseQuery)->where(function ($q) {
+        // 3. Sinkronisasi cards (Diterapkan filter Status & Rekonsiliasi)
+        $syncBaseQuery = clone $baseQuery;
+        $applyStatusFilter($syncBaseQuery, $statusFilter);
+        $applyReconFilter($syncBaseQuery, $reconFilter);
+
+        $syncedQuery = (clone $syncBaseQuery)->where('transferred', true);
+        $unsyncedQuery = (clone $syncBaseQuery)->where(function ($q) {
             $q->where('transferred', false)->orWhereNull('transferred');
         });
 
-        // Status Transaksi
-        $successQuery = (clone $baseQuery)->where('status', 'success');
-        $pendingQuery = (clone $baseQuery)->where('status', 'pending');
-        $paidQuery = (clone $baseQuery)->where('status', 'paid');
-        $expiredQuery = (clone $baseQuery)->where('status', 'expired');
-        $cancelledQuery = (clone $baseQuery)->where('status', 'cancelled');
-        $needsReviewQuery = (clone $baseQuery)->where('status', 'needs_review');
+        // 4. Status Transaksi cards (Diterapkan filter Sinkronisasi & Rekonsiliasi)
+        $statusBaseQuery = clone $baseQuery;
+        $applySyncFilter($statusBaseQuery, $syncFilter);
+        $applyReconFilter($statusBaseQuery, $reconFilter);
+
+        $successQuery = (clone $statusBaseQuery)->where('status', 'success');
+        $pendingQuery = (clone $statusBaseQuery)->where('status', 'pending');
+        $paidQuery = (clone $statusBaseQuery)->where('status', 'paid');
+        $expiredQuery = (clone $statusBaseQuery)->where('status', 'expired');
+        $cancelledQuery = (clone $statusBaseQuery)->where('status', 'cancelled');
+        $needsReviewQuery = (clone $statusBaseQuery)->where('status', 'needs_review');
 
         return response()->json([
             'status' => true,
             'data' => [
                 'total' => [
-                    'count' => (clone $baseQuery)->count(),
-                    'amount' => (float) (clone $baseQuery)->sum('total'),
+                    'count' => (clone $totalQuery)->count(),
+                    'amount' => (float) (clone $totalQuery)->sum('total'),
                 ],
                 // Rekonsiliasi
                 'matched' => [
