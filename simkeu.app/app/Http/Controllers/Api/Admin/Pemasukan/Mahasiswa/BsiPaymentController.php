@@ -95,6 +95,16 @@ class BsiPaymentController extends Controller
             });
         }
 
+        if ($request->filled('bulan') && ! $request->filled('tanggal_mulai') && ! $request->filled('tanggal_akhir')) {
+            try {
+                $monthDate = Carbon::createFromFormat('Y-m', trim((string) $request->bulan));
+                $request->merge([
+                    'tanggal_mulai' => $monthDate->copy()->startOfMonth()->toDateString(),
+                    'tanggal_akhir' => $monthDate->copy()->endOfMonth()->toDateString(),
+                ]);
+            } catch (\Throwable $e) {}
+        }
+
         $dateBy = $request->input('date_by');
         if ($dateBy === 'created_at') {
             if ($request->filled('tanggal_mulai')) {
@@ -174,6 +184,7 @@ class BsiPaymentController extends Controller
         $validated = $request->validate([
             'tanggal_mulai' => 'nullable|date',
             'tanggal_akhir' => 'nullable|date|after_or_equal:tanggal_mulai',
+            'bulan' => 'nullable|string',
             'search' => 'nullable|string',
             'status' => 'nullable|string',
             'transferred' => 'nullable|string',
@@ -181,6 +192,14 @@ class BsiPaymentController extends Controller
             'reconciliation_status' => 'nullable|string',
             'rekonsiliasi' => 'nullable|string',
         ]);
+
+        if ($request->filled('bulan') && empty($validated['tanggal_mulai']) && empty($validated['tanggal_akhir'])) {
+            try {
+                $monthDate = Carbon::createFromFormat('Y-m', trim((string) $request->bulan));
+                $validated['tanggal_mulai'] = $monthDate->copy()->startOfMonth()->toDateString();
+                $validated['tanggal_akhir'] = $monthDate->copy()->endOfMonth()->toDateString();
+            } catch (\Throwable $e) {}
+        }
 
         $baseQuery = KeuanganPembayaranBsi::query()->where(function ($query) {
             $query->where('data_test', false)->orWhereNull('data_test');
