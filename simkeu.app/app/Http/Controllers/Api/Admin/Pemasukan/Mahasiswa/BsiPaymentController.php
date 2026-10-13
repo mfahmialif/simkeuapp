@@ -761,6 +761,112 @@ class BsiPaymentController extends Controller
         }
     }
 
+    public function updateReconciliation(
+        Request $request,
+        KeuanganPembayaranBsi $paymentBsi
+    ): JsonResponse {
+        $validated = $request->validate([
+            'reconciliation_status' => 'required|string|in:matched,mismatch,unreconciled',
+            'recon_id' => 'nullable|string|max:100',
+            'settlement_code' => 'nullable|string|max:100',
+            'journal_number' => 'nullable|string|max:100',
+            'reconciled_at' => 'nullable|date',
+            'mismatch_description' => 'nullable|string|max:500',
+            'update_payment_status' => 'nullable|boolean',
+        ]);
+
+        $status = $validated['reconciliation_status'];
+        $reconId = ! empty($validated['recon_id']) ? trim($validated['recon_id']) : null;
+        $reconciledAt = ! empty($validated['reconciled_at']) ? Carbon::parse($validated['reconciled_at']) : now();
+
+        DB::beginTransaction();
+        try {
+            if ($status === 'unreconciled') {
+                $paymentBsi->update([
+                    'reconciliation_status' => null,
+                ]);
+
+                // Lepas relasi pembayaran di rekonsiliasi yang terhubung
+                $paymentBsi->reconciliations()->update([
+                    'pembayaran_bsi_id' => null,
+                    'match_status' => 'mismatch',
+                    'mismatch_description' => 'Rekonsiliasi dilepas dari transaksi.',
+                ]);
+            } else {
+                $paymentBsi->update([
+                    'reconciliation_status' => $status,
+                ]);
+
+                if ($status === 'matched' && ($validated['update_payment_status'] ?? true)) {
+                    if (in_array($paymentBsi->status, ['pending', 'needs_review'], true)) {
+                        $paymentBsi->update([
+                            'status' => 'success',
+                            'paid_at' => $paymentBsi->paid_at ?: $reconciledAt,
+                        ]);
+                    }
+                }
+
+                // Cari rekonsiliasi yang cocok
+                $targetRecon = null;
+                if ($reconId) {
+                    $targetRecon = BsiReconciliation::where('recon_id', $reconId)->first();
+                }
+
+                if (! $targetRecon) {
+                    $targetRecon = $paymentBsi->reconciliations()->latest('id')->first();
+                }
+
+                if ($targetRecon) {
+                    $targetRecon->update([
+                        'recon_id' => $reconId ?: $targetRecon->recon_id,
+                        'pembayaran_bsi_id' => $paymentBsi->id,
+                        'payment_number' => $paymentBsi->bsi_payment_number ?: $paymentBsi->va_number ?: $targetRecon->payment_number,
+                        'settlement_code' => $validated['settlement_code'] ?? $targetRecon->settlement_code,
+                        'journal_number' => $validated['journal_number'] ?? $targetRecon->journal_number,
+                        'reconciled_at' => $reconciledAt,
+                        'match_status' => $status,
+                        'mismatch_description' => $status === 'matched' ? null : ($validated['mismatch_description'] ?? 'Diubah manual'),
+                    ]);
+                } else {
+                    $reconIdToUse = $reconId ?: ('RECON-' . ($paymentBsi->bsi_payment_number ?: $paymentBsi->va_number ?: $paymentBsi->id) . '-' . now()->format('Ymd'));
+                    BsiReconciliation::create([
+                        'recon_id' => $reconIdToUse,
+                        'pembayaran_bsi_id' => $paymentBsi->id,
+                        'payment_number' => $paymentBsi->bsi_payment_number ?: $paymentBsi->va_number ?: $paymentBsi->customer_no,
+                        'transaction_at' => $paymentBsi->paid_at ?: $paymentBsi->created_at ?: now(),
+                        'reconciled_at' => $reconciledAt,
+                        'payment_amount' => $paymentBsi->total,
+                        'settlement_amount' => $paymentBsi->total,
+                        'settlement_code' => $validated['settlement_code'] ?? null,
+                        'journal_number' => $validated['journal_number'] ?? null,
+                        'bank_status' => 'SUKSES',
+                        'checksum_valid' => true,
+                        'match_status' => $status,
+                        'mismatch_description' => $status === 'matched' ? null : ($validated['mismatch_description'] ?? 'Input rekonsiliasi manual'),
+                    ]);
+                }
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Status rekonsiliasi transaksi BSI berhasil diperbarui.',
+                'data' => $paymentBsi->fresh([
+                    'reconciliations',
+                ]),
+            ]);
+        } catch (Throwable $e) {
+            DB::rollBack();
+            report($e);
+
+            return response()->json([
+                'status' => false,
+                'message' => 'Gagal memperbarui rekonsiliasi: ' . $e->getMessage(),
+            ], 422);
+        }
+    }
+
     private function applySynchronizationFilters($query, array $filters)
     {
         if (filled($filters['search'] ?? null)) {

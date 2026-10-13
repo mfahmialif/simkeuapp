@@ -280,6 +280,8 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
                 Route::post('/', [BsiPaymentController::class, 'store'])
                     ->middleware('role:admin,keuangan,kabag,kabag_pemasukan,staff');
                 Route::get('{paymentBsi}', [BsiPaymentController::class, 'show']);
+                Route::post('{paymentBsi}/reconciliation', [BsiPaymentController::class, 'updateReconciliation'])
+                    ->middleware('role:admin,keuangan,kabag,kabag_pemasukan,staff');
                 Route::post('{paymentBsi}/reject', [BsiPaymentController::class, 'reject'])
                     ->middleware('role:admin,keuangan,kabag,kabag_pemasukan,staff');
             });
