@@ -167,44 +167,124 @@ class BsiPaymentController extends Controller
             'tanggal_akhir' => 'nullable|date|after_or_equal:tanggal_mulai',
         ]);
 
-        $query = BsiReconciliation::query()
-            ->when(
-                $validated['tanggal_mulai'] ?? null,
-                fn ($query, $date) => $query->where(function ($q) use ($date) {
-                    $q->whereDate('reconciled_at', '>=', $date)
-                        ->orWhere(function ($sq) use ($date) {
-                            $sq->whereNull('reconciled_at')->whereDate('transaction_at', '>=', $date);
-                        });
-                })
-            )
-            ->when(
-                $validated['tanggal_akhir'] ?? null,
-                fn ($query, $date) => $query->where(function ($q) use ($date) {
-                    $q->whereDate('reconciled_at', '<=', $date)
-                        ->orWhere(function ($sq) use ($date) {
-                            $sq->whereNull('reconciled_at')->whereDate('transaction_at', '<=', $date);
-                        });
-                })
-            );
+        $baseQuery = KeuanganPembayaranBsi::query()->where(function ($query) {
+            $query->where('data_test', false)->orWhereNull('data_test');
+        });
 
-        $total = (clone $query);
-        $matched = (clone $query)->where('match_status', 'matched');
-        $mismatch = (clone $query)->where('match_status', '!=', 'matched');
+        if (! empty($validated['tanggal_mulai']) && ! empty($validated['tanggal_akhir'])) {
+            $start = $validated['tanggal_mulai'];
+            $end = $validated['tanggal_akhir'];
+            $baseQuery->where(function ($q) use ($start, $end) {
+                $q->where(function ($sq) use ($start, $end) {
+                    $sq->whereDate('created_at', '>=', $start)
+                        ->whereDate('created_at', '<=', $end);
+                })->orWhere(function ($sq) use ($start, $end) {
+                    $sq->whereNotNull('paid_at')
+                        ->whereDate('paid_at', '>=', $start)
+                        ->whereDate('paid_at', '<=', $end);
+                });
+            });
+        } elseif (! empty($validated['tanggal_mulai'])) {
+            $start = $validated['tanggal_mulai'];
+            $baseQuery->where(function ($q) use ($start) {
+                $q->whereDate('created_at', '>=', $start)
+                    ->orWhere(function ($sq) use ($start) {
+                        $sq->whereNotNull('paid_at')->whereDate('paid_at', '>=', $start);
+                    });
+            });
+        } elseif (! empty($validated['tanggal_akhir'])) {
+            $end = $validated['tanggal_akhir'];
+            $baseQuery->where(function ($q) use ($end) {
+                $q->whereDate('created_at', '<=', $end)
+                    ->orWhere(function ($sq) use ($end) {
+                        $sq->whereNotNull('paid_at')->whereDate('paid_at', '<=', $end);
+                    });
+            });
+        }
+
+        // Rekonsiliasi (sesuai logika filter index)
+        $matchedQuery = (clone $baseQuery)->where(function ($q) {
+            $q->where('reconciliation_status', 'matched')
+                ->orWhereHas('reconciliations', fn ($rq) => $rq->where('match_status', 'matched'));
+        });
+        $mismatchQuery = (clone $baseQuery)->where(function ($q) {
+            $q->where('reconciliation_status', 'mismatch')
+                ->orWhereHas('reconciliations', fn ($rq) => $rq->where('match_status', '!=', 'matched'));
+        });
+        $unreconciledQuery = (clone $baseQuery)->where(function ($q) {
+            $q->where(function ($sq) {
+                $sq->whereNull('reconciliation_status')
+                    ->orWhere('reconciliation_status', '');
+            })->whereDoesntHave('reconciliations');
+        });
+
+        // Sinkronisasi
+        $syncedQuery = (clone $baseQuery)->where('transferred', true);
+        $unsyncedQuery = (clone $baseQuery)->where(function ($q) {
+            $q->where('transferred', false)->orWhereNull('transferred');
+        });
+
+        // Status Transaksi
+        $successQuery = (clone $baseQuery)->where('status', 'success');
+        $pendingQuery = (clone $baseQuery)->where('status', 'pending');
+        $paidQuery = (clone $baseQuery)->where('status', 'paid');
+        $expiredQuery = (clone $baseQuery)->where('status', 'expired');
+        $cancelledQuery = (clone $baseQuery)->where('status', 'cancelled');
+        $needsReviewQuery = (clone $baseQuery)->where('status', 'needs_review');
 
         return response()->json([
             'status' => true,
             'data' => [
                 'total' => [
-                    'count' => $total->count(),
-                    'amount' => (float) (clone $query)->sum('payment_amount'),
+                    'count' => (clone $baseQuery)->count(),
+                    'amount' => (float) (clone $baseQuery)->sum('total'),
                 ],
+                // Rekonsiliasi
                 'matched' => [
-                    'count' => $matched->count(),
-                    'amount' => (float) (clone $query)->where('match_status', 'matched')->sum('payment_amount'),
+                    'count' => $matchedQuery->count(),
+                    'amount' => (float) $matchedQuery->sum('total'),
                 ],
                 'mismatch' => [
-                    'count' => $mismatch->count(),
-                    'amount' => (float) (clone $query)->where('match_status', '!=', 'matched')->sum('payment_amount'),
+                    'count' => $mismatchQuery->count(),
+                    'amount' => (float) $mismatchQuery->sum('total'),
+                ],
+                'unreconciled' => [
+                    'count' => $unreconciledQuery->count(),
+                    'amount' => (float) $unreconciledQuery->sum('total'),
+                ],
+                // Sinkronisasi
+                'synced' => [
+                    'count' => $syncedQuery->count(),
+                    'amount' => (float) $syncedQuery->sum('total'),
+                ],
+                'unsynced' => [
+                    'count' => $unsyncedQuery->count(),
+                    'amount' => (float) $unsyncedQuery->sum('total'),
+                ],
+                // Status
+                'success' => [
+                    'count' => $successQuery->count(),
+                    'amount' => (float) $successQuery->sum('total'),
+                ],
+                'pending' => [
+                    'count' => $pendingQuery->count(),
+                    'amount' => (float) $pendingQuery->sum('total'),
+                ],
+                'paid' => [
+                    'count' => $paidQuery->count(),
+                    'amount' => (float) $paidQuery->sum('total'),
+                ],
+                'expired' => [
+                    'count' => $expiredQuery->count(),
+                    'amount' => (float) $expiredQuery->sum('total'),
+                ],
+                'cancelled' => [
+                    'count' => $cancelledQuery->count(),
+                    'amount' => (float) $cancelledQuery->sum('total'),
+                ],
+                'needs_review' => [
+                    'count' => $needsReviewQuery->count(),
+                    'amount' => (float) $needsReviewQuery->sum('total'),
                 ],
             ],
         ]);
