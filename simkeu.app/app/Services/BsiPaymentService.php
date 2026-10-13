@@ -659,7 +659,7 @@ class BsiPaymentService
         return $query->first();
     }
 
-    private function resolveMahasiswa(string $nim)
+    public function resolveMahasiswa(string $nim)
     {
         $mahasiswa = Mahasiswa::nim($nim);
 
@@ -680,7 +680,7 @@ class BsiPaymentService
         return data_get($mahasiswa, 'nim') ? $mahasiswa : null;
     }
 
-    private function resolveGender($mahasiswa): ?array
+    public function resolveGender($mahasiswa): ?array
     {
         $jkId = (int) data_get($mahasiswa, 'jk_id', data_get($mahasiswa, 'jk.id'));
         if ($jkId === 8) {

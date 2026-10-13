@@ -273,6 +273,12 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
                     ->middleware('role:admin,keuangan,kabag,kabag_pemasukan,staff');
                 Route::post('recheck-reconciliations', [BsiPaymentController::class, 'recheckReconciliations'])
                     ->middleware('role:admin,keuangan,kabag,kabag_pemasukan,staff');
+                Route::get('student-bills', [BsiPaymentController::class, 'studentBills'])
+                    ->middleware('role:admin,keuangan,kabag,kabag_pemasukan,staff');
+                Route::get('unreconciled-reconciliations', [BsiPaymentController::class, 'unreconciledReconciliations'])
+                    ->middleware('role:admin,keuangan,kabag,kabag_pemasukan,staff');
+                Route::post('/', [BsiPaymentController::class, 'store'])
+                    ->middleware('role:admin,keuangan,kabag,kabag_pemasukan,staff');
                 Route::get('{paymentBsi}', [BsiPaymentController::class, 'show']);
                 Route::post('{paymentBsi}/reject', [BsiPaymentController::class, 'reject'])
                     ->middleware('role:admin,keuangan,kabag,kabag_pemasukan,staff');

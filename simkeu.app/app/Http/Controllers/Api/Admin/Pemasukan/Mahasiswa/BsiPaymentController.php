@@ -4,12 +4,20 @@ namespace App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa;
 
 use App\Http\Controllers\Controller;
 use App\Models\BsiReconciliation;
+use App\Models\KeuanganJenisPembayaran;
+use App\Models\KeuanganMetodeVa;
 use App\Models\KeuanganPembayaranBsi;
+use App\Models\KeuanganTagihan;
 use App\Services\BsiPaymentService;
 use App\Services\BsiPaymentTransferService;
 use App\Services\BsiSnapService;
+use App\Services\Mahasiswa;
+use App\Services\TagihanMahasiswa;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Throwable;
 
 class BsiPaymentController extends Controller
@@ -431,6 +439,326 @@ class BsiPaymentController extends Controller
             'message' => 'Pembayaran BSI berhasil ditolak.',
             'data' => $payment,
         ]);
+    }
+
+    public function studentBills(Request $request, BsiPaymentService $paymentService): JsonResponse
+    {
+        $validated = $request->validate([
+            'nim' => 'required|string|max:50',
+        ]);
+
+        $nim = strtoupper(trim($validated['nim']));
+        $mahasiswa = $paymentService->resolveMahasiswa($nim);
+
+        if (! $mahasiswa) {
+            return response()->json([
+                'status' => false,
+                'message' => "Data mahasiswa dengan NIM {$nim} tidak ditemukan.",
+            ], 404);
+        }
+
+        $gender = $paymentService->resolveGender($mahasiswa);
+        $tagihanData = TagihanMahasiswa::tagihan($nim);
+        $rawBills = $tagihanData['list_tagihan'] ?? [];
+
+        $bills = collect($rawBills)->map(function ($bill) {
+            $jumlah = (float) data_get($bill, 'jumlah', 0);
+            $terbayar = (float) data_get($bill, 'terbayar', 0);
+            $sisa = max(0, (float) data_get($bill, 'sisa', $jumlah - $terbayar));
+
+            return [
+                'id' => (int) data_get($bill, 'id'),
+                'nama' => (string) data_get($bill, 'nama'),
+                'th_akademik_id' => (int) data_get($bill, 'th_akademik_id'),
+                'tahun_akademik' => (string) (data_get($bill, 'tahun_akademik') ?: data_get($bill, 'th_akademik_kode') ?: data_get($bill, 'th_akademik.kode')),
+                'jumlah_tagihan' => $jumlah,
+                'terbayar' => $terbayar,
+                'sisa' => $sisa,
+                'mata_uang_kode' => strtoupper((string) data_get($bill, 'mata_uang_kode', 'IDR')),
+            ];
+        })->values();
+
+        return response()->json([
+            'status' => true,
+            'data' => [
+                'nim' => $nim,
+                'nama' => data_get($mahasiswa, 'nama') ?: ($tagihanData['nama_mhs'] ?? null),
+                'nama_ayah' => data_get($mahasiswa, 'nama_ayah') ?: data_get($mahasiswa, 'ayah') ?: ($tagihanData['nama_ayah'] ?? '-'),
+                'prodi' => data_get($mahasiswa, 'prodi.nama') ?: ($tagihanData['nama_prodi'] ?? null),
+                'kelas' => data_get($mahasiswa, 'kelas.nama') ?: ($tagihanData['nama_kelas'] ?? null),
+                'semester' => data_get($mahasiswa, 'semester') ?: ($tagihanData['semester'] ?? null),
+                'jk_id' => $gender['id'] ?? 8,
+                'kategori' => $gender['kategori'] ?? 'Putra',
+                'bills' => $bills,
+            ],
+        ]);
+    }
+
+    public function unreconciledReconciliations(): JsonResponse
+    {
+        $reconciliations = BsiReconciliation::query()
+            ->where(function ($q) {
+                $q->whereNull('pembayaran_bsi_id')
+                    ->orWhere('match_status', 'mismatch');
+            })
+            ->latest('id')
+            ->limit(100)
+            ->get([
+                'id',
+                'recon_id',
+                'pembayaran_bsi_id',
+                'payment_number',
+                'payment_amount',
+                'settlement_amount',
+                'settlement_code',
+                'bank_status',
+                'transaction_at',
+                'match_status',
+                'mismatch_description',
+            ]);
+
+        return response()->json([
+            'status' => true,
+            'data' => $reconciliations,
+        ]);
+    }
+
+    public function store(
+        Request $request,
+        BsiPaymentTransferService $transferService,
+        BsiPaymentService $paymentService
+    ): JsonResponse {
+        $validated = $request->validate([
+            'nim' => 'required|string|max:50',
+            'nama_mahasiswa' => 'nullable|string|max:255',
+            'jk_id' => 'nullable|integer',
+            'status' => 'nullable|string|in:success,pending,paid,needs_review',
+            'paid_at' => 'nullable|date',
+            'va_number' => 'nullable|string|max:50',
+            'customer_no' => 'nullable|string|max:50',
+            'bsi_payment_number' => 'nullable|string|max:50',
+            'bank_reference' => 'nullable|string|max:100',
+            'metode_va_id' => 'nullable|integer',
+            'recon_id' => 'nullable|string|max:50',
+            'production' => 'nullable|boolean',
+            'sync_now' => 'nullable|boolean',
+            'reconcile_now' => 'nullable|boolean',
+            'items' => 'required|array|min:1',
+            'items.*.tagihan_id' => 'required|integer',
+            'items.*.jumlah' => 'required|numeric|min:0.01',
+            'items.*.tagihan_nama' => 'nullable|string|max:255',
+            'items.*.th_akademik_id' => 'nullable|integer',
+            'items.*.jumlah_tagihan' => 'nullable|numeric',
+            'items.*.sisa_awal' => 'nullable|numeric',
+        ]);
+
+        $nim = strtoupper(trim($validated['nim']));
+        $mahasiswa = $paymentService->resolveMahasiswa($nim);
+
+        if (! $mahasiswa) {
+            return response()->json([
+                'status' => false,
+                'message' => "Data mahasiswa dengan NIM {$nim} tidak ditemukan.",
+            ], 404);
+        }
+
+        $gender = $paymentService->resolveGender($mahasiswa);
+        $jkId = $validated['jk_id'] ?? ($gender ? $gender['id'] : 8);
+        $kategori = ($jkId === 9) ? 'Putri' : 'Putra';
+        $namaMahasiswa = trim((string) ($validated['nama_mahasiswa'] ?? data_get($mahasiswa, 'nama') ?: $nim));
+
+        $jenisPembayaran = KeuanganJenisPembayaran::whereIn(DB::raw('LOWER(TRIM(nama))'), [
+            'va bsi',
+            'va bsi - ' . Str::lower($kategori),
+        ])->where('kategori', $kategori)->first();
+
+        if (! $jenisPembayaran) {
+            $jenisPembayaran = KeuanganJenisPembayaran::where('id', $jkId === 9 ? 17 : 16)->first();
+        }
+
+        $paidAt = ! empty($validated['paid_at']) ? Carbon::parse($validated['paid_at']) : now();
+        $status = $validated['status'] ?? 'success';
+        $syncNow = (bool) ($validated['sync_now'] ?? false);
+        $reconcileNow = (bool) ($validated['reconcile_now'] ?? false);
+        $production = $syncNow ? true : (bool) ($validated['production'] ?? true);
+
+        $vaNumber = ! empty($validated['va_number']) ? trim($validated['va_number']) : ('2700' . $nim);
+        $customerNo = ! empty($validated['customer_no']) ? trim($validated['customer_no']) : $nim;
+        $bsiPaymentNumber = ! empty($validated['bsi_payment_number']) ? trim($validated['bsi_payment_number']) : $vaNumber;
+        $bankReference = ! empty($validated['bank_reference']) ? trim($validated['bank_reference']) : ('MANUAL-' . strtoupper(Str::random(10)));
+
+        $requestId = 'MANUAL-' . $nim . '-' . now()->format('YmdHis') . '-' . strtoupper(Str::random(6));
+        $requestHash = hash('sha256', $requestId);
+
+        $details = [];
+        $total = 0.0;
+        foreach ($validated['items'] as $item) {
+            $tagihan = KeuanganTagihan::with('thAkademik')->find($item['tagihan_id']);
+            $tagihanNama = $item['tagihan_nama'] ?? ($tagihan?->nama ?: "Tagihan #{$item['tagihan_id']}");
+            $thAkademikId = $item['th_akademik_id'] ?? ($tagihan?->th_akademik_id ?: 1);
+            $jumlahTagihan = (float) ($item['jumlah_tagihan'] ?? ($tagihan?->jumlah ?: $item['jumlah']));
+            $sisaAwal = (float) ($item['sisa_awal'] ?? $jumlahTagihan);
+            $jumlah = round((float) $item['jumlah'], 2);
+
+            $details[] = [
+                'tagihan_id' => $item['tagihan_id'],
+                'th_akademik_id' => $thAkademikId,
+                'tagihan_nama' => $tagihanNama,
+                'jumlah_tagihan' => $jumlahTagihan,
+                'sisa_awal' => $sisaAwal,
+                'jumlah' => $jumlah,
+                'cara_bayar' => ($jumlah >= $sisaAwal - 0.01) ? 'lunas' : 'cicilan',
+            ];
+
+            $total += $jumlah;
+        }
+
+        if ($total <= 0) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Total nominal pembayaran harus lebih dari 0.',
+            ], 422);
+        }
+
+        try {
+            $payment = DB::transaction(function () use (
+                $details,
+                $total,
+                $requestId,
+                $requestHash,
+                $nim,
+                $namaMahasiswa,
+                $jkId,
+                $jenisPembayaran,
+                $vaNumber,
+                $customerNo,
+                $bsiPaymentNumber,
+                $bankReference,
+                $validated,
+                $paidAt,
+                $status,
+                $production,
+                $reconcileNow,
+                $syncNow,
+                $transferService,
+                $request
+            ) {
+                $payment = KeuanganPembayaranBsi::create([
+                    'request_id' => $requestId,
+                    'request_hash' => $requestHash,
+                    'nim' => $nim,
+                    'nama_mahasiswa' => $namaMahasiswa,
+                    'jk_id' => $jkId,
+                    'jenis_pembayaran_id' => $jenisPembayaran?->id ?? ($jkId === 9 ? 17 : 16),
+                    'va_number' => $vaNumber,
+                    'customer_no' => $customerNo,
+                    'bsi_payment_number' => $bsiPaymentNumber,
+                    'bank_reference' => $bankReference,
+                    'metode_va_id' => $validated['metode_va_id'] ?? null,
+                    'trx_date_time' => $paidAt,
+                    'total' => $total,
+                    'admin_fee_bearer' => 'institution',
+                    'admin_fee_amount' => 0,
+                    'status' => $status,
+                    'data_test' => false,
+                    'production' => $production,
+                    'transferred' => false,
+                    'expired_at' => $paidAt->copy()->addDays(7),
+                    'paid_at' => in_array($status, ['success', 'paid'], true) ? $paidAt : null,
+                    'reconciliation_status' => $reconcileNow ? 'matched' : 'unreconciled',
+                    'raw_request' => [
+                        'source' => 'manual_input',
+                        'user_id' => $request->user()?->id,
+                        'user_name' => $request->user()?->name,
+                        'recon_id' => $validated['recon_id'] ?? null,
+                    ],
+                ]);
+
+                $payment->update([
+                    'nomor' => BsiPaymentService::buildInternalNumber($payment->id, $paidAt),
+                ]);
+
+                foreach ($details as $index => $detail) {
+                    $payment->details()->create([
+                        'tagihan_id' => $detail['tagihan_id'],
+                        'th_akademik_id' => $detail['th_akademik_id'],
+                        'tagihan_nama' => $detail['tagihan_nama'],
+                        'jumlah_tagihan' => $detail['jumlah_tagihan'],
+                        'sisa_awal' => $detail['sisa_awal'],
+                        'jumlah' => $detail['jumlah'],
+                        'cara_bayar' => $detail['cara_bayar'],
+                        'urutan' => $index + 1,
+                    ]);
+                }
+
+                if ($reconcileNow) {
+                    $reconId = ! empty($validated['recon_id']) ? trim($validated['recon_id']) : null;
+                    $reconQuery = BsiReconciliation::query();
+                    if ($reconId) {
+                        $reconQuery->where('recon_id', $reconId);
+                    } else {
+                        $reconQuery->where(function ($q) use ($bsiPaymentNumber, $customerNo, $vaNumber) {
+                            $q->where('payment_number', $bsiPaymentNumber)
+                                ->orWhere('payment_number', $customerNo)
+                                ->orWhere('payment_number', $vaNumber);
+                        });
+                    }
+
+                    $existingRecon = $reconQuery->first();
+                    if ($existingRecon) {
+                        $existingRecon->update([
+                            'pembayaran_bsi_id' => $payment->id,
+                            'match_status' => 'matched',
+                            'mismatch_description' => null,
+                            'reconciled_at' => $existingRecon->reconciled_at ?: now(),
+                        ]);
+                    } elseif ($reconId) {
+                        BsiReconciliation::create([
+                            'recon_id' => $reconId,
+                            'pembayaran_bsi_id' => $payment->id,
+                            'payment_number' => $bsiPaymentNumber,
+                            'transaction_at' => $paidAt,
+                            'reconciled_at' => now(),
+                            'payment_amount' => $total,
+                            'settlement_amount' => $total,
+                            'bank_status' => 'SUKSES',
+                            'checksum_valid' => true,
+                            'match_status' => 'matched',
+                            'mismatch_description' => null,
+                        ]);
+                    }
+                }
+
+                if ($syncNow) {
+                    if ($status !== 'success') {
+                        $payment->update([
+                            'status' => 'success',
+                            'paid_at' => $paidAt,
+                        ]);
+                    }
+                    $transferService->transfer($payment, (int) $request->user()->id);
+                }
+
+                return $payment;
+            });
+
+            return response()->json([
+                'status' => true,
+                'message' => 'Transaksi BSI manual berhasil disimpan' . ($syncNow ? ' dan disinkronkan ke buku keuangan.' : '.'),
+                'data' => $payment->fresh([
+                    'details.tahunAkademik',
+                    'details.pembayaran',
+                    'reconciliations',
+                ]),
+            ]);
+        } catch (Throwable $e) {
+            report($e);
+
+            return response()->json([
+                'status' => false,
+                'message' => 'Gagal menyimpan transaksi manual: ' . $this->transferErrorMessage($e),
+            ], 422);
+        }
     }
 
     private function applySynchronizationFilters($query, array $filters)
