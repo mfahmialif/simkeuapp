@@ -24,12 +24,52 @@ class BsiPaymentController extends Controller
             'metodeVa',
             'postedBy',
             'rejectedBy',
+            'reconciliations',
         ])->where(function ($query) {
             $query->where('data_test', false)->orWhereNull('data_test');
         });
 
-        if ($request->filled('status') && $request->status !== 'all') {
-            $query->where('status', $request->status);
+        if ($request->filled('status') && trim($request->status) !== 'all') {
+            $query->where('status', trim($request->status));
+        }
+
+        // Filter Sinkronisasi (transferred)
+        $syncFilter = $request->input('transferred', $request->input('sinkronisasi'));
+        if ($syncFilter !== null && $syncFilter !== '' && $syncFilter !== 'all') {
+            if (in_array($syncFilter, ['1', 1, true, 'true', 'transferred', 'sudah'], true)) {
+                $query->where('transferred', true);
+            } elseif (in_array($syncFilter, ['0', 0, false, 'false', 'untransferred', 'belum'], true)) {
+                $query->where(function ($q) {
+                    $q->where('transferred', false)->orWhereNull('transferred');
+                });
+            }
+        }
+
+        // Filter Rekonsiliasi
+        $reconFilter = $request->input('reconciliation_status', $request->input('rekonsiliasi'));
+        if ($reconFilter !== null && $reconFilter !== '' && $reconFilter !== 'all') {
+            if ($reconFilter === 'matched') {
+                $query->where(function ($q) {
+                    $q->where('reconciliation_status', 'matched')
+                        ->orWhereHas('reconciliations', function ($rq) {
+                            $rq->where('match_status', 'matched');
+                        });
+                });
+            } elseif ($reconFilter === 'mismatch') {
+                $query->where(function ($q) {
+                    $q->where('reconciliation_status', 'mismatch')
+                        ->orWhereHas('reconciliations', function ($rq) {
+                            $rq->where('match_status', '!=', 'matched');
+                        });
+                });
+            } elseif (in_array($reconFilter, ['unreconciled', 'none', 'belum'], true)) {
+                $query->where(function ($q) {
+                    $q->where(function ($sq) {
+                        $sq->whereNull('reconciliation_status')
+                            ->orWhere('reconciliation_status', '');
+                    })->whereDoesntHave('reconciliations');
+                });
+            }
         }
 
         if ($request->filled('search')) {
@@ -40,16 +80,58 @@ class BsiPaymentController extends Controller
                     ->orWhere('nim', 'like', "%$search%")
                     ->orWhere('nama_mahasiswa', 'like', "%$search%")
                     ->orWhere('va_number', 'like', "%$search%")
-                    ->orWhere('bank_reference', 'like', "%$search%");
+                    ->orWhere('bank_reference', 'like', "%$search%")
+                    ->orWhere('customer_no', 'like', "%$search%")
+                    ->orWhere('bsi_payment_number', 'like', "%$search%");
             });
         }
 
-        if ($request->filled('tanggal_mulai')) {
-            $query->whereDate('created_at', '>=', $request->tanggal_mulai);
-        }
-
-        if ($request->filled('tanggal_akhir')) {
-            $query->whereDate('created_at', '<=', $request->tanggal_akhir);
+        $dateBy = $request->input('date_by');
+        if ($dateBy === 'created_at') {
+            if ($request->filled('tanggal_mulai')) {
+                $query->whereDate('created_at', '>=', $request->tanggal_mulai);
+            }
+            if ($request->filled('tanggal_akhir')) {
+                $query->whereDate('created_at', '<=', $request->tanggal_akhir);
+            }
+        } elseif ($dateBy === 'paid_at') {
+            if ($request->filled('tanggal_mulai')) {
+                $query->whereDate('paid_at', '>=', $request->tanggal_mulai);
+            }
+            if ($request->filled('tanggal_akhir')) {
+                $query->whereDate('paid_at', '<=', $request->tanggal_akhir);
+            }
+        } else {
+            if ($request->filled('tanggal_mulai') && $request->filled('tanggal_akhir')) {
+                $start = $request->tanggal_mulai;
+                $end = $request->tanggal_akhir;
+                $query->where(function ($q) use ($start, $end) {
+                    $q->where(function ($sq) use ($start, $end) {
+                        $sq->whereDate('created_at', '>=', $start)
+                            ->whereDate('created_at', '<=', $end);
+                    })->orWhere(function ($sq) use ($start, $end) {
+                        $sq->whereNotNull('paid_at')
+                            ->whereDate('paid_at', '>=', $start)
+                            ->whereDate('paid_at', '<=', $end);
+                    });
+                });
+            } elseif ($request->filled('tanggal_mulai')) {
+                $start = $request->tanggal_mulai;
+                $query->where(function ($q) use ($start) {
+                    $q->whereDate('created_at', '>=', $start)
+                        ->orWhere(function ($sq) use ($start) {
+                            $sq->whereNotNull('paid_at')->whereDate('paid_at', '>=', $start);
+                        });
+                });
+            } elseif ($request->filled('tanggal_akhir')) {
+                $end = $request->tanggal_akhir;
+                $query->where(function ($q) use ($end) {
+                    $q->whereDate('created_at', '<=', $end)
+                        ->orWhere(function ($sq) use ($end) {
+                            $sq->whereNotNull('paid_at')->whereDate('paid_at', '<=', $end);
+                        });
+                });
+            }
         }
 
         $limit = max(1, min(100, (int) $request->input('limit', 10)));
@@ -88,11 +170,21 @@ class BsiPaymentController extends Controller
         $query = BsiReconciliation::query()
             ->when(
                 $validated['tanggal_mulai'] ?? null,
-                fn ($query, $date) => $query->whereDate('reconciled_at', '>=', $date)
+                fn ($query, $date) => $query->where(function ($q) use ($date) {
+                    $q->whereDate('reconciled_at', '>=', $date)
+                        ->orWhere(function ($sq) use ($date) {
+                            $sq->whereNull('reconciled_at')->whereDate('transaction_at', '>=', $date);
+                        });
+                })
             )
             ->when(
                 $validated['tanggal_akhir'] ?? null,
-                fn ($query, $date) => $query->whereDate('reconciled_at', '<=', $date)
+                fn ($query, $date) => $query->where(function ($q) use ($date) {
+                    $q->whereDate('reconciled_at', '<=', $date)
+                        ->orWhere(function ($sq) use ($date) {
+                            $sq->whereNull('reconciled_at')->whereDate('transaction_at', '<=', $date);
+                        });
+                })
             );
 
         $total = (clone $query);
