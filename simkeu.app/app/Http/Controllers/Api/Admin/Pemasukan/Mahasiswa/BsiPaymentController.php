@@ -74,7 +74,8 @@ class BsiPaymentController extends Controller
                 $query->where(function ($q) {
                     $q->where(function ($sq) {
                         $sq->whereNull('reconciliation_status')
-                            ->orWhere('reconciliation_status', '');
+                            ->orWhere('reconciliation_status', '')
+                            ->orWhere('reconciliation_status', 'unreconciled');
                     })->whereDoesntHave('reconciliations');
                 });
             }
@@ -222,7 +223,8 @@ class BsiPaymentController extends Controller
         $unreconciledQuery = (clone $baseQuery)->where(function ($q) {
             $q->where(function ($sq) {
                 $sq->whereNull('reconciliation_status')
-                    ->orWhere('reconciliation_status', '');
+                    ->orWhere('reconciliation_status', '')
+                    ->orWhere('reconciliation_status', 'unreconciled');
             })->whereDoesntHave('reconciliations');
         });
 
