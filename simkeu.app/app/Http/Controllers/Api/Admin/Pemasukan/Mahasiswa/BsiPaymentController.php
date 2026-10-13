@@ -798,9 +798,12 @@ class BsiPaymentController extends Controller
                             'mismatch_description' => null,
                             'reconciled_at' => $existingRecon->reconciled_at ?: now(),
                         ]);
-                    } elseif ($reconId) {
+                    } else {
+                        $cleanNomor = preg_replace('/[^A-Za-z0-9]/', '', (string) ($payment->nomor ?: ('TRX' . $payment->id)));
+                        $reconIdToUse = $reconId ?: ('RECON-' . $cleanNomor);
+
                         BsiReconciliation::create([
-                            'recon_id' => $reconId,
+                            'recon_id' => $reconIdToUse,
                             'pembayaran_bsi_id' => $payment->id,
                             'payment_number' => $bsiPaymentNumber,
                             'transaction_at' => $paidAt,
@@ -811,6 +814,19 @@ class BsiPaymentController extends Controller
                             'checksum_valid' => true,
                             'match_status' => 'matched',
                             'mismatch_description' => null,
+                            'payload' => [
+                                'source' => 'manual_create',
+                                'recon_id' => $reconIdToUse,
+                                'nomorPembayaran' => $bsiPaymentNumber,
+                                'nomorInvoice' => $payment->nomor,
+                                'totalPembayaran' => (float) $total,
+                                'totalSettlement' => (float) $total,
+                                'wktTransaksi' => $paidAt->toIso8601String(),
+                                'wktRekonsiliasi' => now()->toIso8601String(),
+                                'statusRekonsiliasi' => 'SUKSES',
+                                'auto_created' => true,
+                                'created_by' => $request->user()?->id,
+                            ],
                         ]);
                     }
                 }
@@ -913,8 +929,25 @@ class BsiPaymentController extends Controller
                         'match_status' => $status,
                         'mismatch_description' => $status === 'matched' ? null : ($validated['mismatch_description'] ?? 'Diubah manual'),
                     ]);
+
+                    if (empty($targetRecon->payload)) {
+                        $targetRecon->update([
+                            'payload' => [
+                                'source' => 'manual_edit',
+                                'recon_id' => $targetRecon->recon_id,
+                                'nomorPembayaran' => $targetRecon->payment_number,
+                                'totalPembayaran' => (float) $paymentBsi->total,
+                                'totalSettlement' => (float) $paymentBsi->total,
+                                'wktTransaksi' => ($paymentBsi->paid_at ?: $paymentBsi->created_at ?: now())->toIso8601String(),
+                                'wktRekonsiliasi' => $reconciledAt->toIso8601String(),
+                                'statusRekonsiliasi' => 'SUKSES',
+                            ],
+                        ]);
+                    }
                 } else {
-                    $reconIdToUse = $reconId ?: ('RECON-' . ($paymentBsi->bsi_payment_number ?: $paymentBsi->va_number ?: $paymentBsi->id) . '-' . now()->format('Ymd'));
+                    $cleanNomor = preg_replace('/[^A-Za-z0-9]/', '', (string) ($paymentBsi->nomor ?: ('TRX' . $paymentBsi->id)));
+                    $reconIdToUse = $reconId ?: ('RECON-' . $cleanNomor);
+
                     BsiReconciliation::create([
                         'recon_id' => $reconIdToUse,
                         'pembayaran_bsi_id' => $paymentBsi->id,
@@ -929,6 +962,22 @@ class BsiPaymentController extends Controller
                         'checksum_valid' => true,
                         'match_status' => $status,
                         'mismatch_description' => $status === 'matched' ? null : ($validated['mismatch_description'] ?? 'Input rekonsiliasi manual'),
+                        'payload' => [
+                            'source' => 'manual_auto_create',
+                            'recon_id' => $reconIdToUse,
+                            'nomorPembayaran' => $paymentBsi->bsi_payment_number ?: $paymentBsi->va_number ?: $paymentBsi->customer_no,
+                            'nomorInvoice' => $paymentBsi->nomor,
+                            'totalPembayaran' => (float) $paymentBsi->total,
+                            'totalSettlement' => (float) $paymentBsi->total,
+                            'wktTransaksi' => ($paymentBsi->paid_at ?: $paymentBsi->created_at ?: now())->toIso8601String(),
+                            'wktRekonsiliasi' => $reconciledAt->toIso8601String(),
+                            'kodeFT' => $validated['settlement_code'] ?? null,
+                            'nomorJurnalPembukuan' => $validated['journal_number'] ?? null,
+                            'statusRekonsiliasi' => 'SUKSES',
+                            'auto_created' => true,
+                            'created_at' => now()->toIso8601String(),
+                            'created_by' => $request->user()?->id,
+                        ],
                     ]);
                 }
             }
