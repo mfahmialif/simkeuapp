@@ -7,6 +7,8 @@ use App\Models\KeuanganJenisPembayaranDetail;
 use App\Models\KeuanganNota;
 use App\Models\KeuanganPembayaran;
 use App\Models\KeuanganPembayaranBsi;
+use App\Models\KeuanganPembayaranIDN;
+use App\Models\KeuanganTagihan;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -191,16 +193,104 @@ class BsiPaymentTransferService
                 $payment->nim
             );
 
-            if ($payment->details->contains(
-                fn ($detail) => Str::contains(
-                    Str::lower((string) $detail->tagihan_nama),
-                    ['daftar ulang', 'regist']
-                )
-            )) {
+            if ($this->shouldActivateMahasiswa($payment)) {
                 Mahasiswa::updateStatusMahasiswa($payment->nim, 18);
             }
         } catch (Throwable $exception) {
             report($exception);
         }
+    }
+
+    /**
+     * Cek apakah pembayaran BSI memenuhi syarat untuk mengaktifkan mahasiswa:
+     * 1. Akumulasi pembayaran Herregistrasi/Daftar Ulang + SPP >= Rp 450.000 (baik cicilan maupun langsung), ATAU
+     * 2. Tagihan Herregistrasi + SPP pada semester tersebut sudah lunas (sisa <= 0).
+     */
+    public function shouldActivateMahasiswa(KeuanganPembayaranBsi $payment): bool
+    {
+        $eligibleDetails = $payment->details->filter(function ($detail) {
+            $nama = Str::lower((string) ($detail->tagihan_nama ?? $detail->tagihan?->nama ?? ''));
+
+            return Str::contains($nama, ['daftar ulang', 'regist', 'herregistrasi', 'spp']);
+        });
+
+        if ($eligibleDetails->isEmpty()) {
+            return false;
+        }
+
+        // 1. Cek langsung jika pembayaran pada transaksi BSI ini sudah >= 450.000
+        $currentPaid = (float) $eligibleDetails->sum('jumlah');
+        if ($currentPaid >= 450000) {
+            return true;
+        }
+
+        // 2. Cek akumulasi pembayaran herreg/spp pada tahun akademik terkait (cicilan bertahap)
+        $thAkademikIds = $eligibleDetails->pluck('th_akademik_id')->filter()->unique()->all();
+
+        if (! empty($thAkademikIds)) {
+            $cumulativePaid = (float) KeuanganPembayaran::query()
+                ->where('nim', $payment->nim)
+                ->whereIn('th_akademik_id', $thAkademikIds)
+                ->whereHas('tagihan', function ($q) {
+                    $q->where(function ($sub) {
+                        $sub->where('nama', 'LIKE', '%daftar ulang%')
+                            ->orWhere('nama', 'LIKE', '%regist%')
+                            ->orWhere('nama', 'LIKE', '%herregistrasi%')
+                            ->orWhere('nama', 'LIKE', '%spp%');
+                    });
+                })
+                ->sum('jumlah');
+
+            $tagihanIds = KeuanganTagihan::query()
+                ->whereIn('th_akademik_id', $thAkademikIds)
+                ->where(function ($q) {
+                    $q->where('nama', 'LIKE', '%daftar ulang%')
+                        ->orWhere('nama', 'LIKE', '%regist%')
+                        ->orWhere('nama', 'LIKE', '%herregistrasi%')
+                        ->orWhere('nama', 'LIKE', '%spp%');
+                })
+                ->pluck('id')
+                ->all();
+
+            $cumulativeIdn = 0;
+            if (! empty($tagihanIds)) {
+                $cumulativeIdn = (float) KeuanganPembayaranIDN::whereIn('tagihan_id', $tagihanIds)
+                    ->where('bill_key', $payment->nim)
+                    ->sum('total_bill_amount');
+            }
+
+            if (($cumulativePaid + $cumulativeIdn) >= 450000) {
+                return true;
+            }
+        }
+
+        // 3. Jika nominal masih < 450.000, cek apakah seluruh tagihan herreg/spp semester tersebut sudah lunas
+        try {
+            $tagihanData = TagihanMahasiswa::tagihan($payment->nim);
+            $rawBills = collect($tagihanData['list_tagihan'] ?? []);
+
+            $relevantBills = $rawBills->filter(function ($bill) use ($thAkademikIds) {
+                $thMatch = empty($thAkademikIds) || in_array((int) data_get($bill, 'th_akademik_id'), $thAkademikIds, true);
+                $nameMatch = Str::contains(
+                    Str::lower((string) data_get($bill, 'nama', '')),
+                    ['daftar ulang', 'regist', 'herregistrasi', 'spp']
+                );
+
+                return $thMatch && $nameMatch;
+            });
+
+            if ($relevantBills->isNotEmpty() && $relevantBills->every(fn ($b) => (float) data_get($b, 'sisa', 0) <= 0)) {
+                return true;
+            }
+        } catch (Throwable $e) {
+            $isDetailsLunas = $eligibleDetails->every(function ($detail) {
+                return ((float) $detail->sisa_awal - (float) $detail->jumlah) <= 0;
+            });
+            if ($isDetailsLunas) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }
