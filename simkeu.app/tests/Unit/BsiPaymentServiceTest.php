@@ -79,4 +79,81 @@ class BsiPaymentServiceTest extends TestCase
             $service->allocateFromTop([900000, 100000], 1200000)
         );
     }
+
+    public function test_prerequisite_is_satisfied_when_settled_in_same_order(): void
+    {
+        $service = new BsiPaymentService;
+        $allUnpaid = collect([
+            (object) ['id' => 10, 'nama' => 'HERREGISTRASI SEMESTER 10', 'sisa' => 300000],
+            (object) ['id' => 11, 'nama' => 'HERREGISTRASI SEMESTER 11', 'sisa' => 300000],
+        ]);
+
+        $inOrderItems = [
+            ['tagihan_id' => 10, 'jumlah' => 300000],
+            ['tagihan_id' => 11, 'jumlah' => 300000],
+        ];
+
+        $settledIds = $service->resolveInOrderSettledTagihanIds($inOrderItems, $allUnpaid);
+        $this->assertSame([10, 11], $settledIds);
+
+        $unpaidPrereqs = $service->filterUnpaidPrerequisites(
+            11,
+            collect(['HERREGISTRASI SEMESTER 10']),
+            $allUnpaid,
+            $settledIds
+        );
+
+        $this->assertTrue($unpaidPrereqs->isEmpty());
+    }
+
+    public function test_prerequisite_remains_unpaid_when_only_partially_paid_in_same_order(): void
+    {
+        $service = new BsiPaymentService;
+        $allUnpaid = collect([
+            (object) ['id' => 10, 'nama' => 'HERREGISTRASI SEMESTER 10', 'sisa' => 300000],
+            (object) ['id' => 11, 'nama' => 'HERREGISTRASI SEMESTER 11', 'sisa' => 300000],
+        ]);
+
+        $inOrderItems = [
+            ['tagihan_id' => 10, 'jumlah' => 150000],
+            ['tagihan_id' => 11, 'jumlah' => 300000],
+        ];
+
+        $settledIds = $service->resolveInOrderSettledTagihanIds($inOrderItems, $allUnpaid);
+        $this->assertSame([11], $settledIds);
+
+        $unpaidPrereqs = $service->filterUnpaidPrerequisites(
+            11,
+            collect(['HERREGISTRASI SEMESTER 10']),
+            $allUnpaid,
+            $settledIds
+        );
+
+        $this->assertSame(['HERREGISTRASI SEMESTER 10'], $unpaidPrereqs->all());
+    }
+
+    public function test_prerequisite_remains_unpaid_when_not_in_same_order(): void
+    {
+        $service = new BsiPaymentService;
+        $allUnpaid = collect([
+            (object) ['id' => 10, 'nama' => 'HERREGISTRASI SEMESTER 10', 'sisa' => 300000],
+            (object) ['id' => 11, 'nama' => 'HERREGISTRASI SEMESTER 11', 'sisa' => 300000],
+        ]);
+
+        $inOrderItems = [
+            ['tagihan_id' => 11, 'jumlah' => 300000],
+        ];
+
+        $settledIds = $service->resolveInOrderSettledTagihanIds($inOrderItems, $allUnpaid);
+        $this->assertSame([11], $settledIds);
+
+        $unpaidPrereqs = $service->filterUnpaidPrerequisites(
+            11,
+            collect(['HERREGISTRASI SEMESTER 10']),
+            $allUnpaid,
+            $settledIds
+        );
+
+        $this->assertSame(['HERREGISTRASI SEMESTER 10'], $unpaidPrereqs->all());
+    }
 }

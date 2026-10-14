@@ -11,6 +11,7 @@ use App\Models\KeuanganSyaratTagihan;
 use Carbon\Carbon;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -57,7 +58,7 @@ class BsiPaymentService
         return sprintf('BSI-%s-%08d', $date->format('Ymd'), $id);
     }
 
-    public function availableTagihan(string $nim): array
+    public function availableTagihan(string $nim, array $inOrderItems = []): array
     {
         self::expirePending();
 
@@ -66,10 +67,13 @@ class BsiPaymentService
         $allUnpaid = collect($tagihanData['list_tagihan'] ?? []);
         $activeRules = KeuanganSyaratTagihan::where('is_active', true)->get();
 
+        // Tentukan tagihan mana saja yang dilunasi penuh dalam $inOrderItems pada order yang sama
+        $inOrderSettledIds = $this->resolveInOrderSettledTagihanIds($inOrderItems, $allUnpaid);
+
         // SIAKAD hanya boleh menawarkan tagihan sampai semester mahasiswa saat ini.
         // Tagihan semester depan tetap tersimpan di SIMKEU, tetapi tidak dikirim ke VA.
         $items = collect($tagihanData['list_tagihan_semester_ini'] ?? [])
-            ->map(function ($tagihan) use ($activeRules, $allUnpaid) {
+            ->map(function ($tagihan) use ($activeRules, $allUnpaid, $inOrderSettledIds) {
                 $tagihanId = (int) data_get($tagihan, 'id');
                 $tagihanNama = trim((string) data_get($tagihan, 'nama'));
                 $sisaResmi = max(0, (float) data_get($tagihan, 'sisa', 0));
@@ -86,18 +90,8 @@ class BsiPaymentService
                     ->values();
 
                 // Cek apakah ada tagihan prasyarat yang masih memiliki sisa / belum lunas
-                $unpaidPrereqs = $allUnpaid->filter(function ($unpaid) use ($tagihanId, $prasyaratList) {
-                    if ((int) data_get($unpaid, 'id') === $tagihanId) {
-                        return false;
-                    }
-                    $unpaidNama = trim((string) data_get($unpaid, 'nama'));
-                    $sisa = (float) data_get($unpaid, 'sisa', 0);
-                    if ($sisa <= 0) {
-                        return false;
-                    }
-
-                    return $prasyaratList->contains(fn ($req) => strcasecmp($req, $unpaidNama) === 0);
-                })->pluck('nama')->map(fn ($n) => trim((string) $n))->unique()->values();
+                // Catatan: Jika tagihan prasyarat ikut dilunasi penuh dalam $inOrderItems, maka tidak dianggap belum lunas
+                $unpaidPrereqs = $this->filterUnpaidPrerequisites($tagihanId, $prasyaratList, $allUnpaid, $inOrderSettledIds);
 
                 $isBlockedByPrereq = $unpaidPrereqs->isNotEmpty();
                 $tidakBisaDibayar = (bool) data_get($tagihan, 'tidak_bisa_dibayar', false) || $isBlockedByPrereq;
@@ -139,6 +133,50 @@ class BsiPaymentService
             'list_tagihan' => $items->all(),
             'total_tersedia' => $items->sum('tersedia'),
         ];
+    }
+
+    public function resolveInOrderSettledTagihanIds(array $inOrderItems, Collection $allUnpaid): array
+    {
+        return collect($inOrderItems)
+            ->filter(function ($item) use ($allUnpaid) {
+                $tagihanId = (int) data_get($item, 'tagihan_id');
+                $jumlahBayar = round((float) data_get($item, 'jumlah', 0), 2);
+                $unpaid = $allUnpaid->first(fn ($u) => (int) data_get($u, 'id') === $tagihanId);
+                if (! $unpaid) {
+                    return false;
+                }
+                $sisa = round((float) data_get($unpaid, 'sisa', 0), 2);
+
+                return $jumlahBayar > 0 && ($jumlahBayar >= ($sisa - 0.01));
+            })
+            ->pluck('tagihan_id')
+            ->map(fn ($id) => (int) $id)
+            ->values()
+            ->all();
+    }
+
+    public function filterUnpaidPrerequisites(
+        int $tagihanId,
+        Collection $prasyaratList,
+        Collection $allUnpaid,
+        array $inOrderSettledIds = []
+    ): Collection {
+        return $allUnpaid->filter(function ($unpaid) use ($tagihanId, $prasyaratList, $inOrderSettledIds) {
+            $unpaidId = (int) data_get($unpaid, 'id');
+            if ($unpaidId === $tagihanId) {
+                return false;
+            }
+            if (in_array($unpaidId, $inOrderSettledIds, true)) {
+                return false;
+            }
+            $unpaidNama = trim((string) data_get($unpaid, 'nama'));
+            $sisa = (float) data_get($unpaid, 'sisa', 0);
+            if ($sisa <= 0) {
+                return false;
+            }
+
+            return $prasyaratList->contains(fn ($req) => strcasecmp($req, $unpaidNama) === 0);
+        })->pluck('nama')->map(fn ($n) => trim((string) $n))->unique()->values();
     }
 
     public function createPending(array $payload): array
@@ -248,7 +286,7 @@ class BsiPaymentService
                     return [$existing->load('details'), false];
                 }
 
-                $available = collect($this->availableTagihan($canonical['nim'])['list_tagihan'])->keyBy('id');
+                $available = collect($this->availableTagihan($canonical['nim'], $normalizedItems)['list_tagihan'])->keyBy('id');
                 $details = collect($normalizedItems)->map(function (array $item, int $index) use ($available) {
                     $tagihan = $available->get($item['tagihan_id']);
 
