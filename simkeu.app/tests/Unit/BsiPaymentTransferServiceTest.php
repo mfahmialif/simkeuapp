@@ -25,6 +25,19 @@ class BsiPaymentTransferServiceTest extends TestCase
         $this->assertSame(1, $service->resolveSemester('20250001', '20251'));
         $this->assertNull($service->resolveSemester('INVALID', '20252'));
         $this->assertNull($service->resolveSemester('20250001', '20253'));
+
+        // Test format NIM 2-digit tahun (misal: 2285xxxxx)
+        $this->assertSame(1, $service->resolveSemester('2285010004', '20221'));
+        $this->assertSame(7, $service->resolveSemester('2285010004', '20251'));
+        $this->assertSame(1, $service->resolveSemester('2485010001', '20241'));
+
+        // Test format NIM 4-digit tahun (misal: 202285xxxxx)
+        $this->assertSame(1, $service->resolveSemester('202285010004', '20221'));
+        $this->assertSame(7, $service->resolveSemester('202285010004', '20251'));
+
+        // Test fallback dari nama tagihan jika NIM tidak valid / tidak dapat dihitung
+        $this->assertSame(1, $service->resolveSemester('INVALID', '20221', 'UTS SEMESTER 1'));
+        $this->assertSame(3, $service->resolveSemester('INVALID', '20221', 'HERREGISTRASI SEMESTER 3'));
     }
 
     public function test_it_activates_when_combination_of_herreg_and_spp_is_at_least_450k(): void

@@ -721,11 +721,28 @@ class HelperController extends Controller
 
     private function resolveSemesterMahasiswa(string $nim, string $thAkademikKode): ?int
     {
-        $tahunMasuk = (int) substr($nim, 0, 4);
+        $clean = preg_replace('/\D/', '', $nim);
+        if (empty($clean)) {
+            return null;
+        }
+
+        $tahunMasuk = null;
+        $fourDigit = (int) substr($clean, 0, 4);
+        if ($fourDigit >= 1990 && $fourDigit <= 2040) {
+            $tahunMasuk = $fourDigit;
+        } elseif (strlen($clean) >= 4) {
+            $twoDigit = (int) substr($clean, 0, 2);
+            if ($twoDigit >= 0 && $twoDigit <= 50) {
+                $tahunMasuk = 2000 + $twoDigit;
+            } elseif ($twoDigit >= 70 && $twoDigit <= 99) {
+                $tahunMasuk = 1900 + $twoDigit;
+            }
+        }
+
         $tahunAkademik = (int) substr($thAkademikKode, 0, 4);
         $semesterAkademik = (int) substr($thAkademikKode, -1);
 
-        if ($tahunMasuk <= 0 || $tahunAkademik <= 0 || ! in_array($semesterAkademik, [1, 2], true)) {
+        if (! $tahunMasuk || $tahunAkademik <= 0 || ! in_array($semesterAkademik, [1, 2], true)) {
             return null;
         }
 

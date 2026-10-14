@@ -78,7 +78,8 @@ class BsiPaymentTransferService
 
                 $semester = $this->resolveSemester(
                     $locked->nim,
-                    (string) $detail->tahunAkademik?->kode
+                    (string) $detail->tahunAkademik?->kode,
+                    $detail->tagihan_nama
                 );
 
                 if (! $semester) {
@@ -156,19 +157,54 @@ class BsiPaymentTransferService
         }
     }
 
-    public function resolveSemester(string $nim, string $thAkademikKode): ?int
+    public function resolveTahunMasuk(string $nim): ?int
     {
-        $tahunMasuk = (int) substr($nim, 0, 4);
-        $tahunAkademik = (int) substr($thAkademikKode, 0, 4);
-        $semesterAkademik = (int) substr($thAkademikKode, -1);
-
-        if ($tahunMasuk <= 0 || $tahunAkademik <= 0 || ! in_array($semesterAkademik, [1, 2], true)) {
+        $clean = preg_replace('/\D/', '', $nim);
+        if (empty($clean)) {
             return null;
         }
 
-        $semester = (($tahunAkademik - $tahunMasuk) * 2) + $semesterAkademik;
+        // 1. Format dengan 4 digit tahun di awal (misal: 202285010004, 20240001, 2019.85...)
+        $fourDigit = (int) substr($clean, 0, 4);
+        if ($fourDigit >= 1990 && $fourDigit <= 2040) {
+            return $fourDigit;
+        }
 
-        return $semester > 0 ? $semester : null;
+        // 2. Format dengan 2 digit tahun di awal (misal: 2285010004, 2385..., 2485..., 2585...)
+        if (strlen($clean) >= 4) {
+            $twoDigit = (int) substr($clean, 0, 2);
+            if ($twoDigit >= 0 && $twoDigit <= 50) {
+                return 2000 + $twoDigit;
+            } elseif ($twoDigit >= 70 && $twoDigit <= 99) {
+                return 1900 + $twoDigit;
+            }
+        }
+
+        return null;
+    }
+
+    public function resolveSemester(string $nim, string $thAkademikKode, ?string $tagihanNama = null): ?int
+    {
+        $tahunMasuk = $this->resolveTahunMasuk($nim);
+        $tahunAkademik = (int) substr($thAkademikKode, 0, 4);
+        $semesterAkademik = (int) substr($thAkademikKode, -1);
+
+        if ($tahunMasuk && $tahunAkademik > 0 && in_array($semesterAkademik, [1, 2], true)) {
+            $semester = (($tahunAkademik - $tahunMasuk) * 2) + $semesterAkademik;
+            if ($semester > 0) {
+                return $semester;
+            }
+        }
+
+        // Fallback: Jika perhitungan tahun menghasilkan null/<=0, cek apakah nama tagihan memuat informasi semester
+        if ($tagihanNama && preg_match('/\bsemester\s+(\d+)\b/i', $tagihanNama, $matches)) {
+            $semFromName = (int) $matches[1];
+            if ($semFromName > 0) {
+                return $semFromName;
+            }
+        }
+
+        return null;
     }
 
     public function postedPaymentNumber(?string $bsiNumber, int $sequence): string
