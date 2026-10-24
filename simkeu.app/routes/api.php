@@ -32,6 +32,7 @@ use App\Http\Controllers\Api\Admin\KeuanganMetodeVaController;
 use App\Http\Controllers\Api\SiakadUasSusulanController;
 
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\LaporanController;
+use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\SettingAkhirLaporanController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\SetoranController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\TagihanController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\TagihanPeroranganController;
@@ -363,6 +364,11 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
                 Route::get('pemasukan-tunai-harian', [LaporanController::class, 'pemasukanTunaiHarian']);
                 Route::get('laporan-harian', [LaporanController::class, 'laporanHarianDetail']);
                 Route::get('pemasukan-uii-dalwa', [LaporanController::class, 'pemasukanUiiDalwa']);
+                Route::get('setting-akhir-laporan', [SettingAkhirLaporanController::class, 'index']);
+                Route::get('setting-akhir-laporan/options', [SettingAkhirLaporanController::class, 'getOptions']);
+                Route::post('setting-akhir-laporan', [SettingAkhirLaporanController::class, 'store']);
+                Route::put('setting-akhir-laporan/{id}', [SettingAkhirLaporanController::class, 'update']);
+                Route::delete('setting-akhir-laporan/{id}', [SettingAkhirLaporanController::class, 'destroy']);
             });
         });
 

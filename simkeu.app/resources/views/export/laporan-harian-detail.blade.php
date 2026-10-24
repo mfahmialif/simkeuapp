@@ -51,7 +51,7 @@
                 <td style="text-align:center;">{{ $row['prodi'] }}</td>
                 <td>{{ $row['pembayaran'] }}</td>
                 <td style="text-align:right;">{{ \App\Services\MataUangFormatter::amount($row['nominal'], $row['mata_uang']) }}</td>
-                <td style="text-align:center;">{{ $row['metode'] }}</td>
+                <td style="text-align:center;">{{ $row['metode'] }}{{ !empty($row['is_carry_over']) ? ' (Masuk ' . ($row['accounting_period'] ?? 'Bulan Berikutnya') . ')' : '' }}</td>
                 <td>{{ $row['petugas'] }}</td>
             </tr>
         @endforeach

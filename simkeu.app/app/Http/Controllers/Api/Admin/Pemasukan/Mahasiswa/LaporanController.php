@@ -881,9 +881,10 @@ class LaporanController extends Controller
         $jenisPembayaranId = null,
         $userId = null
     ) {
-        $daysInMonth = cal_days_in_month(CAL_GREGORIAN, $month, $year);
-        $startDate = sprintf("%04d-%02d-01", $year, $month);
-        $endDate = sprintf("%04d-%02d-%02d", $year, $month, $daysInMonth);
+        $periodMeta = \App\Services\LaporanCutOffService::getMonthPeriodMeta((int) $year, (int) $month);
+        $daysInMonth = $periodMeta['days_in_current_month'];
+        $startDate = $periodMeta['query_start_date'];
+        $endDate = $periodMeta['query_end_date'];
 
         $paymentFilter = $this->resolveJenisPembayaranFilter($jenisPembayaranId);
         $targetJpIds = $paymentFilter["ids"];
@@ -910,6 +911,18 @@ class LaporanController extends Controller
                 "keuangan_pembayaran.tagihan_id",
             )
                 ->leftJoin("mata_uang as mu", "mu.id", "=", "kt.mata_uang_id")
+                ->leftJoin(
+                    "keuangan_jenis_pembayaran_detail as kjpd",
+                    "kjpd.pembayaran_id",
+                    "=",
+                    "keuangan_pembayaran.id",
+                )
+                ->leftJoin(
+                    "keuangan_jenis_pembayaran as kjp",
+                    "kjp.id",
+                    "=",
+                    "kjpd.jenis_pembayaran_id",
+                )
                 ->whereBetween("keuangan_pembayaran.tanggal", [
                     $startDate . " 00:00:00",
                     $endDate . " 23:59:59",
@@ -931,14 +944,7 @@ class LaporanController extends Controller
             }
 
             if (!empty($targetJpIds)) {
-                $paymentsQuery
-                    ->join(
-                        "keuangan_jenis_pembayaran_detail as kjpd",
-                        "kjpd.pembayaran_id",
-                        "=",
-                        "keuangan_pembayaran.id",
-                    )
-                    ->whereIn("kjpd.jenis_pembayaran_id", $targetJpIds);
+                $paymentsQuery->whereIn("kjpd.jenis_pembayaran_id", $targetJpIds);
             }
 
             if ($userId) {
@@ -947,12 +953,14 @@ class LaporanController extends Controller
 
             $payments = $paymentsQuery
                 ->selectRaw(
-                    "DATE(keuangan_pembayaran.tanggal) as tgl, kt.nama as tagihan_nama, kt.prodi_id, COALESCE(mu.id, 0) as mata_uang_id, COALESCE(mu.kode, 'IDR') as mata_uang_kode, COALESCE(mu.nama, 'Rupiah') as mata_uang_nama, COALESCE(mu.simbol, 'Rp') as mata_uang_simbol, SUM(keuangan_pembayaran.jumlah) as total_jumlah",
+                    "DATE(keuangan_pembayaran.tanggal) as tgl, kt.nama as tagihan_nama, kt.prodi_id, COALESCE(kjp.nama, '') as jenis_pembayaran_nama, COALESCE(kjp.id, 0) as jenis_pembayaran_id, COALESCE(mu.id, 0) as mata_uang_id, COALESCE(mu.kode, 'IDR') as mata_uang_kode, COALESCE(mu.nama, 'Rupiah') as mata_uang_nama, COALESCE(mu.simbol, 'Rp') as mata_uang_simbol, SUM(keuangan_pembayaran.jumlah) as total_jumlah",
                 )
                 ->groupBy(
                     DB::raw("DATE(keuangan_pembayaran.tanggal)"),
                     "kt.nama",
                     "kt.prodi_id",
+                    "kjp.nama",
+                    "kjp.id",
                     "mu.id",
                     "mu.kode",
                     "mu.nama",
@@ -967,6 +975,18 @@ class LaporanController extends Controller
                 "keuangan_pembayaran.tagihan_id",
             )
                 ->leftJoin("mata_uang as mu", "mu.id", "=", "kt.mata_uang_id")
+                ->leftJoin(
+                    "keuangan_jenis_pembayaran_detail as kjpd",
+                    "kjpd.pembayaran_id",
+                    "=",
+                    "keuangan_pembayaran.id",
+                )
+                ->leftJoin(
+                    "keuangan_jenis_pembayaran as kjp",
+                    "kjp.id",
+                    "=",
+                    "kjpd.jenis_pembayaran_id",
+                )
                 ->whereBetween("keuangan_pembayaran.tanggal", [
                     $startDate . " 00:00:00",
                     $endDate . " 23:59:59",
@@ -978,14 +998,7 @@ class LaporanController extends Controller
             }
 
             if (!empty($targetJpIds)) {
-                $spPaymentsQuery
-                    ->join(
-                        "keuangan_jenis_pembayaran_detail as kjpd",
-                        "kjpd.pembayaran_id",
-                        "=",
-                        "keuangan_pembayaran.id",
-                    )
-                    ->whereIn("kjpd.jenis_pembayaran_id", $targetJpIds);
+                $spPaymentsQuery->whereIn("kjpd.jenis_pembayaran_id", $targetJpIds);
             }
 
             if ($userId) {
@@ -994,12 +1007,14 @@ class LaporanController extends Controller
 
             $spPayments = $spPaymentsQuery
                 ->selectRaw(
-                    "DATE(keuangan_pembayaran.tanggal) as tgl, kt.nama as tagihan_nama, kt.prodi_id, COALESCE(mu.id, 0) as mata_uang_id, COALESCE(mu.kode, 'IDR') as mata_uang_kode, COALESCE(mu.nama, 'Rupiah') as mata_uang_nama, COALESCE(mu.simbol, 'Rp') as mata_uang_simbol, SUM(keuangan_pembayaran.jumlah) as total_jumlah",
+                    "DATE(keuangan_pembayaran.tanggal) as tgl, kt.nama as tagihan_nama, kt.prodi_id, COALESCE(kjp.nama, '') as jenis_pembayaran_nama, COALESCE(kjp.id, 0) as jenis_pembayaran_id, COALESCE(mu.id, 0) as mata_uang_id, COALESCE(mu.kode, 'IDR') as mata_uang_kode, COALESCE(mu.nama, 'Rupiah') as mata_uang_nama, COALESCE(mu.simbol, 'Rp') as mata_uang_simbol, SUM(keuangan_pembayaran.jumlah) as total_jumlah",
                 )
                 ->groupBy(
                     DB::raw("DATE(keuangan_pembayaran.tanggal)"),
                     "kt.nama",
                     "kt.prodi_id",
+                    "kjp.nama",
+                    "kjp.id",
                     "mu.id",
                     "mu.kode",
                     "mu.nama",
@@ -1030,11 +1045,35 @@ class LaporanController extends Controller
         $totals["jumlah"] = 0;
         $totals["jumlah_by_currency"] = [];
 
+        $rowNo = 1;
+        // Prepend tanggal carry-over dari bulan sebelumnya jika ada
+        foreach ($periodMeta['carry_over_dates'] as $carryDate) {
+            $dNum = (int) date('j', strtotime($carryDate));
+            $mNum = (int) date('n', strtotime($carryDate));
+            $row = [
+                "no" => $rowNo++,
+                "tanggal" => $carryDate,
+                "is_carry_over" => true,
+                "carry_over_from" => $periodMeta['prev_month_name'],
+                "label_tanggal" => sprintf("%02d/%02d (%s)", $dNum, $mNum, substr($periodMeta['prev_month_name'], 0, 3)),
+                "jumlah" => 0,
+            ];
+            foreach ($columns as $col) {
+                $row[$col["key"]] = 0;
+                $row[$col["key"] . "_by_currency"] = [];
+            }
+            $row["jumlah_by_currency"] = [];
+            $dataMap[$carryDate] = $row;
+        }
+
+        // Tanggal bulan berjalan
         for ($day = 1; $day <= $daysInMonth; $day++) {
             $dateStr = sprintf("%04d-%02d-%02d", $year, $month, $day);
             $row = [
-                "no" => $day,
+                "no" => $rowNo++,
                 "tanggal" => $dateStr,
+                "is_carry_over" => false,
+                "label_tanggal" => sprintf("%02d/%02d", $day, $month),
                 "jumlah" => 0,
             ];
             foreach ($columns as $col) {
@@ -1053,6 +1092,21 @@ class LaporanController extends Controller
         foreach ($payments as $payment) {
             $tgl = $payment->tgl;
             $namaRaw = $payment->tagihan_nama;
+            $namaUpper = strtoupper($namaRaw);
+            $prodi_id = $payment->prodi_id;
+            $jumlah = (float) $payment->total_jumlah;
+            $mataUang = MataUangFormatter::fromColumns($payment);
+
+            // Cek apakah pembayaran masuk dalam periode pembukuan bulan ini sesuai setting cut-off
+            if (!\App\Services\LaporanCutOffService::isPaymentInAccountingMonth(
+                $tgl,
+                $payment->jenis_pembayaran_nama ?? '',
+                $payment->jenis_pembayaran_id ? (int) $payment->jenis_pembayaran_id : null,
+                (int) $year,
+                (int) $month
+            )) {
+                continue;
+            }
             $namaUpper = strtoupper($namaRaw);
             $prodi_id = $payment->prodi_id;
             $jumlah = (float) $payment->total_jumlah;
@@ -1117,6 +1171,17 @@ class LaporanController extends Controller
 
             $tgl = date("Y-m-d", strtotime($pmb["tanggal_bayar"]));
             $jumlah = (float) $pmb["nominal"];
+            $pmbMethod = $pmb["metode_pembayaran"] ?? $pmb["jenis_pembayaran"] ?? "cash";
+
+            if (!\App\Services\LaporanCutOffService::isPaymentInAccountingMonth(
+                $tgl,
+                $pmbMethod,
+                null,
+                (int) $year,
+                (int) $month
+            )) {
+                continue;
+            }
 
             if (!isset($dataMap[$tgl])) {
                 continue;
@@ -1175,8 +1240,9 @@ class LaporanController extends Controller
                 }
             }
 
-            $puRecords = $puQuery->selectRaw("DATE(tanggal) as tgl, SUM(nominal) as total_nominal")
-                ->groupBy(DB::raw("DATE(tanggal)"))
+            $puRecords = $puQuery->leftJoin("keuangan_jenis_pembayaran as kjp", "kjp.id", "=", "keuangan_pemasukan_umum.jenis_pembayaran_id")
+                ->selectRaw("DATE(keuangan_pemasukan_umum.tanggal) as tgl, COALESCE(kjp.nama, 'Cash') as jenis_pembayaran_nama, keuangan_pemasukan_umum.jenis_pembayaran_id, SUM(keuangan_pemasukan_umum.nominal) as total_nominal")
+                ->groupBy(DB::raw("DATE(keuangan_pemasukan_umum.tanggal)"), "kjp.nama", "keuangan_pemasukan_umum.jenis_pembayaran_id")
                 ->get();
 
             $assignedKey = "pemasukan_umum";
@@ -1185,6 +1251,16 @@ class LaporanController extends Controller
                 foreach ($puRecords as $pu) {
                     $tgl = $pu->tgl;
                     $jumlah = (float) $pu->total_nominal;
+
+                    if (!\App\Services\LaporanCutOffService::isPaymentInAccountingMonth(
+                        $tgl,
+                        $pu->jenis_pembayaran_nama,
+                        $pu->jenis_pembayaran_id,
+                        (int) $year,
+                        (int) $month
+                    )) {
+                        continue;
+                    }
 
                     if (isset($dataMap[$tgl])) {
                         $dataMap[$tgl][$assignedKey] += $jumlah;
@@ -1239,8 +1315,9 @@ class LaporanController extends Controller
                 }
             }
 
-            $pdRecords = $pdQuery->selectRaw("DATE(tanggal) as tgl, SUM(nominal) as total_nominal")
-                ->groupBy(DB::raw("DATE(tanggal)"))
+            $pdRecords = $pdQuery->leftJoin("keuangan_jenis_pembayaran as kjp", "kjp.id", "=", "keuangan_pengembalian_dana.jenis_pembayaran_id")
+                ->selectRaw("DATE(keuangan_pengembalian_dana.tanggal) as tgl, COALESCE(kjp.nama, 'Cash') as jenis_pembayaran_nama, keuangan_pengembalian_dana.jenis_pembayaran_id, SUM(keuangan_pengembalian_dana.nominal) as total_nominal")
+                ->groupBy(DB::raw("DATE(keuangan_pengembalian_dana.tanggal)"), "kjp.nama", "keuangan_pengembalian_dana.jenis_pembayaran_id")
                 ->get();
 
             $assignedKey = "pengembalian_dana";
@@ -1250,6 +1327,16 @@ class LaporanController extends Controller
                     $tgl = $pd->tgl;
                     $nominalPositif = (float) $pd->total_nominal;
                     if ($nominalPositif <= 0) {
+                        continue;
+                    }
+
+                    if (!\App\Services\LaporanCutOffService::isPaymentInAccountingMonth(
+                        $tgl,
+                        $pd->jenis_pembayaran_nama,
+                        $pd->jenis_pembayaran_id,
+                        (int) $year,
+                        (int) $month
+                    )) {
                         continue;
                     }
 
@@ -1333,6 +1420,7 @@ class LaporanController extends Controller
             "bulan_name" => $bulanNames[$month],
             "data" => $data,
             "totals" => $totals,
+            "cut_off_info" => $periodMeta,
         ];
     }
 
@@ -1414,14 +1502,9 @@ class LaporanController extends Controller
                 $year = (int) $parts[0];
                 $month = (int) $parts[1];
 
-                $daysInMonth = cal_days_in_month(CAL_GREGORIAN, $month, $year);
-                $startDate = sprintf("%04d-%02d-01", $year, $month);
-                $endDate = sprintf(
-                    "%04d-%02d-%02d",
-                    $year,
-                    $month,
-                    $daysInMonth,
-                );
+                $periodMeta = \App\Services\LaporanCutOffService::getMonthPeriodMeta($year, $month);
+                $startDate = $periodMeta['query_start_date'];
+                $endDate = $periodMeta['query_end_date'];
             }
 
             try {
@@ -1703,7 +1786,9 @@ class LaporanController extends Controller
                     $jenjang,
                     $paymentFilter,
                     $userId,
-                    $pmbDataAll
+                    $pmbDataAll,
+                    $year,
+                    $month
                 );
 
                 return response()->json([
@@ -1715,6 +1800,7 @@ class LaporanController extends Controller
                     "totals" => $monthData["totals"],
                     "rincian_jenis_pembayaran" => $rincianJenisPembayaran,
                     "jenis_kelamin" => $jp->kategori ?? "Semua",
+                    "cut_off_info" => $monthData["cut_off_info"] ?? null,
                 ]);
             }
         } catch (\Throwable $th) {
@@ -2182,7 +2268,9 @@ class LaporanController extends Controller
         $jenjang,
         $paymentFilter,
         $userId,
-        $pmbDataAll = []
+        $pmbDataAll = [],
+        $targetYear = null,
+        $targetMonth = null
     ) {
         $typeTotals = [];
         $targetJpIds = $paymentFilter["ids"] ?? null;
@@ -2242,11 +2330,16 @@ class LaporanController extends Controller
         }
 
         $mhsPayments = $paymentsQuery
-            ->selectRaw("COALESCE(kjp.nama, 'Lainnya') as nama, COALESCE(mu.id, 0) as mata_uang_id, COALESCE(mu.kode, 'IDR') as mata_uang_kode, COALESCE(mu.nama, 'Rupiah') as mata_uang_nama, COALESCE(mu.simbol, 'Rp') as mata_uang_simbol, SUM(keuangan_pembayaran.jumlah) as total_jumlah")
-            ->groupBy("kjp.nama", "mu.id", "mu.kode", "mu.nama", "mu.simbol")
+            ->selectRaw("DATE(keuangan_pembayaran.tanggal) as tgl, COALESCE(kjp.nama, 'Lainnya') as nama, COALESCE(kjp.id, 0) as jenis_pembayaran_id, COALESCE(mu.id, 0) as mata_uang_id, COALESCE(mu.kode, 'IDR') as mata_uang_kode, COALESCE(mu.nama, 'Rupiah') as mata_uang_nama, COALESCE(mu.simbol, 'Rp') as mata_uang_simbol, SUM(keuangan_pembayaran.jumlah) as total_jumlah")
+            ->groupBy(DB::raw("DATE(keuangan_pembayaran.tanggal)"), "kjp.nama", "kjp.id", "mu.id", "mu.kode", "mu.nama", "mu.simbol")
             ->get();
 
         foreach ($mhsPayments as $p) {
+            if ($targetYear && $targetMonth) {
+                if (!\App\Services\LaporanCutOffService::isPaymentInAccountingMonth($p->tgl, $p->nama, $p->jenis_pembayaran_id, (int) $targetYear, (int) $targetMonth)) {
+                    continue;
+                }
+            }
             $mataUang = MataUangFormatter::fromColumns($p);
             $addPayment($p->nama, $p->total_jumlah, $mataUang);
         }
@@ -2280,14 +2373,19 @@ class LaporanController extends Controller
         }
 
         $spPayments = $spPaymentsQuery
-            ->selectRaw("COALESCE(kjp.nama, 'Lainnya') as nama, kt.nama as tagihan_nama, COALESCE(mu.id, 0) as mata_uang_id, COALESCE(mu.kode, 'IDR') as mata_uang_kode, COALESCE(mu.nama, 'Rupiah') as mata_uang_nama, COALESCE(mu.simbol, 'Rp') as mata_uang_simbol, SUM(keuangan_pembayaran.jumlah) as total_jumlah")
-            ->groupBy("kjp.nama", "kt.nama", "mu.id", "mu.kode", "mu.nama", "mu.simbol")
+            ->selectRaw("DATE(keuangan_pembayaran.tanggal) as tgl, COALESCE(kjp.nama, 'Lainnya') as nama, COALESCE(kjp.id, 0) as jenis_pembayaran_id, kt.nama as tagihan_nama, COALESCE(mu.id, 0) as mata_uang_id, COALESCE(mu.kode, 'IDR') as mata_uang_kode, COALESCE(mu.nama, 'Rupiah') as mata_uang_nama, COALESCE(mu.simbol, 'Rp') as mata_uang_simbol, SUM(keuangan_pembayaran.jumlah) as total_jumlah")
+            ->groupBy(DB::raw("DATE(keuangan_pembayaran.tanggal)"), "kjp.nama", "kjp.id", "kt.nama", "mu.id", "mu.kode", "mu.nama", "mu.simbol")
             ->get();
 
         $spPayments = $this->mapSemesterPendekPaymentsFromTagihan($spPayments);
         $spPayments = $this->filterSemesterPendekPaymentsByJenjang($spPayments, $jenjang);
 
         foreach ($spPayments as $p) {
+            if ($targetYear && $targetMonth) {
+                if (!\App\Services\LaporanCutOffService::isPaymentInAccountingMonth($p->tgl, $p->nama, $p->jenis_pembayaran_id, (int) $targetYear, (int) $targetMonth)) {
+                    continue;
+                }
+            }
             $mataUang = MataUangFormatter::fromColumns($p);
             $addPayment($p->nama, $p->total_jumlah, $mataUang);
         }
@@ -2321,12 +2419,17 @@ class LaporanController extends Controller
             }
 
             $puRecords = $puQuery
-                ->selectRaw("COALESCE(kjp.nama, 'Tunai') as nama, SUM(keuangan_pemasukan_umum.nominal) as total_nominal")
-                ->groupBy("kjp.nama")
+                ->selectRaw("DATE(keuangan_pemasukan_umum.tanggal) as tgl, COALESCE(kjp.nama, 'Tunai') as nama, keuangan_pemasukan_umum.jenis_pembayaran_id, SUM(keuangan_pemasukan_umum.nominal) as total_nominal")
+                ->groupBy(DB::raw("DATE(keuangan_pemasukan_umum.tanggal)"), "kjp.nama", "keuangan_pemasukan_umum.jenis_pembayaran_id")
                 ->get();
 
             $mataUang = MataUangFormatter::defaultCurrency();
             foreach ($puRecords as $pu) {
+                if ($targetYear && $targetMonth) {
+                    if (!\App\Services\LaporanCutOffService::isPaymentInAccountingMonth($pu->tgl, $pu->nama, $pu->jenis_pembayaran_id, (int) $targetYear, (int) $targetMonth)) {
+                        continue;
+                    }
+                }
                 $addPayment($pu->nama, $pu->total_nominal, $mataUang);
             }
 
@@ -2358,11 +2461,16 @@ class LaporanController extends Controller
             }
 
             $pdRecords = $pdQuery
-                ->selectRaw("COALESCE(kjp.nama, 'Tunai') as nama, SUM(keuangan_pengembalian_dana.nominal) as total_nominal")
-                ->groupBy("kjp.nama")
+                ->selectRaw("DATE(keuangan_pengembalian_dana.tanggal) as tgl, COALESCE(kjp.nama, 'Tunai') as nama, keuangan_pengembalian_dana.jenis_pembayaran_id, SUM(keuangan_pengembalian_dana.nominal) as total_nominal")
+                ->groupBy(DB::raw("DATE(keuangan_pengembalian_dana.tanggal)"), "kjp.nama", "keuangan_pengembalian_dana.jenis_pembayaran_id")
                 ->get();
 
             foreach ($pdRecords as $pd) {
+                if ($targetYear && $targetMonth) {
+                    if (!\App\Services\LaporanCutOffService::isPaymentInAccountingMonth($pd->tgl, $pd->nama, $pd->jenis_pembayaran_id, (int) $targetYear, (int) $targetMonth)) {
+                        continue;
+                    }
+                }
                 $addPayment($pd->nama, -1 * (float) $pd->total_nominal, $mataUang);
             }
         }
@@ -2371,8 +2479,16 @@ class LaporanController extends Controller
         if (!empty($pmbDataAll)) {
             $mataUang = MataUangFormatter::defaultCurrency();
             foreach ($pmbDataAll as $item) {
+                $tgl = isset($item["tanggal_bayar"]) ? date("Y-m-d", strtotime($item["tanggal_bayar"])) : null;
                 $metode = (string) data_get($item, "jenis_pembayaran", data_get($item, "metode_pembayaran", ""));
                 $nominal = (float) data_get($item, "nominal", 0);
+
+                if ($tgl && $targetYear && $targetMonth) {
+                    if (!\App\Services\LaporanCutOffService::isPaymentInAccountingMonth($tgl, $metode, null, (int) $targetYear, (int) $targetMonth)) {
+                        continue;
+                    }
+                }
+
                 $addPayment($metode, $nominal, $mataUang);
             }
         }
@@ -3150,9 +3266,43 @@ class LaporanController extends Controller
             );
         });
 
+        $tStamp = strtotime($tanggal);
+        $tYear = (int) date('Y', $tStamp);
+        $tMonth = (int) date('n', $tStamp);
+        $tDay = (int) date('j', $tStamp);
+
+        $bulanNames = [
+            1 => "Januari", 2 => "Februari", 3 => "Maret", 4 => "April",
+            5 => "Mei", 6 => "Juni", 7 => "Juli", 8 => "Agustus",
+            9 => "September", 10 => "Oktober", 11 => "November", 12 => "Desember"
+        ];
+
+        $settingsThisMonth = \App\Services\LaporanCutOffService::getSettingsForMonth($tYear, $tMonth);
+        $isPastCutOff = false;
+        $shiftedMonth = null;
+        if ($settingsThisMonth->isNotEmpty()) {
+            $minCutOff = $settingsThisMonth->min('tanggal_akhir');
+            if ($minCutOff && $tDay > $minCutOff) {
+                $isPastCutOff = true;
+                $nxtM = $tMonth + 1;
+                $nxtY = $tYear;
+                if ($nxtM > 12) { $nxtM = 1; $nxtY++; }
+                $shiftedMonth = [
+                    'bulan' => $nxtM,
+                    'tahun' => $nxtY,
+                    'label' => ($bulanNames[$nxtM] ?? "Bulan $nxtM") . " " . $nxtY,
+                    'cut_off_day' => $minCutOff,
+                ];
+            }
+        }
+
         $no = 1;
         foreach ($rows as &$row) {
             $row["no"] = $no++;
+            $methodName = $row["metode"] ?? "";
+            $inMonth = \App\Services\LaporanCutOffService::isPaymentInAccountingMonth($tanggal, $methodName, null, $tYear, $tMonth);
+            $row["is_carry_over"] = !$inMonth;
+            $row["accounting_period"] = !$inMonth ? ($shiftedMonth["label"] ?? "Bulan Berikutnya") : null;
         }
         unset($row);
 
@@ -3184,6 +3334,8 @@ class LaporanController extends Controller
             "total" => $total,
             "total_by_currency" => $totalByCurrency,
             "rincian_jenis_pembayaran" => $rincianJenisPembayaran,
+            "is_past_cut_off" => $isPastCutOff,
+            "shifted_month" => $shiftedMonth,
         ];
     }
 
@@ -3215,6 +3367,8 @@ class LaporanController extends Controller
                 "tanggal" => $data["tanggal"],
                 "kategori" => $data["kategori"],
                 "jenis_kelamin" => $data["jenis_kelamin"],
+                "is_past_cut_off" => $data["is_past_cut_off"] ?? false,
+                "shifted_month" => $data["shifted_month"] ?? null,
             ]);
         } catch (\Throwable $th) {
             return response()->json([
@@ -3311,14 +3465,9 @@ class LaporanController extends Controller
                 }
                 $year = (int) $parts[0];
                 $month = (int) $parts[1];
-                $daysInMonth = cal_days_in_month(CAL_GREGORIAN, $month, $year);
-                $startDate = sprintf("%04d-%02d-01", $year, $month);
-                $endDate = sprintf(
-                    "%04d-%02d-%02d",
-                    $year,
-                    $month,
-                    $daysInMonth,
-                );
+                $periodMeta = \App\Services\LaporanCutOffService::getMonthPeriodMeta($year, $month);
+                $startDate = $periodMeta['query_start_date'];
+                $endDate = $periodMeta['query_end_date'];
 
                 $bulanNames = [
                     1 => "JANUARI",
@@ -3452,12 +3601,14 @@ class LaporanController extends Controller
             } else {
                 $payments = $paymentsQuery
                     ->selectRaw(
-                        "kt.nama as tagihan_nama, kt.prodi_id, kjp.nama as jenis_pembayaran_nama, COALESCE(mu.id, 0) as mata_uang_id, COALESCE(mu.kode, 'IDR') as mata_uang_kode, COALESCE(mu.nama, 'Rupiah') as mata_uang_nama, COALESCE(mu.simbol, 'Rp') as mata_uang_simbol, SUM(keuangan_pembayaran.jumlah) as total_jumlah",
+                        "DATE(keuangan_pembayaran.tanggal) as tgl, kt.nama as tagihan_nama, kt.prodi_id, kjp.nama as jenis_pembayaran_nama, kjp.id as jenis_pembayaran_id, COALESCE(mu.id, 0) as mata_uang_id, COALESCE(mu.kode, 'IDR') as mata_uang_kode, COALESCE(mu.nama, 'Rupiah') as mata_uang_nama, COALESCE(mu.simbol, 'Rp') as mata_uang_simbol, SUM(keuangan_pembayaran.jumlah) as total_jumlah",
                     )
                     ->groupBy(
+                        DB::raw("DATE(keuangan_pembayaran.tanggal)"),
                         "kt.nama",
                         "kt.prodi_id",
                         "kjp.nama",
+                        "kjp.id",
                         "mu.id",
                         "mu.kode",
                         "mu.nama",
@@ -3521,12 +3672,14 @@ class LaporanController extends Controller
             } else {
                 $spPayments = $spPaymentsQuery
                     ->selectRaw(
-                        "kt.nama as tagihan_nama, kt.prodi_id, kjp.nama as jenis_pembayaran_nama, COALESCE(mu.id, 0) as mata_uang_id, COALESCE(mu.kode, 'IDR') as mata_uang_kode, COALESCE(mu.nama, 'Rupiah') as mata_uang_nama, COALESCE(mu.simbol, 'Rp') as mata_uang_simbol, SUM(keuangan_pembayaran.jumlah) as total_jumlah",
+                        "DATE(keuangan_pembayaran.tanggal) as tgl, kt.nama as tagihan_nama, kt.prodi_id, kjp.nama as jenis_pembayaran_nama, kjp.id as jenis_pembayaran_id, COALESCE(mu.id, 0) as mata_uang_id, COALESCE(mu.kode, 'IDR') as mata_uang_kode, COALESCE(mu.nama, 'Rupiah') as mata_uang_nama, COALESCE(mu.simbol, 'Rp') as mata_uang_simbol, SUM(keuangan_pembayaran.jumlah) as total_jumlah",
                     )
                     ->groupBy(
+                        DB::raw("DATE(keuangan_pembayaran.tanggal)"),
                         "kt.nama",
                         "kt.prodi_id",
                         "kjp.nama",
+                        "kjp.id",
                         "mu.id",
                         "mu.kode",
                         "mu.nama",
@@ -3647,6 +3800,18 @@ class LaporanController extends Controller
             }
 
             foreach ($payments as $payment) {
+                if ($mode !== "tahunan") {
+                    if (!\App\Services\LaporanCutOffService::isPaymentInAccountingMonth(
+                        $payment->tgl ?? '',
+                        $payment->jenis_pembayaran_nama,
+                        $payment->jenis_pembayaran_id ? (int) $payment->jenis_pembayaran_id : null,
+                        (int) $year,
+                        (int) $month
+                    )) {
+                        continue;
+                    }
+                }
+
                 $namaRaw = $payment->tagihan_nama;
                 $namaUpper = strtoupper($namaRaw);
                 $prodi_id = $payment->prodi_id;
@@ -3707,6 +3872,21 @@ class LaporanController extends Controller
                     continue;
                 }
 
+                $tglPmb = date("Y-m-d", strtotime($pmb["tanggal_bayar"]));
+                $pmbMethod = $pmb["metode_pembayaran"] ?? $pmb["jenis_pembayaran"] ?? "cash";
+
+                if ($mode !== "tahunan") {
+                    if (!\App\Services\LaporanCutOffService::isPaymentInAccountingMonth(
+                        $tglPmb,
+                        $pmbMethod,
+                        null,
+                        (int) $year,
+                        (int) $month
+                    )) {
+                        continue;
+                    }
+                }
+
                 $jumlah = (float) $pmb["nominal"];
                 $mataUang = MataUangFormatter::defaultCurrency();
                 $paymentType = $getPaymentType(
@@ -3765,8 +3945,8 @@ class LaporanController extends Controller
                         ->groupBy(DB::raw("MONTH(keuangan_pemasukan_umum.tanggal)"), "kjp.nama")
                         ->get();
                 } else {
-                    $puRecords = $puQuery->selectRaw("kjp.nama as jenis_pembayaran_nama, SUM(keuangan_pemasukan_umum.nominal) as total_jumlah")
-                        ->groupBy("kjp.nama")
+                    $puRecords = $puQuery->selectRaw("DATE(keuangan_pemasukan_umum.tanggal) as tgl, kjp.nama as jenis_pembayaran_nama, keuangan_pemasukan_umum.jenis_pembayaran_id, SUM(keuangan_pemasukan_umum.nominal) as total_jumlah")
+                        ->groupBy(DB::raw("DATE(keuangan_pemasukan_umum.tanggal)"), "kjp.nama", "keuangan_pemasukan_umum.jenis_pembayaran_id")
                         ->get();
                 }
 
@@ -3774,6 +3954,18 @@ class LaporanController extends Controller
                 $mataUang = MataUangFormatter::defaultCurrency();
 
                 foreach ($puRecords as $pu) {
+                    if ($mode !== "tahunan") {
+                        if (!\App\Services\LaporanCutOffService::isPaymentInAccountingMonth(
+                            $pu->tgl ?? '',
+                            $pu->jenis_pembayaran_nama,
+                            $pu->jenis_pembayaran_id,
+                            (int) $year,
+                            (int) $month
+                        )) {
+                            continue;
+                        }
+                    }
+
                     $jumlah = (float) $pu->total_jumlah;
                     if ($jumlah <= 0) {
                         continue;
@@ -3832,8 +4024,8 @@ class LaporanController extends Controller
                         ->groupBy(DB::raw("MONTH(keuangan_pengembalian_dana.tanggal)"), "kjp.nama")
                         ->get();
                 } else {
-                    $pdRecords = $pdQuery->selectRaw("kjp.nama as jenis_pembayaran_nama, SUM(keuangan_pengembalian_dana.nominal) as total_jumlah")
-                        ->groupBy("kjp.nama")
+                    $pdRecords = $pdQuery->selectRaw("DATE(keuangan_pengembalian_dana.tanggal) as tgl, kjp.nama as jenis_pembayaran_nama, keuangan_pengembalian_dana.jenis_pembayaran_id, SUM(keuangan_pengembalian_dana.nominal) as total_jumlah")
+                        ->groupBy(DB::raw("DATE(keuangan_pengembalian_dana.tanggal)"), "kjp.nama", "keuangan_pengembalian_dana.jenis_pembayaran_id")
                         ->get();
                 }
 
@@ -3841,6 +4033,18 @@ class LaporanController extends Controller
                 $mataUang = MataUangFormatter::defaultCurrency();
 
                 foreach ($pdRecords as $pd) {
+                    if ($mode !== "tahunan") {
+                        if (!\App\Services\LaporanCutOffService::isPaymentInAccountingMonth(
+                            $pd->tgl ?? '',
+                            $pd->jenis_pembayaran_nama,
+                            $pd->jenis_pembayaran_id,
+                            (int) $year,
+                            (int) $month
+                        )) {
+                            continue;
+                        }
+                    }
+
                     $nominalPositif = (float) $pd->total_jumlah;
                     if ($nominalPositif <= 0) {
                         continue;
@@ -4040,6 +4244,7 @@ class LaporanController extends Controller
                 "rincian_jenis_pembayaran" => $rincianUiiDalwa,
                 "all_data" => $formattedAllData,
                 "jenis_kelamin" => $jp->kategori ?? "Semua",
+                "cut_off_info" => $periodMeta ?? null,
             ]);
         } catch (\Throwable $th) {
             return response()->json([
