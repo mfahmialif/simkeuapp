@@ -1783,20 +1783,22 @@ class LaporanController extends Controller
         }
     }
 
-    private function resolveJenisPembayaranFilter($jenisPembayaranId)
+    private function resolveSingleJenisPembayaranItem($rawItem)
     {
-        if (!$jenisPembayaranId || $jenisPembayaranId === 'all') {
+        if (!$rawItem || $rawItem === 'all') {
             return [
                 "ids" => null,
                 "nama" => null,
+                "names" => [],
                 "kategori" => null,
                 "label" => "Semua",
                 "is_composite" => false,
                 "include_pmb" => true,
+                "is_all" => true,
             ];
         }
 
-        $strVal = strtolower(trim((string) $jenisPembayaranId));
+        $strVal = strtolower(trim((string) $rawItem));
 
         if (in_array($strVal, ["cash_transfer_putra", "cash_transfer_putri", "cash_transfer", "cash_transfer_all"])) {
             $kategori = null;
@@ -1838,6 +1840,7 @@ class LaporanController extends Controller
             return [
                 "ids" => $ids,
                 "nama" => "cash_transfer",
+                "names" => ["cash", "transfer"],
                 "kategori" => $kategori,
                 "label" => $label,
                 "is_composite" => true,
@@ -1875,6 +1878,7 @@ class LaporanController extends Controller
             return [
                 "ids" => $ids,
                 "nama" => "va_pondok",
+                "names" => ["va_pondok"],
                 "kategori" => $kategori,
                 "label" => $label,
                 "is_composite" => true,
@@ -1921,7 +1925,8 @@ class LaporanController extends Controller
 
             return [
                 "ids" => $ids,
-                "nama" => "transfer",
+                "nama" => "va_transfer",
+                "names" => ["va_pondok", "transfer"],
                 "kategori" => $kategori,
                 "label" => $label,
                 "is_composite" => true,
@@ -1958,7 +1963,8 @@ class LaporanController extends Controller
 
             return [
                 "ids" => $ids,
-                "nama" => "va",
+                "nama" => "va_bsi",
+                "names" => ["va_bsi"],
                 "kategori" => $kategori,
                 "label" => $label,
                 "is_composite" => true,
@@ -1966,17 +1972,17 @@ class LaporanController extends Controller
             ];
         }
 
-        $jpModel = \App\Models\KeuanganJenisPembayaran::find($jenisPembayaranId);
+        $jpModel = \App\Models\KeuanganJenisPembayaran::find($rawItem);
         $jenisPembayaranNama = null;
         $jenisPembayaranKategori = null;
-        $jenisPembayaranLabel = "Semua";
-        $ids = [(int) $jenisPembayaranId];
+        $jenisPembayaranLabel = "ID: " . $rawItem;
+        $ids = [(int) $rawItem];
         $includePmb = false;
 
         if ($jpModel) {
             $nama = strtolower(trim($jpModel->nama));
             $jenisPembayaranKategori = $jpModel->kategori;
-            $jenisPembayaranLabel = $jpModel->nama;
+            $jenisPembayaranLabel = $jpModel->nama . ($jpModel->kategori ? " ({$jpModel->kategori})" : "");
 
             if (strpos($nama, "deposit") !== false) {
                 $jenisPembayaranNama = "deposit";
@@ -1987,14 +1993,14 @@ class LaporanController extends Controller
             } elseif (strpos($nama, "transfer") !== false) {
                 $jenisPembayaranNama = "transfer";
                 $includePmb = true;
-            } elseif (strpos($nama, "cash") !== false) {
+            } elseif (strpos($nama, "cash") !== false || strpos($nama, "tunai") !== false) {
                 $jenisPembayaranNama = "cash";
                 $includePmb = true;
             } elseif (strpos($nama, "yayasan") !== false) {
                 $jenisPembayaranNama = "yayasan";
                 $includePmb = true;
-            } elseif (strpos($nama, "va") !== false || strpos($nama, "virtual") !== false) {
-                $jenisPembayaranNama = "va";
+            } elseif (strpos($nama, "va") !== false || strpos($nama, "virtual") !== false || strpos($nama, "bsi") !== false) {
+                $jenisPembayaranNama = "va_bsi";
                 $includePmb = false;
             } else {
                 $jenisPembayaranNama = $nama;
@@ -2005,10 +2011,104 @@ class LaporanController extends Controller
         return [
             "ids" => $ids,
             "nama" => $jenisPembayaranNama,
+            "names" => $jenisPembayaranNama ? [$jenisPembayaranNama] : [],
             "kategori" => $jenisPembayaranKategori,
             "label" => $jenisPembayaranLabel,
             "is_composite" => false,
             "include_pmb" => $includePmb,
+        ];
+    }
+
+    private function resolveJenisPembayaranFilter($jenisPembayaranId)
+    {
+        if (!$jenisPembayaranId || $jenisPembayaranId === 'all') {
+            return [
+                "ids" => null,
+                "nama" => null,
+                "names" => [],
+                "kategori" => null,
+                "label" => "Semua",
+                "is_composite" => false,
+                "include_pmb" => true,
+                "is_all" => true,
+            ];
+        }
+
+        $items = [];
+        if (is_array($jenisPembayaranId)) {
+            $items = $jenisPembayaranId;
+        } elseif (is_string($jenisPembayaranId) && strpos($jenisPembayaranId, ',') !== false) {
+            $items = explode(',', $jenisPembayaranId);
+        } else {
+            $items = [$jenisPembayaranId];
+        }
+
+        $items = array_values(array_filter(array_map(fn($i) => is_string($i) ? trim($i) : $i, $items), fn($i) => $i !== "" && $i !== null));
+
+        if (empty($items) || in_array('all', $items, true)) {
+            return [
+                "ids" => null,
+                "nama" => null,
+                "names" => [],
+                "kategori" => null,
+                "label" => "Semua",
+                "is_composite" => false,
+                "include_pmb" => true,
+                "is_all" => true,
+            ];
+        }
+
+        if (count($items) === 1) {
+            $single = $this->resolveSingleJenisPembayaranItem($items[0]);
+            $single["is_all"] = false;
+            return $single;
+        }
+
+        $mergedIds = [];
+        $mergedNames = [];
+        $mergedLabels = [];
+        $kategoriSet = [];
+        $includePmb = false;
+
+        foreach ($items as $item) {
+            $resolved = $this->resolveSingleJenisPembayaranItem($item);
+            if (!empty($resolved['ids'])) {
+                foreach ($resolved['ids'] as $id) {
+                    $mergedIds[] = (int) $id;
+                }
+            }
+            if (!empty($resolved['names'])) {
+                foreach ($resolved['names'] as $n) {
+                    $mergedNames[] = $n;
+                }
+            } elseif (!empty($resolved['nama'])) {
+                $mergedNames[] = $resolved['nama'];
+            }
+            if (!empty($resolved['label'])) {
+                $mergedLabels[] = $resolved['label'];
+            }
+            if (!empty($resolved['kategori'])) {
+                $kategoriSet[] = $resolved['kategori'];
+            }
+            if (!empty($resolved['include_pmb'])) {
+                $includePmb = true;
+            }
+        }
+
+        $uniqueIds = array_values(array_unique($mergedIds));
+        $uniqueNames = array_values(array_unique($mergedNames));
+        $uniqueLabels = array_values(array_unique($mergedLabels));
+        $uniqueKategori = array_values(array_unique($kategoriSet));
+
+        return [
+            "ids" => !empty($uniqueIds) ? $uniqueIds : null,
+            "nama" => implode(',', $uniqueNames),
+            "names" => $uniqueNames,
+            "kategori" => count($uniqueKategori) === 1 ? $uniqueKategori[0] : null,
+            "label" => implode(', ', $uniqueLabels),
+            "is_composite" => true,
+            "include_pmb" => $includePmb,
+            "is_all" => false,
         ];
     }
 
@@ -2019,44 +2119,60 @@ class LaporanController extends Controller
             return [];
         }
 
-        $nama = strtolower(trim((string) ($paymentFilter["nama"] ?? "")));
-        if (!$nama || $nama === "all") {
+        $names = (array) ($paymentFilter["names"] ?? []);
+        if (empty($names)) {
+            $nama = strtolower(trim((string) ($paymentFilter["nama"] ?? "")));
+            if ($nama && $nama !== "all") {
+                $names = explode(',', $nama);
+            }
+        }
+
+        if (empty($names) || in_array("all", $names)) {
             return $pmbData;
         }
 
         return collect($pmbData)
-            ->filter(function ($item) use ($nama) {
+            ->filter(function ($item) use ($names) {
                 $metode = strtolower(trim((string) data_get(
                     $item,
                     "jenis_pembayaran",
                     data_get($item, "metode_pembayaran", "")
                 )));
 
-                if ($nama === "va_pondok") {
-                    return str_contains($metode, "pondok") &&
-                        (str_contains($metode, "va") || str_contains($metode, "via"));
-                }
+                foreach ($names as $nama) {
+                    $nama = trim($nama);
+                    if ($nama === "va_pondok") {
+                        if (str_contains($metode, "pondok") &&
+                            (str_contains($metode, "va") || str_contains($metode, "via"))) {
+                            return true;
+                        }
+                    } elseif ($nama === "cash_transfer") {
+                        $isCash = str_contains($metode, "cash") || str_contains($metode, "tunai");
+                        $isTransfer = str_contains($metode, "transfer") || str_contains($metode, "tf");
+                        $isPondok = str_contains($metode, "pondok");
 
-                if ($nama === "cash_transfer") {
-                    $isCash = str_contains($metode, "cash") || str_contains($metode, "tunai");
-                    $isTransfer = str_contains($metode, "transfer") || str_contains($metode, "tf");
-                    $isPondok = str_contains($metode, "pondok");
-
-                    return ($isCash || $isTransfer) && !$isPondok;
-                }
-
-                if ($nama === "cash") {
-                    return (str_contains($metode, "cash") || str_contains($metode, "tunai")) &&
-                        !str_contains($metode, "pondok");
-                }
-
-                if ($nama === "transfer") {
-                    return (str_contains($metode, "transfer") || str_contains($metode, "tf")) &&
-                        !str_contains($metode, "pondok");
-                }
-
-                if ($nama === "yayasan") {
-                    return str_contains($metode, "yayasan");
+                        if (($isCash || $isTransfer) && !$isPondok) {
+                            return true;
+                        }
+                    } elseif ($nama === "cash") {
+                        if ((str_contains($metode, "cash") || str_contains($metode, "tunai")) &&
+                            !str_contains($metode, "pondok")) {
+                            return true;
+                        }
+                    } elseif ($nama === "transfer") {
+                        if ((str_contains($metode, "transfer") || str_contains($metode, "tf")) &&
+                            !str_contains($metode, "pondok")) {
+                            return true;
+                        }
+                    } elseif ($nama === "yayasan") {
+                        if (str_contains($metode, "yayasan")) {
+                            return true;
+                        }
+                    } elseif ($nama === "va_bsi" || $nama === "va") {
+                        if (str_contains($metode, "bsi")) {
+                            return true;
+                        }
+                    }
                 }
 
                 return false;
@@ -2094,9 +2210,6 @@ class LaporanController extends Controller
 
     private function formatRincianJenisPembayaran(array $typeTotals, $paymentFilter)
     {
-        $filterNama = strtolower(trim((string) ($paymentFilter["nama"] ?? "")));
-        $isComposite = $paymentFilter["is_composite"] ?? false;
-
         $getItem = function ($nama, $key) use ($typeTotals) {
             $data = $typeTotals[$key] ?? ["total" => 0, "by_currency" => []];
             return [
@@ -2107,94 +2220,75 @@ class LaporanController extends Controller
             ];
         };
 
+        $standardKeys = [
+            "cash" => "Cash",
+            "transfer" => "Transfer",
+            "va_pondok" => "VA Pondok",
+            "yayasan" => "Yayasan",
+            "deposit" => "Deposit",
+            "va_bsi" => "VA BSI",
+        ];
+
         $rincian = [];
+        $selectedKeys = array_filter((array) ($paymentFilter["names"] ?? []));
 
-        if ($filterNama === "cash_transfer") {
-            $rincian[] = $getItem("Cash", "cash");
-            $rincian[] = $getItem("Transfer", "transfer");
-            $totalSum = (float) (($typeTotals["cash"]["total"] ?? 0) + ($typeTotals["transfer"]["total"] ?? 0));
-            $totalCurrencies = MataUangFormatter::mergeTotals(
-                $typeTotals["cash"]["by_currency"] ?? [],
-                $typeTotals["transfer"]["by_currency"] ?? []
-            );
-            $rincian[] = [
-                "nama" => "Total (Cash + Transfer)",
-                "key" => "total",
-                "is_total" => true,
-                "total" => $totalSum,
-                "total_by_currency" => $totalCurrencies,
-            ];
-        } elseif ($filterNama === "va_transfer") {
-            $rincian[] = $getItem("VA Pondok", "va_pondok");
-            $rincian[] = $getItem("Transfer", "transfer");
-            $totalSum = (float) (($typeTotals["va_pondok"]["total"] ?? 0) + ($typeTotals["transfer"]["total"] ?? 0));
-            $totalCurrencies = MataUangFormatter::mergeTotals(
-                $typeTotals["va_pondok"]["by_currency"] ?? [],
-                $typeTotals["transfer"]["by_currency"] ?? []
-            );
-            $rincian[] = [
-                "nama" => "Total (VA + Transfer)",
-                "key" => "total",
-                "is_total" => true,
-                "total" => $totalSum,
-                "total_by_currency" => $totalCurrencies,
-            ];
-        } elseif ($filterNama && !$isComposite && $filterNama !== "all") {
-            $singleTotal = 0;
-            $currencyGroups = [];
-            foreach ($typeTotals as $k => $d) {
-                $singleTotal += (float) ($d["total"] ?? 0);
-                if (!empty($d["by_currency"])) {
-                    $currencyGroups[] = $d["by_currency"];
-                }
-            }
-            $rincian[] = [
-                "nama" => $paymentFilter["label"] ?? "Pembayaran",
-                "key" => $filterNama,
-                "total" => $singleTotal,
-                "total_by_currency" => MataUangFormatter::mergeTotals(...$currencyGroups),
-            ];
-        } else {
-            $standardKeys = [
-                "cash" => "Cash",
-                "transfer" => "Transfer",
-                "va_pondok" => "VA Pondok",
-                "yayasan" => "Yayasan",
-                "deposit" => "Deposit",
-                "va_bsi" => "VA BSI",
-            ];
-
+        if (!empty($selectedKeys) && !in_array("all", $selectedKeys)) {
             $totalSum = 0;
             $currencyGroups = [];
-
-            foreach ($standardKeys as $key => $label) {
-                if (isset($typeTotals[$key]) && (float) ($typeTotals[$key]["total"] ?? 0) != 0) {
+            foreach ($selectedKeys as $key) {
+                if (isset($typeTotals[$key])) {
+                    $label = $standardKeys[$key] ?? ucfirst(str_replace("_", " ", $key));
                     $rincian[] = $getItem($label, $key);
-                    $totalSum += (float) $typeTotals[$key]["total"];
+                    $totalSum += (float) ($typeTotals[$key]["total"] ?? 0);
                     if (!empty($typeTotals[$key]["by_currency"])) {
                         $currencyGroups[] = $typeTotals[$key]["by_currency"];
                     }
                 }
             }
 
-            foreach ($typeTotals as $key => $data) {
-                if (!isset($standardKeys[$key]) && (float) ($data["total"] ?? 0) != 0) {
-                    $rincian[] = $getItem(ucfirst(str_replace("_", " ", $key)), $key);
-                    $totalSum += (float) $data["total"];
-                    if (!empty($data["by_currency"])) {
-                        $currencyGroups[] = $data["by_currency"];
-                    }
-                }
+            if (count($rincian) > 1 || count($selectedKeys) > 1) {
+                $rincian[] = [
+                    "nama" => "Total (" . ($paymentFilter["label"] ?? "Pilihan") . ")",
+                    "key" => "total",
+                    "is_total" => true,
+                    "total" => $totalSum,
+                    "total_by_currency" => MataUangFormatter::mergeTotals(...$currencyGroups),
+                ];
             }
 
-            $rincian[] = [
-                "nama" => "Total Semua",
-                "key" => "total",
-                "is_total" => true,
-                "total" => $totalSum,
-                "total_by_currency" => MataUangFormatter::mergeTotals(...$currencyGroups),
-            ];
+            return $rincian;
         }
+
+        $totalSum = 0;
+        $currencyGroups = [];
+
+        foreach ($standardKeys as $key => $label) {
+            if (isset($typeTotals[$key]) && (float) ($typeTotals[$key]["total"] ?? 0) != 0) {
+                $rincian[] = $getItem($label, $key);
+                $totalSum += (float) $typeTotals[$key]["total"];
+                if (!empty($typeTotals[$key]["by_currency"])) {
+                    $currencyGroups[] = $typeTotals[$key]["by_currency"];
+                }
+            }
+        }
+
+        foreach ($typeTotals as $key => $data) {
+            if (!isset($standardKeys[$key]) && (float) ($data["total"] ?? 0) != 0) {
+                $rincian[] = $getItem(ucfirst(str_replace("_", " ", $key)), $key);
+                $totalSum += (float) $data["total"];
+                if (!empty($data["by_currency"])) {
+                    $currencyGroups[] = $data["by_currency"];
+                }
+            }
+        }
+
+        $rincian[] = [
+            "nama" => "Total Semua",
+            "key" => "total",
+            "is_total" => true,
+            "total" => $totalSum,
+            "total_by_currency" => MataUangFormatter::mergeTotals(...$currencyGroups),
+        ];
 
         return $rincian;
     }
