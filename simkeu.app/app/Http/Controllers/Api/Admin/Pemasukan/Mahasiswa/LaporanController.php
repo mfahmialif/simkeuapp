@@ -1141,15 +1141,26 @@ class LaporanController extends Controller
                         $mNum = (int) date('n', strtotime($tgl));
                         $yNum = (int) date('Y', strtotime($tgl));
                         $mName = $periodMeta['prev_month_name'] ?? date('F', strtotime($tgl));
-                        $dataMap[$firstDayStr]["carry_over_breakdown"][$tgl] = [
+                        $bRow = [
                             "tanggal" => $tgl,
                             "label" => sprintf("%02d %s %04d", $dNum, $mName, $yNum),
                             "short_label" => sprintf("%02d/%02d", $dNum, $mNum),
                             "total" => 0,
                             "total_by_currency" => [],
                         ];
+                        foreach ($columns as $c) {
+                            $bRow[$c["key"]] = 0;
+                            $bRow[$c["key"] . "_by_currency"] = [];
+                        }
+                        $dataMap[$firstDayStr]["carry_over_breakdown"][$tgl] = $bRow;
                     }
+                    $dataMap[$firstDayStr]["carry_over_breakdown"][$tgl][$assignedKey] += $jumlah;
                     $dataMap[$firstDayStr]["carry_over_breakdown"][$tgl]["total"] += $jumlah;
+                    MataUangFormatter::addToTotals(
+                        $dataMap[$firstDayStr]["carry_over_breakdown"][$tgl][$assignedKey . "_by_currency"],
+                        $jumlah,
+                        $mataUang
+                    );
                     MataUangFormatter::addToTotals(
                         $dataMap[$firstDayStr]["carry_over_breakdown"][$tgl]["total_by_currency"],
                         $jumlah,
@@ -1159,6 +1170,33 @@ class LaporanController extends Controller
                     $dataMap[$firstDayStr]["original_total"] += $jumlah;
                     MataUangFormatter::addToTotals(
                         $dataMap[$firstDayStr]["original_total_by_currency"],
+                        $jumlah,
+                        $mataUang
+                    );
+
+                    if (!isset($dataMap[$firstDayStr]["original_breakdown"])) {
+                        $obRow = [
+                            "tanggal" => $firstDayStr,
+                            "label" => sprintf("01 %s %04d", $periodMeta['current_month_name'] ?? date('F', strtotime($firstDayStr)), $year),
+                            "short_label" => sprintf("01/%02d", $month),
+                            "total" => 0,
+                            "total_by_currency" => [],
+                        ];
+                        foreach ($columns as $c) {
+                            $obRow[$c["key"]] = 0;
+                            $obRow[$c["key"] . "_by_currency"] = [];
+                        }
+                        $dataMap[$firstDayStr]["original_breakdown"] = $obRow;
+                    }
+                    $dataMap[$firstDayStr]["original_breakdown"][$assignedKey] += $jumlah;
+                    $dataMap[$firstDayStr]["original_breakdown"]["total"] += $jumlah;
+                    MataUangFormatter::addToTotals(
+                        $dataMap[$firstDayStr]["original_breakdown"][$assignedKey . "_by_currency"],
+                        $jumlah,
+                        $mataUang
+                    );
+                    MataUangFormatter::addToTotals(
+                        $dataMap[$firstDayStr]["original_breakdown"]["total_by_currency"],
                         $jumlah,
                         $mataUang
                     );
@@ -1346,11 +1384,26 @@ class LaporanController extends Controller
 
         if (isset($dataMap[$firstDayStr]["carry_over_breakdown"])) {
             foreach ($dataMap[$firstDayStr]["carry_over_breakdown"] as &$bRow) {
+                foreach ($columns as $c) {
+                    $cKey = $c["key"] . "_by_currency";
+                    if (isset($bRow[$cKey])) {
+                        $bRow[$cKey] = MataUangFormatter::normalizeTotals($bRow[$cKey]);
+                    }
+                }
                 $bRow["total_by_currency"] = MataUangFormatter::normalizeTotals($bRow["total_by_currency"]);
             }
             unset($bRow);
             $dataMap[$firstDayStr]["carry_over_breakdown"] = array_values($dataMap[$firstDayStr]["carry_over_breakdown"]);
             usort($dataMap[$firstDayStr]["carry_over_breakdown"], fn($a, $b) => strcmp($a['tanggal'], $b['tanggal']));
+        }
+        if (isset($dataMap[$firstDayStr]["original_breakdown"])) {
+            foreach ($columns as $c) {
+                $cKey = $c["key"] . "_by_currency";
+                if (isset($dataMap[$firstDayStr]["original_breakdown"][$cKey])) {
+                    $dataMap[$firstDayStr]["original_breakdown"][$cKey] = MataUangFormatter::normalizeTotals($dataMap[$firstDayStr]["original_breakdown"][$cKey]);
+                }
+            }
+            $dataMap[$firstDayStr]["original_breakdown"]["total_by_currency"] = MataUangFormatter::normalizeTotals($dataMap[$firstDayStr]["original_breakdown"]["total_by_currency"]);
         }
         if (isset($dataMap[$firstDayStr]["carry_over_total_by_currency"])) {
             $dataMap[$firstDayStr]["carry_over_total_by_currency"] = MataUangFormatter::normalizeTotals($dataMap[$firstDayStr]["carry_over_total_by_currency"]);

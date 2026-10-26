@@ -144,7 +144,10 @@ class SettingAkhirLaporanController extends Controller
                 ], 422);
             }
 
-            $key = $request->jenis_pembayaran_key;
+            $key = strtolower(trim((string) $request->jenis_pembayaran_key));
+            if (in_array($key, ['semua', 'global', '*'], true)) {
+                $key = 'all';
+            }
             $jpId = null;
             $jpNama = 'Semua Jenis Pembayaran';
 
