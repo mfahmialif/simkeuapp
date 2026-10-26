@@ -1085,9 +1085,12 @@ class LaporanController extends Controller
             &$dataMap,
             &$totals,
             $colMap,
+            $columns,
             $firstDayStr,
             $carryOverDatesSet,
-            $periodMeta
+            $periodMeta,
+            $year,
+            $month
         ) {
             if (!$assignedKey || !isset($colMap[$assignedKey])) {
                 return;
