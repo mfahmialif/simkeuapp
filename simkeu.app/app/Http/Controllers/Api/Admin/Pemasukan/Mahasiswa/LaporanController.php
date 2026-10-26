@@ -1046,27 +1046,10 @@ class LaporanController extends Controller
         $totals["jumlah_by_currency"] = [];
 
         $rowNo = 1;
-        // Prepend tanggal carry-over dari bulan sebelumnya jika ada
-        foreach ($periodMeta['carry_over_dates'] as $carryDate) {
-            $dNum = (int) date('j', strtotime($carryDate));
-            $mNum = (int) date('n', strtotime($carryDate));
-            $row = [
-                "no" => $rowNo++,
-                "tanggal" => $carryDate,
-                "is_carry_over" => true,
-                "carry_over_from" => $periodMeta['prev_month_name'],
-                "label_tanggal" => sprintf("%02d/%02d (%s)", $dNum, $mNum, substr($periodMeta['prev_month_name'], 0, 3)),
-                "jumlah" => 0,
-            ];
-            foreach ($columns as $col) {
-                $row[$col["key"]] = 0;
-                $row[$col["key"] . "_by_currency"] = [];
-            }
-            $row["jumlah_by_currency"] = [];
-            $dataMap[$carryDate] = $row;
-        }
+        $firstDayStr = sprintf("%04d-%02d-01", $year, $month);
+        $carryOverDatesSet = array_flip($periodMeta['carry_over_dates'] ?? []);
 
-        // Tanggal bulan berjalan
+        // Tanggal bulan berjalan (murni tanggal 1 sampai akhir bulan)
         for ($day = 1; $day <= $daysInMonth; $day++) {
             $dateStr = sprintf("%04d-%02d-%02d", $year, $month, $day);
             $row = [
@@ -1076,6 +1059,14 @@ class LaporanController extends Controller
                 "label_tanggal" => sprintf("%02d/%02d", $day, $month),
                 "jumlah" => 0,
             ];
+            if ($day === 1) {
+                $row["has_carry_over"] = false;
+                $row["carry_over_total"] = 0;
+                $row["carry_over_total_by_currency"] = [];
+                $row["carry_over_breakdown"] = [];
+                $row["original_total"] = 0;
+                $row["original_total_by_currency"] = [];
+            }
             foreach ($columns as $col) {
                 $row[$col["key"]] = 0;
                 $row[$col["key"] . "_by_currency"] = [];
@@ -1088,6 +1079,92 @@ class LaporanController extends Controller
         foreach ($columns as $col) {
             $colMap[$col["key"]] = $col;
         }
+
+        // Helper untuk memasukkan transaksi ke dataMap: limpahan otomatis masuk ke Tanggal 1
+        $accumulatePayment = function ($tgl, $assignedKey, $jumlah, $mataUang) use (
+            &$dataMap,
+            &$totals,
+            $colMap,
+            $firstDayStr,
+            $carryOverDatesSet,
+            $periodMeta
+        ) {
+            if (!$assignedKey || !isset($colMap[$assignedKey])) {
+                return;
+            }
+
+            $isCarryOver = isset($carryOverDatesSet[$tgl]);
+            $targetDate = $isCarryOver ? $firstDayStr : $tgl;
+
+            if (!isset($dataMap[$targetDate])) {
+                return;
+            }
+
+            $dataMap[$targetDate][$assignedKey] += $jumlah;
+            $dataMap[$targetDate]["jumlah"] += $jumlah;
+            $totals[$assignedKey] += $jumlah;
+            $totals["jumlah"] += $jumlah;
+
+            MataUangFormatter::addToTotals(
+                $dataMap[$targetDate][$assignedKey . "_by_currency"],
+                $jumlah,
+                $mataUang
+            );
+            MataUangFormatter::addToTotals(
+                $dataMap[$targetDate]["jumlah_by_currency"],
+                $jumlah,
+                $mataUang
+            );
+            MataUangFormatter::addToTotals(
+                $totals[$assignedKey . "_by_currency"],
+                $jumlah,
+                $mataUang
+            );
+            MataUangFormatter::addToTotals(
+                $totals["jumlah_by_currency"],
+                $jumlah,
+                $mataUang
+            );
+
+            if ($targetDate === $firstDayStr) {
+                if ($isCarryOver) {
+                    $dataMap[$firstDayStr]["has_carry_over"] = true;
+                    $dataMap[$firstDayStr]["carry_over_total"] += $jumlah;
+                    MataUangFormatter::addToTotals(
+                        $dataMap[$firstDayStr]["carry_over_total_by_currency"],
+                        $jumlah,
+                        $mataUang
+                    );
+
+                    if (!isset($dataMap[$firstDayStr]["carry_over_breakdown"][$tgl])) {
+                        $dNum = (int) date('j', strtotime($tgl));
+                        $mNum = (int) date('n', strtotime($tgl));
+                        $yNum = (int) date('Y', strtotime($tgl));
+                        $mName = $periodMeta['prev_month_name'] ?? date('F', strtotime($tgl));
+                        $dataMap[$firstDayStr]["carry_over_breakdown"][$tgl] = [
+                            "tanggal" => $tgl,
+                            "label" => sprintf("%02d %s %04d", $dNum, $mName, $yNum),
+                            "short_label" => sprintf("%02d/%02d", $dNum, $mNum),
+                            "total" => 0,
+                            "total_by_currency" => [],
+                        ];
+                    }
+                    $dataMap[$firstDayStr]["carry_over_breakdown"][$tgl]["total"] += $jumlah;
+                    MataUangFormatter::addToTotals(
+                        $dataMap[$firstDayStr]["carry_over_breakdown"][$tgl]["total_by_currency"],
+                        $jumlah,
+                        $mataUang
+                    );
+                } else {
+                    $dataMap[$firstDayStr]["original_total"] += $jumlah;
+                    MataUangFormatter::addToTotals(
+                        $dataMap[$firstDayStr]["original_total_by_currency"],
+                        $jumlah,
+                        $mataUang
+                    );
+                }
+            }
+        };
 
         foreach ($payments as $payment) {
             $tgl = $payment->tgl;
@@ -1105,14 +1182,6 @@ class LaporanController extends Controller
                 (int) $year,
                 (int) $month
             )) {
-                continue;
-            }
-            $namaUpper = strtoupper($namaRaw);
-            $prodi_id = $payment->prodi_id;
-            $jumlah = (float) $payment->total_jumlah;
-            $mataUang = MataUangFormatter::fromColumns($payment);
-
-            if (!isset($dataMap[$tgl])) {
                 continue;
             }
 
@@ -1135,32 +1204,7 @@ class LaporanController extends Controller
                 }
             }
 
-            if (isset($colMap[$assignedKey])) {
-                $dataMap[$tgl][$assignedKey] += $jumlah;
-                $dataMap[$tgl]["jumlah"] += $jumlah;
-                $totals[$assignedKey] += $jumlah;
-                $totals["jumlah"] += $jumlah;
-                MataUangFormatter::addToTotals(
-                    $dataMap[$tgl][$assignedKey . "_by_currency"],
-                    $jumlah,
-                    $mataUang,
-                );
-                MataUangFormatter::addToTotals(
-                    $dataMap[$tgl]["jumlah_by_currency"],
-                    $jumlah,
-                    $mataUang,
-                );
-                MataUangFormatter::addToTotals(
-                    $totals[$assignedKey . "_by_currency"],
-                    $jumlah,
-                    $mataUang,
-                );
-                MataUangFormatter::addToTotals(
-                    $totals["jumlah_by_currency"],
-                    $jumlah,
-                    $mataUang,
-                );
-            }
+            $accumulatePayment($tgl, $assignedKey, $jumlah, $mataUang);
         }
 
         // Process PMB Data
@@ -1183,39 +1227,9 @@ class LaporanController extends Controller
                 continue;
             }
 
-            if (!isset($dataMap[$tgl])) {
-                continue;
-            }
-
             $assignedKey = "pmb";
-
-            if (isset($colMap[$assignedKey])) {
-                $mataUang = MataUangFormatter::defaultCurrency();
-                $dataMap[$tgl][$assignedKey] += $jumlah;
-                $dataMap[$tgl]["jumlah"] += $jumlah;
-                $totals[$assignedKey] += $jumlah;
-                $totals["jumlah"] += $jumlah;
-                MataUangFormatter::addToTotals(
-                    $dataMap[$tgl][$assignedKey . "_by_currency"],
-                    $jumlah,
-                    $mataUang,
-                );
-                MataUangFormatter::addToTotals(
-                    $dataMap[$tgl]["jumlah_by_currency"],
-                    $jumlah,
-                    $mataUang,
-                );
-                MataUangFormatter::addToTotals(
-                    $totals[$assignedKey . "_by_currency"],
-                    $jumlah,
-                    $mataUang,
-                );
-                MataUangFormatter::addToTotals(
-                    $totals["jumlah_by_currency"],
-                    $jumlah,
-                    $mataUang,
-                );
-            }
+            $mataUang = MataUangFormatter::defaultCurrency();
+            $accumulatePayment($tgl, $assignedKey, $jumlah, $mataUang);
         }
 
         // Process Pemasukan Umum Data
@@ -1246,50 +1260,22 @@ class LaporanController extends Controller
                 ->get();
 
             $assignedKey = "pemasukan_umum";
-            if (isset($colMap[$assignedKey])) {
-                $mataUang = MataUangFormatter::defaultCurrency();
-                foreach ($puRecords as $pu) {
-                    $tgl = $pu->tgl;
-                    $jumlah = (float) $pu->total_nominal;
+            $mataUang = MataUangFormatter::defaultCurrency();
+            foreach ($puRecords as $pu) {
+                $tgl = $pu->tgl;
+                $jumlah = (float) $pu->total_nominal;
 
-                    if (!\App\Services\LaporanCutOffService::isPaymentInAccountingMonth(
-                        $tgl,
-                        $pu->jenis_pembayaran_nama,
-                        $pu->jenis_pembayaran_id,
-                        (int) $year,
-                        (int) $month
-                    )) {
-                        continue;
-                    }
-
-                    if (isset($dataMap[$tgl])) {
-                        $dataMap[$tgl][$assignedKey] += $jumlah;
-                        $dataMap[$tgl]["jumlah"] += $jumlah;
-                        $totals[$assignedKey] += $jumlah;
-                        $totals["jumlah"] += $jumlah;
-
-                        MataUangFormatter::addToTotals(
-                            $dataMap[$tgl][$assignedKey . "_by_currency"],
-                            $jumlah,
-                            $mataUang,
-                        );
-                        MataUangFormatter::addToTotals(
-                            $dataMap[$tgl]["jumlah_by_currency"],
-                            $jumlah,
-                            $mataUang,
-                        );
-                        MataUangFormatter::addToTotals(
-                            $totals[$assignedKey . "_by_currency"],
-                            $jumlah,
-                            $mataUang,
-                        );
-                        MataUangFormatter::addToTotals(
-                            $totals["jumlah_by_currency"],
-                            $jumlah,
-                            $mataUang,
-                        );
-                    }
+                if (!\App\Services\LaporanCutOffService::isPaymentInAccountingMonth(
+                    $tgl,
+                    $pu->jenis_pembayaran_nama,
+                    $pu->jenis_pembayaran_id,
+                    (int) $year,
+                    (int) $month
+                )) {
+                    continue;
                 }
+
+                $accumulatePayment($tgl, $assignedKey, $jumlah, $mataUang);
             }
         }
 
@@ -1321,56 +1307,27 @@ class LaporanController extends Controller
                 ->get();
 
             $assignedKey = "pengembalian_dana";
-            if (isset($colMap[$assignedKey])) {
-                $mataUang = MataUangFormatter::defaultCurrency();
-                foreach ($pdRecords as $pd) {
-                    $tgl = $pd->tgl;
-                    $nominalPositif = (float) $pd->total_nominal;
-                    if ($nominalPositif <= 0) {
-                        continue;
-                    }
-
-                    if (!\App\Services\LaporanCutOffService::isPaymentInAccountingMonth(
-                        $tgl,
-                        $pd->jenis_pembayaran_nama,
-                        $pd->jenis_pembayaran_id,
-                        (int) $year,
-                        (int) $month
-                    )) {
-                        continue;
-                    }
-
-                    // Sifatnya negatif untuk mengurangi pemasukan
-                    $jumlahNegatif = -$nominalPositif;
-
-                    if (isset($dataMap[$tgl])) {
-                        $dataMap[$tgl][$assignedKey] += $jumlahNegatif;
-                        $dataMap[$tgl]["jumlah"] += $jumlahNegatif;
-                        $totals[$assignedKey] += $jumlahNegatif;
-                        $totals["jumlah"] += $jumlahNegatif;
-
-                        MataUangFormatter::addToTotals(
-                            $dataMap[$tgl][$assignedKey . "_by_currency"],
-                            $jumlahNegatif,
-                            $mataUang,
-                        );
-                        MataUangFormatter::addToTotals(
-                            $dataMap[$tgl]["jumlah_by_currency"],
-                            $jumlahNegatif,
-                            $mataUang,
-                        );
-                        MataUangFormatter::addToTotals(
-                            $totals[$assignedKey . "_by_currency"],
-                            $jumlahNegatif,
-                            $mataUang,
-                        );
-                        MataUangFormatter::addToTotals(
-                            $totals["jumlah_by_currency"],
-                            $jumlahNegatif,
-                            $mataUang,
-                        );
-                    }
+            $mataUang = MataUangFormatter::defaultCurrency();
+            foreach ($pdRecords as $pd) {
+                $tgl = $pd->tgl;
+                $nominalPositif = (float) $pd->total_nominal;
+                if ($nominalPositif <= 0) {
+                    continue;
                 }
+
+                if (!\App\Services\LaporanCutOffService::isPaymentInAccountingMonth(
+                    $tgl,
+                    $pd->jenis_pembayaran_nama,
+                    $pd->jenis_pembayaran_id,
+                    (int) $year,
+                    (int) $month
+                )) {
+                    continue;
+                }
+
+                // Sifatnya negatif untuk mengurangi pemasukan
+                $jumlahNegatif = -$nominalPositif;
+                $accumulatePayment($tgl, $assignedKey, $jumlahNegatif, $mataUang);
             }
         }
 
@@ -1386,6 +1343,21 @@ class LaporanController extends Controller
             );
         }
         unset($row);
+
+        if (isset($dataMap[$firstDayStr]["carry_over_breakdown"])) {
+            foreach ($dataMap[$firstDayStr]["carry_over_breakdown"] as &$bRow) {
+                $bRow["total_by_currency"] = MataUangFormatter::normalizeTotals($bRow["total_by_currency"]);
+            }
+            unset($bRow);
+            $dataMap[$firstDayStr]["carry_over_breakdown"] = array_values($dataMap[$firstDayStr]["carry_over_breakdown"]);
+            usort($dataMap[$firstDayStr]["carry_over_breakdown"], fn($a, $b) => strcmp($a['tanggal'], $b['tanggal']));
+        }
+        if (isset($dataMap[$firstDayStr]["carry_over_total_by_currency"])) {
+            $dataMap[$firstDayStr]["carry_over_total_by_currency"] = MataUangFormatter::normalizeTotals($dataMap[$firstDayStr]["carry_over_total_by_currency"]);
+        }
+        if (isset($dataMap[$firstDayStr]["original_total_by_currency"])) {
+            $dataMap[$firstDayStr]["original_total_by_currency"] = MataUangFormatter::normalizeTotals($dataMap[$firstDayStr]["original_total_by_currency"]);
+        }
 
         foreach ($columns as $col) {
             $currencyKey = $col["key"] . "_by_currency";
@@ -2968,6 +2940,26 @@ class LaporanController extends Controller
             }
         }
 
+        $tStamp = strtotime($tanggal);
+        $tYear = (int) date('Y', $tStamp);
+        $tMonth = (int) date('n', $tStamp);
+        $tDay = (int) date('j', $tStamp);
+
+        $periodMeta = \App\Services\LaporanCutOffService::getMonthPeriodMeta($tYear, $tMonth);
+        $hasCarryOverIn = false;
+        $carryOverInInfo = null;
+        $datesToQuery = [$tanggal];
+
+        if ($tDay === 1 && $periodMeta['has_carry_over'] && !empty($periodMeta['carry_over_dates'])) {
+            $hasCarryOverIn = true;
+            $datesToQuery = array_merge([$tanggal], $periodMeta['carry_over_dates']);
+            $carryOverInInfo = [
+                'prev_month_name' => $periodMeta['prev_month_name'],
+                'dates' => $periodMeta['carry_over_dates'],
+                'total' => 0,
+            ];
+        }
+
         $paymentsQuery = KeuanganPembayaran::join(
             "keuangan_tagihan as kt",
             "kt.id",
@@ -2995,7 +2987,7 @@ class LaporanController extends Controller
             )
             ->leftJoin("users as u", "u.id", "=", "keuangan_pembayaran.user_id")
             ->leftJoin("prodi as p", "p.id", "=", "kt.prodi_id")
-            ->whereDate("keuangan_pembayaran.tanggal", $tanggal)
+            ->whereIn(DB::raw("DATE(keuangan_pembayaran.tanggal)"), $datesToQuery)
             ->where("kt.nama", "NOT LIKE", "%SEMESTER PENDEK%");
 
         if ($jp && $jp->id != "%") {
@@ -3078,7 +3070,7 @@ class LaporanController extends Controller
                 "=",
                 "keuangan_pembayaran.user_id",
             )
-            ->whereDate("keuangan_pembayaran.tanggal", $tanggal)
+            ->whereIn(DB::raw("DATE(keuangan_pembayaran.tanggal)"), $datesToQuery)
             ->where("kt.nama", "LIKE", "%SEMESTER PENDEK%");
 
         if ($jp && $jp->id != "%") {
@@ -3135,7 +3127,7 @@ class LaporanController extends Controller
                 }
 
                 $pmbParams = [
-                    "start_date" => $tanggal,
+                    "start_date" => $hasCarryOverIn ? ($periodMeta['query_start_date'] ?? $tanggal) : $tanggal,
                     "end_date" => $tanggal,
                     "jenjang" => $jenjang,
                     "jenis_kelamin" => $pmbGender,
@@ -3173,7 +3165,7 @@ class LaporanController extends Controller
 
         if ($jenjang === "sarjana") {
             $puQuery = KeuanganPemasukanUmum::with(["petugas", "jenisPembayaran"])
-                ->whereDate("tanggal", $tanggal);
+                ->whereIn(DB::raw("DATE(tanggal)"), $datesToQuery);
 
             if (!empty($targetJpIds)) {
                 $puQuery->whereIn("jenis_pembayaran_id", $targetJpIds);
@@ -3214,7 +3206,7 @@ class LaporanController extends Controller
 
         if ($jenjang === "sarjana") {
             $pdQuery = KeuanganPengembalianDana::with(["petugas", "jenisPembayaran"])
-                ->whereDate("tanggal", $tanggal);
+                ->whereIn(DB::raw("DATE(tanggal)"), $datesToQuery);
 
             if (!empty($targetJpIds)) {
                 $pdQuery->whereIn("jenis_pembayaran_id", $targetJpIds);
@@ -3266,11 +3258,6 @@ class LaporanController extends Controller
             );
         });
 
-        $tStamp = strtotime($tanggal);
-        $tYear = (int) date('Y', $tStamp);
-        $tMonth = (int) date('n', $tStamp);
-        $tDay = (int) date('j', $tStamp);
-
         $bulanNames = [
             1 => "Januari", 2 => "Februari", 3 => "Maret", 4 => "April",
             5 => "Mei", 6 => "Juni", 7 => "Juli", 8 => "Agustus",
@@ -3296,15 +3283,41 @@ class LaporanController extends Controller
             }
         }
 
+        $filteredRows = [];
         $no = 1;
-        foreach ($rows as &$row) {
-            $row["no"] = $no++;
+        $totalCarryOverNominal = 0;
+
+        foreach ($rows as $row) {
+            $recDate = $row["tanggal_transaksi"] ?? $row["tanggal_input"] ?? $tanggal;
             $methodName = $row["metode"] ?? "";
-            $inMonth = \App\Services\LaporanCutOffService::isPaymentInAccountingMonth($tanggal, $methodName, null, $tYear, $tMonth);
-            $row["is_carry_over"] = !$inMonth;
-            $row["accounting_period"] = !$inMonth ? ($shiftedMonth["label"] ?? "Bulan Berikutnya") : null;
+            $isCarryOverIn = ($recDate !== $tanggal && in_array($recDate, $periodMeta['carry_over_dates'] ?? []));
+
+            $inMonth = \App\Services\LaporanCutOffService::isPaymentInAccountingMonth($recDate, $methodName, null, $tYear, $tMonth);
+
+            // Jika transaksi berasal dari tanggal limpahan bulan lalu, tetapi metodenya bukan yang di-cut off, skip
+            if ($isCarryOverIn && !$inMonth) {
+                continue;
+            }
+
+            $isPastCutOffRow = (!$isCarryOverIn && !$inMonth);
+
+            $row["no"] = $no++;
+            $row["is_carry_over"] = $isPastCutOffRow;
+            $row["accounting_period"] = $isPastCutOffRow ? ($shiftedMonth["label"] ?? "Bulan Berikutnya") : null;
+            $row["is_carry_over_in"] = $isCarryOverIn;
+            $row["carry_over_origin_date"] = $isCarryOverIn ? $recDate : null;
+            $row["carry_over_origin_label"] = $isCarryOverIn ? date('d/m/Y', strtotime($recDate)) : null;
+
+            if ($isCarryOverIn) {
+                $totalCarryOverNominal += (float) ($row["nominal"] ?? 0);
+            }
+
+            $filteredRows[] = $row;
         }
-        unset($row);
+        $rows = $filteredRows;
+        if ($carryOverInInfo) {
+            $carryOverInInfo['total'] = $totalCarryOverNominal;
+        }
 
         $total = collect($rows)->sum("nominal");
         $totalByCurrency = [];
@@ -3336,6 +3349,8 @@ class LaporanController extends Controller
             "rincian_jenis_pembayaran" => $rincianJenisPembayaran,
             "is_past_cut_off" => $isPastCutOff,
             "shifted_month" => $shiftedMonth,
+            "has_carry_over_in" => $hasCarryOverIn,
+            "carry_over_in_info" => $carryOverInInfo,
         ];
     }
 
@@ -3369,6 +3384,8 @@ class LaporanController extends Controller
                 "jenis_kelamin" => $data["jenis_kelamin"],
                 "is_past_cut_off" => $data["is_past_cut_off"] ?? false,
                 "shifted_month" => $data["shifted_month"] ?? null,
+                "has_carry_over_in" => $data["has_carry_over_in"] ?? false,
+                "carry_over_in_info" => $data["carry_over_in_info"] ?? null,
             ]);
         } catch (\Throwable $th) {
             return response()->json([

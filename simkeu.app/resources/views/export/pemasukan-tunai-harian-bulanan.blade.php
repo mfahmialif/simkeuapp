@@ -23,9 +23,6 @@
                 <td style="border: 1px solid #000; text-align: center; background-color: {{ $bgColor }};">{{ $row['no'] }}</td>
                 <td style="border: 1px solid #000; text-align: center; background-color: {{ $bgColor }};">
                     {{ date('d-m-y', strtotime($row['tanggal'])) }}
-                    @if(!empty($row['is_carry_over']))
-                        (Limpahan {{ $row['carry_over_from'] ?? 'Bln Lalu' }})
-                    @endif
                 </td>
                 @foreach($columns as $col)
                     <td style="border: 1px solid #000; text-align: right; background-color: {{ $bgColor }};">{{ \App\Services\MataUangFormatter::formatTotals($row[$col['key'] . '_by_currency'] ?? []) }}</td>
