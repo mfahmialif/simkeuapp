@@ -25,6 +25,7 @@ use Illuminate\Support\Facades\Validator;
 use App\Models\KeuanganJenisPembayaranDetail;
 use App\Models\KeuanganUasSusulan;
 use App\Models\KeuanganUasSusulanMk;
+use App\Models\KeuanganCatatanMahasiswa;
 use App\Models\ThAkademik;
 
 class PembayaranController extends Controller
@@ -569,8 +570,24 @@ class PembayaranController extends Controller
                 'dipakai_deposit_mhs' => 'nullable',
                 'kamar_id'            => 'nullable',
                 'wisuda'              => 'nullable',
-                'jk_id'               => 'required'
+                'jk_id'               => 'required',
+                'catatan_mahasiswa'   => 'nullable|string',
+                'skip_catatan_mahasiswa' => 'nullable',
             ]);
+
+            $hasSkripsiInList = false;
+            foreach ((array) $dataValidated['list_tagihan'] as $namaT) {
+                if (stripos((string) $namaT, 'skripsi') !== false) {
+                    $hasSkripsiInList = true;
+                    break;
+                }
+            }
+
+            if ($hasSkripsiInList && !$request->boolean('skip_catatan_mahasiswa') && !$request->filled('catatan_mahasiswa')) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'catatan_mahasiswa' => 'Catatan mahasiswa wajib diisi untuk pembayaran skripsi, atau centang "tidak perlu tambah catatan".',
+                ]);
+            }
 
             $wisudaPayload = $this->resolveWisudaPayload(
                 $request->input('wisuda'),
@@ -602,6 +619,8 @@ class PembayaranController extends Controller
             $pembayaran = null;
             $totalDepositDipakai = 0;
             $uasSusulanCreated = false;
+            $skripsiTagihanId = null;
+            $skripsiPembayaranId = null;
 
             for ($i = 0; $i < count($dataValidated['list_tagihan']); $i++) {
                 $tagihanId = $dataValidated['list_tagihan_id'][$i];
@@ -790,6 +809,14 @@ class PembayaranController extends Controller
                         $totalDepositDipakai += $depositDibayar;
                     }
                 }
+
+                $isSkripsiRow = stripos((string) ($tagihanPembayaran->nama ?? $dataValidated['list_tagihan'][$i] ?? ''), 'skripsi') !== false;
+                if ($isSkripsiRow) {
+                    $skripsiTagihanId = $tagihanId;
+                    if ($pembayaran) {
+                        $skripsiPembayaranId = $pembayaran->id;
+                    }
+                }
             }
 
             // Save to keuangan_uas_susulan if active but not created from custom tagihan row
@@ -845,6 +872,19 @@ class PembayaranController extends Controller
             // End Banat Tambah Kamar
 
             SemesterPendek::syncTagihanIds($dataValidated['list_tagihan_id'], $dataValidated['nim']);
+
+            // Catatan Mahasiswa (Skripsi)
+            if ($hasSkripsiInList && $request->filled('catatan_mahasiswa')) {
+                KeuanganCatatanMahasiswa::create([
+                    'nim'            => $nim,
+                    'th_akademik_id' => $dataValidated['tahun_akademik'],
+                    'pembayaran_id'  => $skripsiPembayaranId ?? ($pembayaran ? $pembayaran->id : null),
+                    'tagihan_id'     => $skripsiTagihanId ?? null,
+                    'tanggal'        => $dataValidated['tanggal'],
+                    'catatan'        => $request->input('catatan_mahasiswa'),
+                    'user_id'        => Auth::user()->id,
+                ]);
+            }
 
             DB::commit();
 

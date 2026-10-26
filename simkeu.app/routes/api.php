@@ -38,6 +38,7 @@ use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\TagihanController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\TagihanPeroranganController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\CekTagihanController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\DispensasiController;
+use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\CatatanMahasiswaController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\PembayaranController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\UasSusulanController;
 use App\Http\Controllers\Api\Admin\Pemasukan\Mahasiswa\SyaratTagihanController;
@@ -292,6 +293,8 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:admin,pimpinan,keuanga
             Route::apiResource('pembayaran-tambahan', PembayaranTambahanController::class);
 
             Route::apiResource('pembayaran-idn', PembayaranIdnController::class);
+
+            Route::apiResource('catatan-mahasiswa', CatatanMahasiswaController::class);
 
             Route::post('uas-susulan/full', [UasSusulanController::class, 'storeFull'])
                 ->name('admin.pemasukan.mahasiswa.uas-susulan.storeFull');
