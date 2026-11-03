@@ -1103,18 +1103,13 @@ class LaporanController extends Controller
                 return;
             }
 
+            $isPengembalian = ($assignedKey === "pengembalian_dana");
+
             $dataMap[$targetDate][$assignedKey] += $jumlah;
-            $dataMap[$targetDate]["jumlah"] += $jumlah;
             $totals[$assignedKey] += $jumlah;
-            $totals["jumlah"] += $jumlah;
 
             MataUangFormatter::addToTotals(
                 $dataMap[$targetDate][$assignedKey . "_by_currency"],
-                $jumlah,
-                $mataUang
-            );
-            MataUangFormatter::addToTotals(
-                $dataMap[$targetDate]["jumlah_by_currency"],
                 $jumlah,
                 $mataUang
             );
@@ -1123,21 +1118,35 @@ class LaporanController extends Controller
                 $jumlah,
                 $mataUang
             );
-            MataUangFormatter::addToTotals(
-                $totals["jumlah_by_currency"],
-                $jumlah,
-                $mataUang
-            );
+
+            // Pengembalian dana tidak dimasukkan ke dalam perhitungan kolom/baris total
+            if (!$isPengembalian) {
+                $dataMap[$targetDate]["jumlah"] += $jumlah;
+                $totals["jumlah"] += $jumlah;
+
+                MataUangFormatter::addToTotals(
+                    $dataMap[$targetDate]["jumlah_by_currency"],
+                    $jumlah,
+                    $mataUang
+                );
+                MataUangFormatter::addToTotals(
+                    $totals["jumlah_by_currency"],
+                    $jumlah,
+                    $mataUang
+                );
+            }
 
             if ($targetDate === $firstDayStr) {
                 if ($isCarryOver) {
-                    $dataMap[$firstDayStr]["has_carry_over"] = true;
-                    $dataMap[$firstDayStr]["carry_over_total"] += $jumlah;
-                    MataUangFormatter::addToTotals(
-                        $dataMap[$firstDayStr]["carry_over_total_by_currency"],
-                        $jumlah,
-                        $mataUang
-                    );
+                    if (!$isPengembalian) {
+                        $dataMap[$firstDayStr]["has_carry_over"] = true;
+                        $dataMap[$firstDayStr]["carry_over_total"] += $jumlah;
+                        MataUangFormatter::addToTotals(
+                            $dataMap[$firstDayStr]["carry_over_total_by_currency"],
+                            $jumlah,
+                            $mataUang
+                        );
+                    }
 
                     if (!isset($dataMap[$firstDayStr]["carry_over_breakdown"][$tgl])) {
                         $dNum = (int) date('j', strtotime($tgl));
@@ -1158,24 +1167,29 @@ class LaporanController extends Controller
                         $dataMap[$firstDayStr]["carry_over_breakdown"][$tgl] = $bRow;
                     }
                     $dataMap[$firstDayStr]["carry_over_breakdown"][$tgl][$assignedKey] += $jumlah;
-                    $dataMap[$firstDayStr]["carry_over_breakdown"][$tgl]["total"] += $jumlah;
                     MataUangFormatter::addToTotals(
                         $dataMap[$firstDayStr]["carry_over_breakdown"][$tgl][$assignedKey . "_by_currency"],
                         $jumlah,
                         $mataUang
                     );
-                    MataUangFormatter::addToTotals(
-                        $dataMap[$firstDayStr]["carry_over_breakdown"][$tgl]["total_by_currency"],
-                        $jumlah,
-                        $mataUang
-                    );
+
+                    if (!$isPengembalian) {
+                        $dataMap[$firstDayStr]["carry_over_breakdown"][$tgl]["total"] += $jumlah;
+                        MataUangFormatter::addToTotals(
+                            $dataMap[$firstDayStr]["carry_over_breakdown"][$tgl]["total_by_currency"],
+                            $jumlah,
+                            $mataUang
+                        );
+                    }
                 } else {
-                    $dataMap[$firstDayStr]["original_total"] += $jumlah;
-                    MataUangFormatter::addToTotals(
-                        $dataMap[$firstDayStr]["original_total_by_currency"],
-                        $jumlah,
-                        $mataUang
-                    );
+                    if (!$isPengembalian) {
+                        $dataMap[$firstDayStr]["original_total"] += $jumlah;
+                        MataUangFormatter::addToTotals(
+                            $dataMap[$firstDayStr]["original_total_by_currency"],
+                            $jumlah,
+                            $mataUang
+                        );
+                    }
 
                     if (!isset($dataMap[$firstDayStr]["original_breakdown"])) {
                         $obRow = [
@@ -1192,17 +1206,20 @@ class LaporanController extends Controller
                         $dataMap[$firstDayStr]["original_breakdown"] = $obRow;
                     }
                     $dataMap[$firstDayStr]["original_breakdown"][$assignedKey] += $jumlah;
-                    $dataMap[$firstDayStr]["original_breakdown"]["total"] += $jumlah;
                     MataUangFormatter::addToTotals(
                         $dataMap[$firstDayStr]["original_breakdown"][$assignedKey . "_by_currency"],
                         $jumlah,
                         $mataUang
                     );
-                    MataUangFormatter::addToTotals(
-                        $dataMap[$firstDayStr]["original_breakdown"]["total_by_currency"],
-                        $jumlah,
-                        $mataUang
-                    );
+
+                    if (!$isPengembalian) {
+                        $dataMap[$firstDayStr]["original_breakdown"]["total"] += $jumlah;
+                        MataUangFormatter::addToTotals(
+                            $dataMap[$firstDayStr]["original_breakdown"]["total_by_currency"],
+                            $jumlah,
+                            $mataUang
+                        );
+                    }
                 }
             }
         };
@@ -2555,46 +2572,9 @@ class LaporanController extends Controller
                 $addPayment($pu->nama, $pu->total_nominal, $mataUang);
             }
 
-            // 4. Pengembalian Dana (Pengurangan, Sarjana only)
-            $pdQuery = KeuanganPengembalianDana::leftJoin(
-                "keuangan_jenis_pembayaran as kjp",
-                "kjp.id",
-                "=",
-                "keuangan_pengembalian_dana.jenis_pembayaran_id"
-            )
-                ->whereBetween("keuangan_pengembalian_dana.tanggal", [
-                    $startDate . " 00:00:00",
-                    $endDate . " 23:59:59",
-                ]);
-
-            if (!empty($targetJpIds)) {
-                $pdQuery->whereIn("keuangan_pengembalian_dana.jenis_pembayaran_id", $targetJpIds);
-            }
-
-            if ($userId) {
-                $pdQuery->where("keuangan_pengembalian_dana.petugas_id", $userId);
-            } elseif ($jp && $jp->id != '%') {
-                $jkTarget = $jp->id == 8 ? 'Laki-laki' : ($jp->id == 9 ? 'Perempuan' : null);
-                if ($jkTarget) {
-                    $pdQuery->whereHas('petugas', function ($q) use ($jkTarget) {
-                        $q->whereIn('jenis_kelamin', [$jkTarget, '*']);
-                    });
-                }
-            }
-
-            $pdRecords = $pdQuery
-                ->selectRaw("DATE(keuangan_pengembalian_dana.tanggal) as tgl, COALESCE(kjp.nama, 'Tunai') as nama, keuangan_pengembalian_dana.jenis_pembayaran_id, SUM(keuangan_pengembalian_dana.nominal) as total_nominal")
-                ->groupBy(DB::raw("DATE(keuangan_pengembalian_dana.tanggal)"), "kjp.nama", "keuangan_pengembalian_dana.jenis_pembayaran_id")
-                ->get();
-
-            foreach ($pdRecords as $pd) {
-                if ($targetYear && $targetMonth) {
-                    if (!\App\Services\LaporanCutOffService::isPaymentInAccountingMonth($pd->tgl, $pd->nama, $pd->jenis_pembayaran_id, (int) $targetYear, (int) $targetMonth)) {
-                        continue;
-                    }
-                }
-                $addPayment($pd->nama, -1 * (float) $pd->total_nominal, $mataUang);
-            }
+            // 4. Pengembalian Dana (Sarjana only)
+            // Sesuai permintaan, pengembalian dana tidak dimasukkan ke dalam perhitungan total/rincian pemasukan
+            // (Data pengembalian dana tetap tampil di kolom khusus pada tabel, namun tidak mengurangi total pemasukan)
         }
 
         // 5. PMB
@@ -3458,7 +3438,7 @@ class LaporanController extends Controller
             $row["carry_over_origin_date"] = $isCarryOverIn ? $recDate : null;
             $row["carry_over_origin_label"] = $isCarryOverIn ? date('d/m/Y', strtotime($recDate)) : null;
 
-            if ($isCarryOverIn) {
+            if ($isCarryOverIn && ($row["source"] ?? "") !== "Pengembalian Dana") {
                 $totalCarryOverNominal += (float) ($row["nominal"] ?? 0);
             }
 
@@ -3469,9 +3449,14 @@ class LaporanController extends Controller
             $carryOverInInfo['total'] = $totalCarryOverNominal;
         }
 
-        $total = collect($rows)->sum("nominal");
+        // Pengembalian dana tetap ditampilkan pada daftar baris, namun tidak dihitung ke dalam total & rincian
+        $rowsNonPengembalian = array_filter($rows, function ($r) {
+            return ($r["source"] ?? "") !== "Pengembalian Dana";
+        });
+
+        $total = collect($rowsNonPengembalian)->sum("nominal");
         $totalByCurrency = [];
-        foreach ($rows as $row) {
+        foreach ($rowsNonPengembalian as $row) {
             MataUangFormatter::addToTotals(
                 $totalByCurrency,
                 $row["nominal"],
@@ -3480,7 +3465,7 @@ class LaporanController extends Controller
         }
         $totalByCurrency = MataUangFormatter::normalizeTotals($totalByCurrency);
 
-        $rincianJenisPembayaran = $this->calculateRincianLaporanHarian($rows, $paymentMeta, $jp);
+        $rincianJenisPembayaran = $this->calculateRincianLaporanHarian($rowsNonPengembalian, $paymentMeta, $jp);
 
         return [
             "title" => "LAPORAN HARIAN",
@@ -3896,11 +3881,13 @@ class LaporanController extends Controller
                 return "tunai"; // fallback
             };
 
-            $recordPayment = function (&$targetRow, &$totalRow, $paymentType, $jumlah, $mataUang) {
+            $recordPayment = function (&$targetRow, &$totalRow, $paymentType, $jumlah, $mataUang, $updateTotal = true) {
                 $targetRow[$paymentType] += $jumlah;
                 $targetRow["total"] += $jumlah;
-                $totalRow[$paymentType] += $jumlah;
-                $totalRow["total"] += $jumlah;
+                if ($updateTotal && is_array($totalRow)) {
+                    $totalRow[$paymentType] += $jumlah;
+                    $totalRow["total"] += $jumlah;
+                }
 
                 MataUangFormatter::addToTotals(
                     $targetRow[$paymentType . "_by_currency"],
@@ -3912,30 +3899,35 @@ class LaporanController extends Controller
                     $jumlah,
                     $mataUang,
                 );
-                MataUangFormatter::addToTotals(
-                    $totalRow[$paymentType . "_by_currency"],
-                    $jumlah,
-                    $mataUang,
-                );
-                MataUangFormatter::addToTotals(
-                    $totalRow["total_by_currency"],
-                    $jumlah,
-                    $mataUang,
-                );
+                if ($updateTotal && is_array($totalRow)) {
+                    MataUangFormatter::addToTotals(
+                        $totalRow[$paymentType . "_by_currency"],
+                        $jumlah,
+                        $mataUang,
+                    );
+                    MataUangFormatter::addToTotals(
+                        $totalRow["total_by_currency"],
+                        $jumlah,
+                        $mataUang,
+                    );
+                }
 
                 if ($paymentType === "transfer" || $paymentType === "va") {
                     $targetRow["va_transfer"] += $jumlah;
-                    $totalRow["va_transfer"] += $jumlah;
                     MataUangFormatter::addToTotals(
                         $targetRow["va_transfer_by_currency"],
                         $jumlah,
                         $mataUang,
                     );
-                    MataUangFormatter::addToTotals(
-                        $totalRow["va_transfer_by_currency"],
-                        $jumlah,
-                        $mataUang,
-                    );
+
+                    if ($updateTotal && is_array($totalRow)) {
+                        $totalRow["va_transfer"] += $jumlah;
+                        MataUangFormatter::addToTotals(
+                            $totalRow["va_transfer_by_currency"],
+                            $jumlah,
+                            $mataUang,
+                        );
+                    }
                 }
             };
 
@@ -4222,6 +4214,7 @@ class LaporanController extends Controller
                     $paymentType = $getPaymentType($pd->jenis_pembayaran_nama ?? "tunai");
                     $bulanVal = $mode === "tahunan" ? (int) $pd->bulan : null;
 
+                    // Pengembalian dana tetap dicatat pada baris pengembalian, namun tidak dimasukkan ke total_all ($updateTotal = false)
                     if (isset($data[$assignedKey])) {
                         $recordPayment(
                             $data[$assignedKey],
@@ -4229,6 +4222,7 @@ class LaporanController extends Controller
                             $paymentType,
                             $jumlah,
                             $mataUang,
+                            false,
                         );
                     }
 
@@ -4243,6 +4237,7 @@ class LaporanController extends Controller
                             $paymentType,
                             $jumlah,
                             $mataUang,
+                            false,
                         );
                     }
                 }
